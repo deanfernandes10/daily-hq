@@ -1,0 +1,9 @@
+{
+  "name": "daily-hq",
+  "private": true,
+  "type": "module",
+  "description": "Daily HQ personal dashboard",
+  "dependencies": {
+    "@netlify/blobs": "^11.1.8"
+  }
+}

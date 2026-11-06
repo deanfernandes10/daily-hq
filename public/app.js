@@ -37,6 +37,9 @@ const SUGGESTED_FEEDS = {
     ["NBA news", gnews("NBA")],
     ["Devils", gnews("New Jersey Devils")],
     ["Maple Leafs", gnews("Toronto Maple Leafs")],
+    ["Rangers", gnews("New York Rangers")],
+    ["NHL trades & rumors", gnews("NHL trade")],
+    ["Sportsnet NHL", gnews("site:sportsnet.ca NHL")],
   ],
   ai: [
     ["The Verge – AI", "https://www.theverge.com/rss/ai-artificial-intelligence/index.xml"],
@@ -45,12 +48,20 @@ const SUGGESTED_FEEDS = {
     ["Ars Technica", "https://feeds.arstechnica.com/arstechnica/index"],
     ["Hacker News – Front page", "https://hnrss.org/frontpage"],
     ["VentureBeat – AI", "https://venturebeat.com/category/ai/feed/"],
+    ["Simon Willison", "https://simonwillison.net/atom/everything/"],
+    ["Import AI", "https://importai.substack.com/feed"],
+    ["Google AI blog", "https://blog.google/technology/ai/rss/"],
+    ["Anthropic news", gnews("Anthropic Claude")],
+    ["OpenAI news", gnews("OpenAI")],
   ],
   markets: [
     ["CNBC Top News", "https://www.cnbc.com/id/100003114/device/rss/rss.html"],
     ["MarketWatch", "https://feeds.content.dowjones.io/public/rss/mw_topstories"],
     ["Google News – Business", "https://news.google.com/rss/headlines/section/topic/BUSINESS?hl=en-US&gl=US&ceid=US:en"],
     ["CNBC Markets", "https://www.cnbc.com/id/15839069/device/rss/rss.html"],
+    ["Federal Reserve", "https://www.federalreserve.gov/feeds/press_all.xml"],
+    ["Bank of Canada", gnews("Bank of Canada interest rate")],
+    ["Earnings", gnews("earnings beat estimates")],
   ],
   entertainment: [
     ["Variety", "https://variety.com/feed/"],
@@ -73,6 +84,26 @@ const SUGGESTED_FEEDS = {
     ["Mississauga real estate", gnews("Mississauga real estate")],
     ["New Jersey real estate", gnews("New Jersey housing market")],
     ["Mortgage rates", gnews("mortgage rates")],
+    ["TRREB market reports", gnews("TRREB market watch")],
+    ["Mississauga condos", gnews("Mississauga condo")],
+    ["Bank of Canada rates", gnews("Bank of Canada rate decision")],
+  ],
+  industry: [
+    ["Executive moves – CTO", gnews('"chief technology officer" appointed')],
+    ["Executive moves – CIO", gnews('"chief information officer" appointed')],
+    ["Executive moves – CPO", gnews('"chief product officer" named')],
+    ["CRN", gnews("site:crn.com")],
+    ["Channel Futures", gnews("site:channelfutures.com")],
+    ["MSSP Alert", gnews("site:msspalert.com")],
+    ["Managed services M&A", gnews("managed services acquisition")],
+  ],
+  local: [
+    ["Manalapan", gnews("Manalapan NJ")],
+    ["Monmouth County", gnews("Monmouth County NJ")],
+    ["NJ.com", gnews("site:nj.com")],
+    ["Mississauga", gnews("Mississauga")],
+    ["Toronto", "https://www.cbc.ca/webfeed/rss/rss-canada-toronto"],
+    ["NJ Transit", gnews("NJ Transit")],
   ],
   leadership: [
     ["CIO Dive", "https://www.ciodive.com/feeds/news/"],
@@ -85,7 +116,7 @@ const SUGGESTED_FEEDS = {
 const feedsFrom = (cat, n) => SUGGESTED_FEEDS[cat].slice(0, n).map(([name, url]) => ({ name, url, on: true }));
 
 const DEFAULTS = {
-  version: 4,
+  version: 5,
   name: "Dean",
   theme: "dark",
   units: "F",
@@ -96,6 +127,8 @@ const DEFAULTS = {
     { name: "United Airlines", url: "https://www.united.com", icon: "✈️" },
   ],
   sections: [
+    { id: "brief", on: true, w: 8 },
+    { id: "calendar", on: true, w: 4 },
     { id: "sports", on: true, w: 8 },
     { id: "weather", on: true, w: 4 },
     { id: "news", on: true, w: 12 },
@@ -120,6 +153,8 @@ const DEFAULTS = {
       { id: "entertainment", name: "Entertainment", on: true, feeds: feedsFrom("entertainment", 3) },
       { id: "politics", name: "Politics", on: true, feeds: feedsFrom("politics", 4) },
       { id: "realestate", name: "Real Estate", on: true, feeds: feedsFrom("realestate", 5) },
+      { id: "industry", name: "Industry & Moves", on: true, feeds: feedsFrom("industry", 5) },
+      { id: "local", name: "Local", on: true, feeds: feedsFrom("local", 5) },
       { id: "leadership", name: "Tech Leadership", on: true, feeds: feedsFrom("leadership", 3) },
     ],
   },
@@ -130,12 +165,17 @@ const DEFAULTS = {
       { name: "Mississauga, ON", lat: 43.589, lon: -79.6441 },
     ],
   },
+  calendars: [],
+  saved: [],
+  collapsed: {},
+  alerts: { gameStart: true, finals: true, weather: true, movePct: 3, prices: [] },
   ticker: {
     on: false,
     symbols: ["^GSPC", "^DJI", "^IXIC", "^RUT", "^VIX", "^GSPTSE", "^TNX", "BTC-USD", "GC=F", "CL=F", "CAD=X", "NVDA", "MSFT", "AAPL"],
   },
   markets: {
     view: "tiles",
+    converter: true,
     groups: [
       { name: "Indices", symbols: ["^GSPC", "^DJI", "^IXIC", "^RUT", "^VIX", "^GSPTSE"] },
       { name: "Watchlist", symbols: ["NVDA", "MSFT", "AAPL", "GOOGL", "AMZN", "META", "AVGO", "TSLA", "CSCO", "ORCL"] },
@@ -145,6 +185,8 @@ const DEFAULTS = {
 };
 
 const SECTION_META = {
+  brief: { title: "Your brief", icon: "sparkles" },
+  calendar: { title: "Today", icon: "calendar-days" },
   sports: { title: "Sports", icon: "trophy" },
   news: { title: "News", icon: "newspaper" },
   weather: { title: "Weather", icon: "cloud-sun" },
@@ -159,14 +201,34 @@ const FRIENDLY = {
 };
 
 // ============================================================ state
-const KEY = "dailyhq.config.v1";
-const VISIT_KEY = "dailyhq.lastVisit";
+const PROFILES_KEY = "dailyhq.profiles";
+const ACTIVE_KEY = "dailyhq.activeProfile";
+let profileId = (() => { try { return localStorage.getItem(ACTIVE_KEY) || "main"; } catch { return "main"; } })();
+const pkey = (k, id = profileId) => (id === "main" ? k : `${k}:${id}`);
+const KEY_BASE = "dailyhq.config.v1";
+const KEY = pkey(KEY_BASE);
+const VISIT_KEY = pkey("dailyhq.lastVisit");
 const store = {
   get(k) { try { return localStorage.getItem(k); } catch { return null; } },
   set(k, v) { try { localStorage.setItem(k, v); } catch {} },
 };
 const clone = (o) => JSON.parse(JSON.stringify(o));
 
+// Generic starting point for a new person (no teams, cities or apps yet)
+function freshDefaults(name = "") {
+  const d = clone(DEFAULTS);
+  d.name = name;
+  d.apps = [];
+  d.weather.cities = [];
+  d.sports.leagues = [{ key: "nhl", teams: [], showAll: true }, { key: "nfl", teams: [], showAll: true }, { key: "nba", teams: [], showAll: true }];
+  d.sports.mode = "0";
+  for (const c of d.news.categories) {
+    if (c.id === "local") c.feeds = [];
+    if (c.id === "industry" || c.id === "leadership") c.on = false;
+  }
+  d.needsSetup = true;
+  return d;
+}
 function migrate(c) {
   const d = clone(DEFAULTS);
   for (const k of Object.keys(d)) if (c[k] === undefined) c[k] = d[k];
@@ -194,6 +256,17 @@ function migrate(c) {
     c.ticker.on = false; // v4: no scrolling ticker by default (can be turned back on in Customize)
     c.version = 4;
   }
+  if (c.version < 5) {
+    // v5: brief + calendar sections, Industry & Local tabs, alerts, saved headlines, converter
+    for (const [id, w] of [["calendar", 4], ["brief", 8]]) if (!c.sections.some((x) => x.id === id)) c.sections.unshift({ id, on: true, w });
+    const d = clone(DEFAULTS);
+    const at = Math.max(0, c.news.categories.findIndex((x) => x.id === "leadership"));
+    for (const id of ["local", "industry"]) if (!c.news.categories.some((x) => x.id === id)) c.news.categories.splice(at, 0, d.news.categories.find((x) => x.id === id));
+    c.markets.converter ??= true;
+    c.version = 5;
+  }
+  c.calendars ??= []; c.saved ??= []; c.collapsed ??= {};
+  c.alerts = { ...clone(DEFAULTS.alerts), ...(c.alerts || {}) };
   return c;
 }
 function loadCfg() {
@@ -201,10 +274,78 @@ function loadCfg() {
     const s = JSON.parse(store.get(KEY));
     if (s && s.version >= 1) return migrate(s);
   } catch {}
-  return clone(DEFAULTS);
+  if (window.DHQ_PREVIEW) { const d = clone(DEFAULTS); d.calendars = [{ name: "Sample", url: "https://example.com/sample.ics" }]; return d; }
+  // First visit on a device: start fresh with a short setup guide (or restore with a sync code)
+  return freshDefaults();
 }
 let cfg = loadCfg();
-const save = () => store.set(KEY, JSON.stringify(cfg));
+function save() {
+  if (cfg.sync?.code) cfg.sync.updatedAt = Date.now();
+  store.set(KEY, JSON.stringify(cfg));
+  queueSyncPush();
+}
+
+// ---------- profiles (several people on one device, fully separate)
+function listProfiles() {
+  try { const p = JSON.parse(store.get(PROFILES_KEY)); if (Array.isArray(p) && p.length) return p; } catch {}
+  return [{ id: "main", name: cfg.name || "Me" }];
+}
+function saveProfiles(list) { store.set(PROFILES_KEY, JSON.stringify(list)); }
+function switchProfile(id) { store.set(ACTIVE_KEY, id); location.reload(); }
+function addProfile(name) {
+  const list = listProfiles();
+  if (!list.some((p) => p.id === "main")) list.unshift({ id: "main", name: cfg.name || "Me" });
+  const id = uid();
+  list.push({ id, name });
+  saveProfiles(list);
+  store.set(pkey(KEY_BASE, id), JSON.stringify(freshDefaults(name)));
+  switchProfile(id);
+}
+function removeProfile(id) {
+  if (id === "main") return;
+  saveProfiles(listProfiles().filter((p) => p.id !== id));
+  for (const k of [KEY_BASE, "dailyhq.snapshot.v1", "dailyhq.lastVisit", "dailyhq.alertsSeen", "dailyhq.alertLog"]) try { localStorage.removeItem(pkey(k, id)); } catch {}
+  if (profileId === id) switchProfile("main");
+}
+function renameProfileEntry() {
+  const list = listProfiles();
+  const me = list.find((p) => p.id === profileId);
+  if (me && cfg.name && me.name !== cfg.name) { me.name = cfg.name; saveProfiles(list); }
+}
+
+// ---------- cross-device sync (private sync code -> Netlify Blobs)
+const CODE_ALPHA = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+const newCode = () => Array.from(crypto.getRandomValues(new Uint8Array(12)), (b) => CODE_ALPHA[b % CODE_ALPHA.length]).join("");
+const fmtCode = (c) => c.replace(/(.{4})(?=.)/g, "$1-");
+const cleanCode = (c) => String(c || "").toUpperCase().replace(/[^A-Z0-9]/g, "");
+let syncTimer;
+function queueSyncPush() {
+  if (!cfg.sync?.code) return;
+  clearTimeout(syncTimer);
+  syncTimer = setTimeout(syncPush, 1500);
+}
+async function syncPush() {
+  if (!cfg.sync?.code) return;
+  try {
+    await fetch("/api/sync", { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ code: cfg.sync.code, data: cfg, updatedAt: cfg.sync.updatedAt || Date.now() }) });
+  } catch {}
+}
+async function syncPull(code = cfg.sync?.code, force = false) {
+  if (!code) return false;
+  const r = await fetch(`/api/sync?code=${encodeURIComponent(code)}`);
+  if (r.status === 404) { if (force) throw new Error("No settings found for that code"); return false; }
+  if (!r.ok) throw new Error("Sync is unavailable right now");
+  const remote = await r.json();
+  if (!remote?.data) return false;
+  if (!force && (remote.updatedAt || 0) <= (cfg.sync?.updatedAt || 0)) return false;
+  cfg = migrate({ ...remote.data, sync: { code, updatedAt: remote.updatedAt } });
+  delete cfg.needsSetup;
+  store.set(KEY, JSON.stringify(cfg));
+  return true;
+}
+function afterConfigReplaced() {
+  applyTheme(); tickClock(); buildShell(); renderApps(); refreshFromCache(); refresh();
+}
 
 const prevVisit = Number(store.get(VISIT_KEY)) || Date.now() - 6 * 3600e3;
 const markVisit = () => store.set(VISIT_KEY, String(Date.now()));
@@ -213,7 +354,7 @@ document.addEventListener("visibilitychange", () => document.hidden && markVisit
 
 const data = { sports: [], news: {}, weather: [], quotes: {}, updated: {} };
 let newsSource = {};
-const CACHE_KEY = "dailyhq.snapshot.v1";
+const CACHE_KEY = pkey("dailyhq.snapshot.v1");
 function saveSnapshot() {
   clearTimeout(saveSnapshot.t);
   saveSnapshot.t = setTimeout(() => {
@@ -387,10 +528,13 @@ function stamp(id, stale = false) {
   const el = $(`#${id}-sub`);
   if (el) el.innerHTML = stale ? `<span class="stale" title="Some sources didn't respond — showing the last data received">Partly delayed · ${hm(Date.now())}</span>` : `Updated ${hm(Date.now())}`;
   saveSnapshot();
+  renderBrief();
+  if (["sports", "markets", "weather"].includes(id)) checkAlerts(id);
+  const bs = $("#brief-sub"); if (bs) bs.textContent = new Date().toLocaleDateString([], { weekday: "long", month: "short", day: "numeric" });
 }
 function stampSnapshot() {
   if (!data.snapshotAt) return;
-  for (const id of ["sports", "weather", "news", "markets"]) {
+  for (const id of ["sports", "weather", "news", "markets", "calendar"]) {
     const el = $(`#${id}-sub`);
     if (el && !data.updated[id]) el.textContent = `Last saved ${hm(data.snapshotAt)} · refreshing…`;
   }
@@ -528,7 +672,7 @@ function gameHTML(e, watched) {
   if (e.state === "pre" && e.venue) meta.push(esc(e.venue));
   if (e.note) meta.push(esc(e.note));
   if (e.link) meta.push(`<a href="${esc(e.link)}" target="_blank" rel="noopener">Game ${ic("external-link", "xs")}</a>`);
-  return `<div class="game ${e.state === "in" ? "is-live" : e.state === "post" ? "is-final" : ""}"><div class="g-status">${pill}</div>${rows}${meta.length ? `<div class="g-meta">${meta.join("<span>·</span>")}</div>` : ""}</div>`;
+  return `<div class="game ${e.state === "in" ? "is-live" : e.state === "post" ? "is-final" : ""}" data-game="${esc(e.id)}" data-path="${esc(gameHTML.path || "")}" role="button" tabindex="0" title="Tap for game details"><div class="g-status">${pill}</div>${rows}${meta.length ? `<div class="g-meta">${meta.join("<span>·</span>")}</div>` : ""}</div>`;
 }
 
 const SP_MODES = [["mine", "My teams"], ["-1", "Yesterday"], ["0", "Today"], ["1", "Tomorrow"]];
@@ -580,7 +724,9 @@ function renderSports() {
           games = events.filter((e) => sameDay(new Date(e.date), day)).sort((a, b) => rank[a.state] - rank[b.state] || new Date(a.date) - new Date(b.date));
           none = `No ${meta.name} games ${mode === "0" ? "today" : mode === "1" ? "tomorrow" : "yesterday"}.`;
         }
-        inner = games.length ? games.map((g) => gameHTML(g, L.teams || [])).join("") : `<div class="empty">${none}</div>`;
+        gameHTML.path = meta.path;
+        inner = (games.length ? games.map((g) => gameHTML(g, L.teams || [])).join("") : `<div class="empty">${none}</div>`) +
+          `<button class="lg-more" data-standings="${L.key}">${ic("list-ordered")} Standings</button>`;
       }
       const tl = mode === "mine" ? `${(L.teams || []).join(" · ") || "All games"} · Live & latest` : SP_MODES.find((m) => m[0] === mode)[1];
       const collapsed = !!cfg.sports.collapsed?.[L.key];
@@ -692,6 +838,8 @@ function renderNews() {
   const body = $("#news-body");
   if (!body) return;
   const cats = cfg.news.categories.filter((c) => c.on);
+  const savedTab = (cfg.saved || []).length ? `<button data-news="__saved" class="${activeNews === "__saved" ? "on" : ""}">${ic("bookmark", "xs")} Saved<span class="dot">${cfg.saved.length}</span></button>` : "";
+  if (activeNews === "__saved" && !savedTab) activeNews = cats[0]?.id;
   const tabs = cats
     .map((c) => {
       const d = data.news[c.id];
@@ -699,7 +847,9 @@ function renderNews() {
       return `<button data-news="${c.id}" class="${c.id === activeNews ? "on" : ""}">${esc(c.name)}${fresh ? `<span class="dot" title="New since your last visit">${fresh}</span>` : ""}</button>`;
     })
     .join("");
-  const d = data.news[activeNews];
+  const d = activeNews === "__saved" ? { items: cfg.saved, errors: [] } : data.news[activeNews];
+  const isSaved = (link) => (cfg.saved || []).some((x) => x.link === link);
+  const saveBtn = (i) => `<button class="save-btn ${isSaved(i.link) ? "on" : ""}" data-save="${esc(i.link)}" title="${isSaved(i.link) ? "Remove from Saved" : "Save for later"}" aria-label="Save for later">${ic(isSaved(i.link) ? "bookmark-check" : "bookmark")}</button>`;
   let list;
   if (!d) list = skeleton(6);
   else if (d.empty) list = emptyState("No feeds in this category.", "news");
@@ -717,13 +867,13 @@ function renderNews() {
       `<div class="news-wrap">` +
       (hero
         ? `<a class="hero" href="${esc(hero.link)}" target="_blank" rel="noopener"><img src="${esc(hero.img)}" alt="" loading="lazy" onerror="this.remove()">
-            <div><div class="meta">${newDot(hero)}${esc(hero.source)} · ${ago(hero.ts)}</div><h3>${esc(hero.title)}</h3><p>${esc(hero.desc)}</p></div></a>`
+            <div><div class="meta">${newDot(hero)}${esc(hero.source)} · ${ago(hero.ts)}${saveBtn(hero)}</div><h3>${esc(hero.title)}</h3><p>${esc(hero.desc)}</p></div></a>`
         : "") +
       shown
         .map(
           (i) => `<div class="item ${i.img ? "" : "noimg"}"><div>
             <a class="t" href="${esc(i.link)}" target="_blank" rel="noopener">${esc(i.title)}</a>
-            <div class="meta">${newDot(i)}${esc(i.source)}${i.ts ? ` · ${ago(i.ts)}` : ""}</div></div>
+            <div class="meta">${newDot(i)}${esc(i.source)}${i.ts ? ` · ${ago(i.ts)}` : ""}${saveBtn(i)}</div></div>
             ${i.img ? `<img src="${esc(i.img)}" alt="" loading="lazy" onerror="this.parentNode.classList.add('noimg');this.remove()">` : ""}</div>`
         )
         .join("") +
@@ -733,13 +883,13 @@ function renderNews() {
       (d.errors.length ? `<div class="err">Some feeds didn't load: ${esc(d.errors.join(" · "))}</div>` : "");
   }
   const hadFocus = document.activeElement?.id === "newsFilter";
-  const catCfg = cats.find((c) => c.id === activeNews);
+  const catCfg = activeNews === "__saved" ? null : cats.find((c) => c.id === activeNews);
   const feedsOn = (catCfg?.feeds || []).filter((f) => f.on);
   const srcSel = newsSource[activeNews] || "";
   const srcChips = feedsOn.length > 1
     ? `<div class="src-chips"><button data-src="" class="${!srcSel ? "on" : ""}">All sources</button>${feedsOn.map((f) => `<button data-src="${esc(f.name)}" class="${srcSel === f.name ? "on" : ""}">${esc(f.name.replace(/^Topic: /, ""))}</button>`).join("")}</div>`
     : "";
-  body.innerHTML = `<div class="tabs">${tabs}</div>
+  body.innerHTML = `<div class="tabs">${tabs}${savedTab}</div>
     ${srcChips}
     <div class="news-tools"><input id="newsFilter" type="search" placeholder="Filter headlines…  ( / )" value="${esc(newsFilter)}"></div>
     ${list}`;
@@ -785,10 +935,11 @@ async function loadWeather() {
         latitude: c.lat, longitude: c.lon, timezone: "auto", forecast_days: 7,
         current: "temperature_2m,apparent_temperature,weather_code,wind_speed_10m,relative_humidity_2m,is_day",
         hourly: "temperature_2m,precipitation_probability,weather_code,is_day",
-        daily: "weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max,sunrise,sunset",
+        daily: "weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max,sunrise,sunset,uv_index_max",
         temperature_unit: F ? "fahrenheit" : "celsius", wind_speed_unit: F ? "mph" : "kmh",
       }).forEach(([k, v]) => u.searchParams.set(k, v));
-      try { return { c, d: await api(u), alerts: await alertsP }; }
+      const aqP = api(`https://air-quality-api.open-meteo.com/v1/air-quality?latitude=${c.lat}&longitude=${c.lon}&current=us_aqi`).then((d) => d.current?.us_aqi ?? null).catch(() => prevW[c.name]?.aqi ?? null);
+      try { return { c, d: await api(u), alerts: await alertsP, aqi: await aqP }; }
       catch (e) { const p = prevW[c.name]; return p?.d ? { ...p, c, stale: true, alerts: await alertsP } : { c, error: e.message }; }
     })
   );
@@ -804,7 +955,7 @@ function renderWeather() {
   const F = cfg.units === "F";
   const wind = F ? "mph" : "km/h";
   body.innerHTML = `<div class="wx-list">${data.weather
-    .map(({ c, d, error, alerts }, idx) => {
+    .map(({ c, d, error, alerts, aqi }, idx) => {
       if (error) return `<div class="wx"><div class="wx-city">${esc(c.name)}</div><div class="err">Weather unavailable</div></div>`;
       const cur = d.current, dl = d.daily, hr = d.hourly;
       const [ico, desc] = wmo(cur.weather_code, cur.is_day);
@@ -836,6 +987,7 @@ function renderWeather() {
           <div class="wx-right"><div><b>${esc(desc)}</b></div>
             <div>H ${Math.round(dl.temperature_2m_max[0])}° · L ${Math.round(dl.temperature_2m_min[0])}° · Feels ${Math.round(cur.apparent_temperature)}°</div>
             <div class="wx-stats"><span title="Wind">${ic("wind")}${Math.round(cur.wind_speed_10m)} ${wind}</span><span title="Humidity">${ic("droplets")}${cur.relative_humidity_2m}%</span><span title="Chance of rain today">${ic("umbrella")}${dl.precipitation_probability_max[0] ?? 0}%</span></div>
+            <div class="wx-stats">${aqi != null ? `<span class="aq ${aqiCls(aqi)}" title="US Air Quality Index: ${aqiLabel(aqi)}">AQI ${Math.round(aqi)}</span>` : ""}${dl.uv_index_max?.[0] != null ? `<span class="uv" title="UV index today: ${uvLabel(dl.uv_index_max[0])}">UV ${Math.round(dl.uv_index_max[0])}</span>` : ""}</div>
           </div></div>
         <div class="wx-hours">${hours.join("")}</div>
         <div class="wx-days">${days.join("")}<div class="meta">${ic("sunrise")} ${sun(dl.sunrise[0])} · ${ic("sunset")} ${sun(dl.sunset[0])}</div></div>
@@ -850,6 +1002,8 @@ function allSymbols() {
   const s = new Set();
   if (cfg.ticker.on) cfg.ticker.symbols.forEach((x) => s.add(x));
   if (sectionOn("markets")) cfg.markets.groups.forEach((g) => g.symbols.forEach((x) => s.add(x)));
+  if (sectionOn("markets") && cfg.markets.converter) s.add("CAD=X");
+  (cfg.alerts?.prices || []).forEach((p) => s.add(p.symbol));
   return [...s];
 }
 
@@ -906,7 +1060,7 @@ function renderMarkets() {
         <span class="mini">${spark(q.spark, q.prev, q.change >= 0)}</span>
         <span class="px">${fmtNum(q.price, priceDigits(q.price))}</span>
         <span class="pct ${cls(q.change)}">${sign(q.pct)}${fmtNum(q.pct, 2)}%</span></a>`;
-    }).join("")}</div></div>`).join("") + (data.marketsError ? `<div class="err">Some quotes are delayed — showing the last prices received.</div>` : "");
+    }).join("")}</div></div>`).join("") + converterHTML() + (data.marketsError ? `<div class="err">Some quotes are delayed — showing the last prices received.</div>` : "");
     return;
   }
   body.innerHTML = viewSeg +
@@ -927,7 +1081,18 @@ function renderMarkets() {
           })
           .join("")}</div></div>`
       )
-      .join("") + (data.marketsError ? `<div class="err">Some quotes are delayed — showing the last prices received.</div>` : "");
+      .join("") + converterHTML() + (data.marketsError ? `<div class="err">Some quotes are delayed — showing the last prices received.</div>` : "");
+}
+
+function converterHTML() {
+  if (!cfg.markets.converter) return "";
+  const q = data.quotes["CAD=X"];
+  const rate = q && !q.error ? q.price : null;
+  const usd = converterHTML.usd ?? 1000;
+  return `<div class="conv">${ic("arrow-left-right")}<b>USD ⇄ CAD</b>
+    <label>US$ <input type="number" inputmode="decimal" id="convUsd" value="${usd}"></label>
+    <label>C$ <input type="number" inputmode="decimal" id="convCad" value="${rate ? (usd * rate).toFixed(2) : ""}"></label>
+    <span class="hint">${rate ? `1 USD = ${rate.toFixed(4)} CAD` : "Loading rate…"}</span></div>`;
 }
 
 function renderTicker() {
@@ -958,6 +1123,397 @@ function updateGlance() {
     (alert ? ` <span class="warn-t">· ${ic("triangle-alert", "xs")} ${esc(alert.event)}</span>` : "");
 }
 
+// ============================================================ calendar (private .ics links)
+const WIN_TZ = {
+  "Eastern Standard Time": "America/New_York", "Central Standard Time": "America/Chicago", "Mountain Standard Time": "America/Denver",
+  "Pacific Standard Time": "America/Los_Angeles", "GMT Standard Time": "Europe/London", "W. Europe Standard Time": "Europe/Berlin",
+  "Romance Standard Time": "Europe/Paris", "India Standard Time": "Asia/Kolkata", "US Eastern Standard Time": "America/Indianapolis",
+};
+function tzOffsetMs(tz, t) {
+  try {
+    const p = Object.fromEntries(new Intl.DateTimeFormat("en-US", { timeZone: tz, hourCycle: "h23", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit", second: "2-digit" }).formatToParts(new Date(t)).map((x) => [x.type, x.value]));
+    return Date.UTC(+p.year, +p.month - 1, +p.day, +p.hour % 24, +p.minute, +p.second) - t;
+  } catch { return null; }
+}
+function icsDate(val, params = {}) {
+  const m = val.match(/^(\d{4})(\d{2})(\d{2})(?:T(\d{2})(\d{2})(\d{2})(Z)?)?$/);
+  if (!m) return null;
+  const [, y, mo, d, h, mi, se, z] = m;
+  if (h === undefined) return { date: new Date(+y, +mo - 1, +d), allDay: true };
+  if (z) return { date: new Date(Date.UTC(+y, +mo - 1, +d, +h, +mi, +se)), allDay: false };
+  const tz = WIN_TZ[params.TZID] || params.TZID;
+  if (tz) {
+    const guess = Date.UTC(+y, +mo - 1, +d, +h, +mi, +se);
+    const off = tzOffsetMs(tz, guess);
+    if (off !== null) { const off2 = tzOffsetMs(tz, guess - off); return { date: new Date(guess - (off2 ?? off)), allDay: false }; }
+  }
+  return { date: new Date(+y, +mo - 1, +d, +h, +mi, +se), allDay: false };
+}
+const icsText = (v) => (v || "").replace(/\\n/gi, " ").replace(/\\([,;\\])/g, "$1").trim();
+function parseICS(text) {
+  const lines = text.replace(/\r?\n[ \t]/g, "").split(/\r?\n/);
+  const events = [];
+  let cur = null;
+  for (const line of lines) {
+    if (line === "BEGIN:VEVENT") { cur = { exdates: [] }; continue; }
+    if (line === "END:VEVENT") { if (cur?.start) events.push(cur); cur = null; continue; }
+    if (!cur) continue;
+    const i = line.indexOf(":");
+    if (i < 0) continue;
+    const [name, ...ps] = line.slice(0, i).split(";");
+    const params = Object.fromEntries(ps.map((x) => x.split("=")).map(([k, v]) => [k, (v || "").replace(/"/g, "")]));
+    const val = line.slice(i + 1);
+    switch (name) {
+      case "UID": cur.uid = val; break;
+      case "SUMMARY": cur.title = icsText(val); break;
+      case "LOCATION": cur.location = icsText(val); break;
+      case "STATUS": cur.status = val; break;
+      case "RRULE": cur.rrule = Object.fromEntries(val.split(";").map((x) => x.split("="))); break;
+      case "DTSTART": { const d = icsDate(val, params); if (d) { cur.start = d.date; cur.allDay = d.allDay; } break; }
+      case "DTEND": { const d = icsDate(val, params); if (d) cur.end = d.date; break; }
+      case "EXDATE": for (const v of val.split(",")) { const d = icsDate(v, params); if (d) cur.exdates.push(d.date.getTime()); } break;
+      case "RECURRENCE-ID": { const d = icsDate(val, params); if (d) cur.recurrenceId = d.date.getTime(); break; }
+    }
+  }
+  return events;
+}
+const DOW = { SU: 0, MO: 1, TU: 2, WE: 3, TH: 4, FR: 5, SA: 6 };
+function expandEvents(events, from, to) {
+  const out = [];
+  const overridden = new Set(events.filter((e) => e.recurrenceId).map((e) => `${e.uid}|${e.recurrenceId}`));
+  for (const e of events) {
+    if (e.status === "CANCELLED") continue;
+    const dur = (e.end || e.start) - e.start || (e.allDay ? 86400e3 : 0);
+    const push = (st) => {
+      const en = new Date(st.getTime() + dur);
+      if (en > from && st < to && !e.exdates.includes(st.getTime()) && !overridden.has(`${e.uid}|${st.getTime()}`))
+        out.push({ ...e, start: st, end: en });
+    };
+    if (!e.rrule || e.recurrenceId) { push(e.start); continue; }
+    const r = e.rrule, freq = r.FREQ, interval = +r.INTERVAL || 1, count = +r.COUNT || Infinity;
+    const until = r.UNTIL ? icsDate(r.UNTIL)?.date : null;
+    const byday = r.BYDAY ? r.BYDAY.split(",").map((x) => DOW[x.slice(-2)]).filter((x) => x !== undefined) : null;
+    let n = 0, guard = 0;
+    const cursor = new Date(e.start);
+    const okDate = (d) => (!until || d <= until) && n < count;
+    if (freq === "WEEKLY") {
+      const days = byday?.length ? byday : [e.start.getDay()];
+      const weekStart = new Date(cursor); weekStart.setDate(weekStart.getDate() - weekStart.getDay());
+      while (guard++ < 2000) {
+        for (const dw of [...days].sort()) {
+          const d = new Date(weekStart); d.setDate(d.getDate() + dw);
+          d.setHours(e.start.getHours(), e.start.getMinutes(), e.start.getSeconds(), 0);
+          if (d < e.start) continue;
+          if (!okDate(d) || d > to) { guard = 1e9; break; }
+          n++; push(d);
+        }
+        weekStart.setDate(weekStart.getDate() + 7 * interval);
+        if (weekStart > to) break;
+      }
+    } else if (["DAILY", "MONTHLY", "YEARLY"].includes(freq)) {
+      while (guard++ < 3000 && cursor <= to && okDate(cursor)) {
+        if (!(freq === "DAILY" && byday && !byday.includes(cursor.getDay()))) { n++; push(new Date(cursor)); }
+        if (freq === "DAILY") cursor.setDate(cursor.getDate() + interval);
+        else if (freq === "MONTHLY") cursor.setMonth(cursor.getMonth() + interval);
+        else cursor.setFullYear(cursor.getFullYear() + interval);
+      }
+    } else push(e.start);
+  }
+  return out.sort((a, b) => a.start - b.start);
+}
+
+async function loadCalendar() {
+  const body = $("#calendar-body");
+  if (!body) return;
+  const cals = cfg.calendars || [];
+  if (!cals.length) { data.calendar = null; renderCalendar(); renderBrief(); return; }
+  const from = new Date(); from.setHours(0, 0, 0, 0);
+  const to = new Date(from); to.setDate(to.getDate() + 2);
+  const prev = data.calendar;
+  const results = await Promise.all(cals.map(async (c, i) => {
+    try {
+      const text = await api(`/api/ics?url=${encodeURIComponent(c.url)}`, true);
+      return { events: expandEvents(parseICS(text), from, to).map((e) => ({ ...e, cal: c.name, color: c.color || CAL_COLORS[i % CAL_COLORS.length] })) };
+    } catch (e) { return { error: `${c.name}: ${e.message}` }; }
+  }));
+  const events = results.flatMap((r) => r.events || []).sort((a, b) => a.start - b.start);
+  const errors = results.filter((r) => r.error).map((r) => r.error);
+  data.calendar = !events.length && errors.length && prev?.events?.length ? { ...prev, errors, stale: true } : { events, errors };
+  renderCalendar();
+  stamp("calendar", !!errors.length);
+}
+const CAL_COLORS = ["#5b8cff", "#22c27a", "#f5b041", "#ff5c6c", "#a78bfa", "#38bdf8"];
+
+function renderCalendar() {
+  const body = $("#calendar-body");
+  if (!body) return;
+  if (!(cfg.calendars || []).length) {
+    body.innerHTML = `<div class="empty cal-empty">${ic("calendar-days", "big")}<b>See today's meetings here</b><span>Add a private calendar link from Google, Outlook or iCloud.</span><button class="btn sm primary" data-config="calendar">Connect a calendar</button></div>`;
+    return;
+  }
+  const d = data.calendar;
+  if (!d) return;
+  const now = new Date();
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  const tomorrow = new Date(today); tomorrow.setDate(tomorrow.getDate() + 1);
+  const row = (e) => {
+    const live = e.start <= now && e.end > now;
+    const t = e.allDay ? "All day" : `${hm(e.start)}${e.end - e.start > 0 ? `–${hm(e.end)}` : ""}`;
+    return `<div class="ev ${live ? "now" : ""} ${e.end <= now ? "past" : ""}"><span class="ev-dot" style="background:${esc(e.color)}"></span>
+      <div class="ev-main"><div class="ev-title">${esc(e.title || "Busy")}</div><div class="ev-meta">${t}${e.location ? ` · ${esc(e.location)}` : ""}${(cfg.calendars || []).length > 1 ? ` · ${esc(e.cal)}` : ""}</div></div>
+      ${live ? `<span class="pill live">NOW</span>` : ""}</div>`;
+  };
+  const todays = d.events.filter((e) => e.start < tomorrow && e.end > today);
+  const tmr = d.events.filter((e) => e.start >= tomorrow);
+  const next = todays.find((e) => e.start > now && !e.allDay);
+  const mins = next ? Math.round((next.start - now) / 60000) : null;
+  body.innerHTML =
+    (next ? `<div class="ev-next">${ic("clock")} Next: <b>${esc(next.title || "Busy")}</b> ${mins < 60 ? `in ${mins} min` : `at ${hm(next.start)}`}</div>` : "") +
+    `<div class="ev-day">Today</div>${todays.map(row).join("") || `<div class="ev-none">Nothing on the calendar today.</div>`}` +
+    `<div class="ev-day">Tomorrow</div>${tmr.slice(0, 6).map(row).join("") || `<div class="ev-none">Nothing scheduled.</div>`}` +
+    (d.errors?.length ? `<div class="err">${esc(d.errors.join(" · "))}</div>` : "");
+}
+
+// ============================================================ brief
+function renderBrief() {
+  const body = $("#brief-body");
+  if (!body) return;
+  const rows = [];
+  // weather
+  const w = data.weather.find((x) => x.d);
+  if (w) {
+    const cur = w.d.current, dl = w.d.daily, hr = w.d.hourly;
+    const [icon, desc] = wmo(cur.weather_code, cur.is_day);
+    const nowIdx = Math.max(0, hr.time.findIndex((t) => t >= cur.time.slice(0, 13)));
+    const today = cur.time.slice(0, 10);
+    let rain = "";
+    for (let j = nowIdx; j < hr.time.length && hr.time[j].startsWith(today); j++)
+      if (hr.precipitation_probability[j] >= 50) { const hh = +hr.time[j].slice(11, 13); rain = ` ${[51,53,55,56,57,61,63,65,66,67,80,81,82].includes(hr.weather_code[j]) || true ? "Rain" : "Precipitation"} likely around ${hh % 12 || 12} ${hh < 12 ? "AM" : "PM"}.`; break; }
+    const aq = w.aqi != null ? ` Air quality ${aqiLabel(w.aqi).toLowerCase()}.` : "";
+    rows.push(`<div class="br-row">${icon}<div><b>${Math.round(cur.temperature_2m)}° and ${esc(desc.toLowerCase())}</b> in ${esc(w.c.name.split(",")[0])}. High ${Math.round(dl.temperature_2m_max[0])}°, low ${Math.round(dl.temperature_2m_min[0])}°.${rain}${aq}</div></div>`);
+    for (const a of data.weather.flatMap((x) => (x.alerts || []).map((al) => ({ al, city: x.c.name.split(",")[0] }))).slice(0, 2))
+      rows.push(`<div class="br-row warn">${ic("triangle-alert")}<div><b>${esc(a.al.event)}</b> for ${esc(a.city)}${a.al.ends ? ` until ${esc(when(a.al.ends))}` : ""}.</div></div>`);
+  }
+  // calendar
+  if ((cfg.calendars || []).length && data.calendar) {
+    const now = new Date(), end = new Date(); end.setHours(23, 59, 59);
+    const left = data.calendar.events.filter((e) => e.end > now && e.start <= end && !e.allDay);
+    const next = left.find((e) => e.start > now) || left[0];
+    rows.push(`<div class="br-row">${ic("calendar-days")}<div>${left.length ? `<b>${left.length} ${left.length === 1 ? "event" : "events"} left today.</b> Next: ${esc(next.title || "Busy")} at ${hm(next.start)}.` : "<b>No more meetings today.</b>"}</div></div>`);
+  }
+  // sports
+  const mine = data.sports.flatMap(({ L, events }) => (events || []).filter((e) => isMine(L, e)).map((e) => ({ e, L })));
+  const live = mine.filter((x) => x.e.state === "in");
+  const recent = mine.filter((x) => x.e.state === "post" && Date.now() - new Date(x.e.date) < 30 * 3600e3);
+  const tonight = mine.filter((x) => x.e.state === "pre" && sameDay(new Date(x.e.date), new Date()));
+  const seenG = new Set();
+  const sport = [];
+  for (const { e } of [...live, ...recent, ...tonight]) {
+    if (seenG.has(e.id)) continue; seenG.add(e.id);
+    const [a, b] = [e.teams.find((t) => t.homeAway === "away"), e.teams.find((t) => t.homeAway === "home")];
+    if (!a || !b) continue;
+    if (e.state === "in") sport.push(`<b>Live:</b> ${esc(a.name)} ${esc(a.score)}, ${esc(b.name)} ${esc(b.score)} (${esc(e.detail)})`);
+    else if (e.state === "post") { const [W, Lo] = +a.score > +b.score ? [a, b] : [b, a]; sport.push(`${esc(W.name)} beat ${esc(Lo.name)} ${esc(W.score)}–${esc(Lo.score)}${/OT|SO/.test(e.detail) ? ` (${esc(e.detail.replace(/^Final\/?/, ""))})` : ""}`); }
+    else sport.push(`${esc(a.name)} @ ${esc(b.name)} at ${hm(e.date)}${e.broadcasts?.length ? ` on ${esc(e.broadcasts[0])}` : ""}`);
+  }
+  if (sport.length) rows.push(`<div class="br-row">${ic("trophy")}<div>${sport.slice(0, 4).join(" · ")}</div></div>`);
+  // markets
+  const idx = ["^GSPC", "^IXIC", "^DJI"].map((s) => data.quotes[s]).filter((q) => q && !q.error);
+  if (idx.length) {
+    const movers = cfg.markets.groups.flatMap((g) => g.symbols).filter((s) => !/^\^|=X$|=F$/.test(s)).map((s) => data.quotes[s]).filter((q) => q && !q.error && q.pct != null).sort((a, b) => Math.abs(b.pct) - Math.abs(a.pct));
+    const top = movers[0];
+    rows.push(`<div class="br-row">${ic("trending-up")}<div>${marketOpen() ? "" : "<b>Market closed.</b> "}${idx.map((q) => `${esc(label(q.symbol))} <span class="${cls(q.pct)}">${sign(q.pct)}${fmtNum(q.pct, 2)}%</span>`).join(" · ")}${top ? `. Top mover: <b>${esc(label(top.symbol))}</b> <span class="${cls(top.pct)}">${sign(top.pct)}${fmtNum(top.pct, 1)}%</span>` : ""}.</div></div>`);
+  }
+  // headlines
+  const cat = cfg.news.categories.find((c) => c.on && data.news[c.id]?.items?.length);
+  if (cat) rows.push(`<div class="br-row">${ic("newspaper")}<div class="br-heads">${data.news[cat.id].items.slice(0, 3).map((i) => `<a href="${esc(i.link)}" target="_blank" rel="noopener">${esc(i.title)}</a>`).join("")}</div></div>`);
+  body.innerHTML = rows.length ? `<div class="brief">${rows.join("")}</div>` : skeleton(4);
+}
+
+// ============================================================ modal, game details, standings
+function openModal(title, html) {
+  $("#modalTitle").innerHTML = title;
+  $("#modalBody").innerHTML = html;
+  $("#modal").hidden = false;
+  document.body.classList.add("modal-open");
+}
+function closeModal() {
+  $("#modal").hidden = true;
+  document.body.classList.remove("modal-open");
+  clearInterval(openModal.timer);
+}
+async function espnOrProxy(direct, proxy) {
+  try { return await espnJSON(direct); } catch { return await api(proxy); }
+}
+async function showGame(path, id) {
+  const lg = Object.values(LEAGUES).find((l) => l.path === path);
+  openModal(`${lg ? lg.name : ""} game`, skeleton(6));
+  const load = async () => {
+    try {
+      const d = await espnOrProxy(`${ESPN}${path}/summary?event=${id}`, `/api/sports?path=${path}&kind=summary&event=${id}`);
+      $("#modalBody").innerHTML = gameDetailHTML(d, path, id);
+      const st = d.header?.competitions?.[0]?.status?.type?.state;
+      if (st !== "in") clearInterval(openModal.timer);
+    } catch { $("#modalBody").innerHTML = `<div class="err">Couldn't load game details right now.</div>`; }
+  };
+  await load();
+  clearInterval(openModal.timer);
+  openModal.timer = setInterval(() => { if (!$("#modal").hidden) load(); }, 30000);
+}
+function gameDetailHTML(d, path, id) {
+  const comp = d.header?.competitions?.[0] || {};
+  if (!comp.competitors?.length) return `<div class="empty">Details for this game aren't available yet.</div><a class="btn wide" href="https://www.espn.com/${path.split("/")[1]}/game/_/gameId/${id}" target="_blank" rel="noopener">Open on ESPN ${ic("external-link", "xs")}</a>`;
+  const st = comp.status?.type || {};
+  const teams = [...(comp.competitors || [])].sort((a) => (a.homeAway === "away" ? -1 : 1));
+  const periods = Math.max(0, ...teams.map((t) => (t.linescores || []).length));
+  const head = `<div class="gd-head">${teams.map((t) => `<div class="gd-team ${t.winner ? "win" : ""}">${t.team?.logos?.[0]?.href || t.team?.logo ? `<img src="${esc(t.team.logos?.[0]?.href || t.team.logo)}" alt="">` : ""}<span>${esc(t.team?.shortDisplayName || t.team?.displayName)}</span><b>${st.state === "pre" ? "" : esc(t.score ?? "")}</b><small>${esc(t.record?.[0]?.summary || t.records?.[0]?.summary || "")}</small></div>`).join(`<div class="gd-vs">${st.state === "in" ? `<span class="pill live">LIVE</span>` : ""}<span>${esc(st.shortDetail || st.detail || "")}</span></div>`)}</div>`;
+  const line = periods
+    ? `<table class="gd-line"><thead><tr><th></th>${Array.from({ length: periods }, (_, i) => `<th>${i + 1 > (path.includes("hockey") ? 3 : path.includes("baseball") ? 9 : 4) ? (path.includes("hockey") ? (i === 3 ? "OT" : "SO") : "OT") : i + 1}</th>`).join("")}<th>T</th></tr></thead><tbody>${teams.map((t) => `<tr><td>${esc(t.team?.abbreviation)}</td>${Array.from({ length: periods }, (_, i) => `<td>${esc(t.linescores?.[i]?.displayValue ?? "")}</td>`).join("")}<td><b>${esc(t.score ?? "")}</b></td></tr>`).join("")}</tbody></table>`
+    : "";
+  const plays = (d.scoringPlays || []).slice(-25).map((p) => `<li><span class="gd-when">${p.period?.number ? `P${p.period.number}` : ""} ${esc(p.clock?.displayValue || "")}</span><b>${esc(p.team?.abbreviation || "")}</b> ${esc(p.text || "")}</li>`).join("");
+  const leaders = (d.leaders || []).map((tl) => `<div class="gd-lead"><b>${esc(tl.team?.abbreviation || "")}</b>${(tl.leaders || []).slice(0, 3).map((c) => `<span>${esc(c.displayName)}: ${esc(c.leaders?.[0]?.athlete?.displayName || "")} ${esc(c.leaders?.[0]?.displayValue || "")}</span>`).join("")}</div>`).join("");
+  const info = d.gameInfo || {};
+  const nets = (comp.broadcasts || []).map((b) => b.media?.shortName || b.names?.join(", ")).filter(Boolean);
+  const meta = [info.venue?.fullName, nets.length ? `${ic("tv")} ${nets.join(", ")}` : "", info.attendance ? `Attendance ${Number(info.attendance).toLocaleString()}` : ""].filter(Boolean).join(" · ");
+  const link = (d.header?.links || []).find((l) => (l.rel || []).includes("summary"))?.href || `https://www.espn.com/${path.split("/")[1]}/game/_/gameId/${id}`;
+  return head + line + (meta ? `<div class="gd-meta">${meta}</div>` : "") +
+    (plays ? `<h4 class="gd-h">Scoring</h4><ol class="gd-plays">${plays}</ol>` : "") +
+    (leaders ? `<h4 class="gd-h">Leaders</h4>${leaders}` : "") +
+    `<a class="btn wide" href="${esc(link)}" target="_blank" rel="noopener">Open full game on ESPN ${ic("external-link", "xs")}</a>`;
+}
+const STANDING_COLS = {
+  hockey: [["gamesPlayed", "GP"], ["wins", "W"], ["losses", "L"], ["otLosses", "OTL"], ["points", "PTS"]],
+  basketball: [["wins", "W"], ["losses", "L"], ["winPercent", "PCT"], ["gamesBehind", "GB"], ["streak", "STRK"]],
+  football: [["wins", "W"], ["losses", "L"], ["ties", "T"], ["winPercent", "PCT"], ["streak", "STRK"]],
+  baseball: [["wins", "W"], ["losses", "L"], ["winPercent", "PCT"], ["gamesBehind", "GB"]],
+  soccer: [["gamesPlayed", "GP"], ["wins", "W"], ["ties", "D"], ["losses", "L"], ["points", "PTS"]],
+};
+async function showStandings(key) {
+  const L = LEAGUES[key];
+  const mineTeams = cfg.sports.leagues.find((x) => x.key === key)?.teams || [];
+  openModal(`${leagueBadge(key)} ${L.name} standings`, skeleton(8));
+  try {
+    const d = await espnOrProxy(`https://site.api.espn.com/apis/v2/sports/${L.path}/standings`, `/api/sports?path=${L.path}&kind=standings`);
+    const groups = [];
+    const walk = (n) => { if (n?.standings?.entries?.length) groups.push({ name: n.name || n.abbreviation || L.name, entries: n.standings.entries }); (n?.children || []).forEach(walk); };
+    walk(d);
+    const sport = L.path.split("/")[0];
+    const cols = STANDING_COLS[sport] || STANDING_COLS.basketball;
+    const stat = (e, n) => e.stats?.find((s) => s.name === n || s.type === n.toLowerCase())?.displayValue ?? "";
+    const num = (e, n) => Number(e.stats?.find((s) => s.name === n)?.value ?? 0);
+    const sortKey = sport === "hockey" || sport === "soccer" ? "points" : "winPercent";
+    $("#modalBody").innerHTML = groups.length
+      ? groups.map((g) => `<h4 class="gd-h">${esc(g.name)}</h4><table class="st-table"><thead><tr><th>#</th><th class="tl">Team</th>${cols.map(([, h]) => `<th>${h}</th>`).join("")}</tr></thead><tbody>${
+          [...g.entries].sort((a, b) => num(b, sortKey) - num(a, sortKey)).map((e, i) => `<tr class="${mineTeams.includes(e.team?.abbreviation) ? "mine" : ""}"><td>${i + 1}</td><td class="tl">${e.team?.logos?.[0]?.href ? `<img src="${esc(e.team.logos[0].href)}" alt="">` : ""}${esc(e.team?.shortDisplayName || e.team?.displayName)}</td>${cols.map(([n]) => `<td>${esc(stat(e, n))}</td>`).join("")}</tr>`).join("")
+        }</tbody></table>`).join("")
+      : `<div class="empty">Standings aren't available right now.</div>`;
+  } catch { $("#modalBody").innerHTML = `<div class="err">Couldn't load standings right now.</div>`; }
+}
+
+// ============================================================ air quality
+const aqiLabel = (v) => (v <= 50 ? "Good" : v <= 100 ? "Moderate" : v <= 150 ? "Unhealthy for sensitive groups" : v <= 200 ? "Unhealthy" : "Very unhealthy");
+const aqiCls = (v) => (v <= 50 ? "aq-good" : v <= 100 ? "aq-mod" : "aq-bad");
+const uvLabel = (v) => (v < 3 ? "Low" : v < 6 ? "Moderate" : v < 8 ? "High" : "Very high");
+
+// ============================================================ alerts (in-app + device notifications)
+const SEEN_KEY = pkey("dailyhq.alertsSeen"), LOG_KEY = pkey("dailyhq.alertLog");
+// On the very first run, quietly record what's already happening instead of alerting on it
+let alertsBootstrap = !store.get(SEEN_KEY);
+const alertsLoaded = new Set();
+function checkAlerts(kind) {
+  if (kind) alertsLoaded.add(kind);
+  const A = cfg.alerts || {};
+  const cands = [];
+  const etDay = new Date().toLocaleDateString("en-CA", { timeZone: "America/New_York" });
+  if (A.gameStart || A.finals) for (const { L, events } of data.sports) for (const e of events || []) {
+    if (!isMine(L, e)) continue;
+    const [a, b] = [e.teams.find((t) => t.homeAway === "away"), e.teams.find((t) => t.homeAway === "home")];
+    if (!a || !b) continue;
+    if (A.gameStart && e.state === "in") cands.push({ id: `start-${e.id}`, title: `Game on: ${a.name} @ ${b.name}`, body: e.broadcasts?.length ? `Watch on ${e.broadcasts.slice(0, 2).join(", ")}` : e.detail });
+    if (A.finals && e.state === "post" && Date.now() - new Date(e.date) < 8 * 3600e3) cands.push({ id: `final-${e.id}`, title: `Final: ${a.name} ${a.score}, ${b.name} ${b.score}`, body: e.detail });
+  }
+  if (A.weather) for (const w of data.weather) for (const al of w.alerts || []) cands.push({ id: `wx-${w.c.name}-${al.event}-${al.ends}`, title: `${al.event}`, body: `${w.c.name}${al.ends ? ` until ${when(al.ends)}` : ""}` });
+  if (+A.movePct) for (const s of new Set(cfg.markets.groups.flatMap((g) => g.symbols))) {
+    const q = data.quotes[s];
+    if (!q || q.error || q.pct == null || Math.abs(q.pct) < +A.movePct) continue;
+    cands.push({ id: `move-${s}-${etDay}-${Math.floor(Math.abs(q.pct) / +A.movePct)}-${q.pct > 0 ? "u" : "d"}`, title: `${label(s)} ${q.pct > 0 ? "up" : "down"} ${fmtNum(Math.abs(q.pct), 1)}% today`, body: `${fmtNum(q.price, priceDigits(q.price))} · ${q.name}` });
+  }
+  for (const pt of A.prices || []) {
+    const q = data.quotes[pt.symbol];
+    if (!q || q.error) continue;
+    if (pt.above && q.price >= +pt.above) cands.push({ id: `px-${pt.symbol}-a${pt.above}-${etDay}`, title: `${label(pt.symbol)} above ${pt.above}`, body: `Now ${fmtNum(q.price, priceDigits(q.price))}` });
+    if (pt.below && q.price <= +pt.below) cands.push({ id: `px-${pt.symbol}-b${pt.below}-${etDay}`, title: `${label(pt.symbol)} below ${pt.below}`, body: `Now ${fmtNum(q.price, priceDigits(q.price))}` });
+  }
+  let seen;
+  try { seen = JSON.parse(store.get(SEEN_KEY)); } catch {}
+  seen = new Set(Array.isArray(seen) ? seen : []);
+  const fresh = cands.filter((c) => !seen.has(c.id));
+  fresh.forEach((c) => seen.add(c.id));
+  store.set(SEEN_KEY, JSON.stringify([...seen].slice(-400)));
+  if (alertsBootstrap) {
+    const need = ["sports", "weather", "markets"].filter((x) => x === "markets" ? sectionOn("markets") : sectionOn(x));
+    if (need.every((x) => alertsLoaded.has(x))) alertsBootstrap = false;
+    return;
+  }
+  for (const c of fresh.slice(0, 4)) notify(c);
+}
+function notify(c) {
+  toast(`${c.title}${c.body ? " — " + c.body : ""}`);
+  let log = [];
+  try { log = JSON.parse(store.get(LOG_KEY)) || []; } catch {}
+  log.unshift({ ...c, t: Date.now() });
+  store.set(LOG_KEY, JSON.stringify(log.slice(0, 15)));
+  if ("Notification" in window && Notification.permission === "granted") {
+    const opts = { body: c.body || "", icon: "/icon-192.png", badge: "/icon-192.png", tag: c.id };
+    navigator.serviceWorker?.ready?.then((r) => r.showNotification(c.title, opts)).catch(() => { try { new Notification(c.title, opts); } catch {} });
+  }
+}
+
+// ============================================================ onboarding (first run / new person)
+function showWelcome() {
+  const leagues = ["nhl", "nfl", "nba", "mlb", "mls", "epl"];
+  openModal(`${ic("sparkles")} Welcome to Daily HQ`, `
+    <p class="hint">Scores, news, weather, markets and your calendar on one screen. Set the basics now, then fine-tune any time from Customize.</p>
+    <label class="fld">Your first name<input id="wName" value="${esc(cfg.name || "")}" placeholder="e.g. Alex" autocomplete="given-name"></label>
+    <label class="fld">Your city<div class="inline" style="margin-top:4px"><input id="wCity" placeholder="Search a city…"><button class="btn" data-w="city">Search</button></div></label>
+    <div id="wCities" class="chips">${cfg.weather.cities.map((c) => `<span class="chip">${esc(c.name)}</span>`).join("")}</div>
+    <div id="wCityRes"></div>
+    <div class="fld">Leagues you follow<div class="chips">${leagues.map((k) => `<span class="chip add ${cfg.sports.leagues.some((l) => l.key === k) ? "sel" : ""}" data-w="league" data-k="${k}">${LEAGUES[k].icon} ${LEAGUES[k].name}</span>`).join("")}</div></div>
+    <button class="btn primary wide" data-w="done">Start using Daily HQ</button>
+    <details class="w-sync"><summary>Already set up on another device?</summary>
+      <p class="hint">Enter the sync code from Customize → General on your other device.</p>
+      <div class="inline"><input id="wCode" placeholder="XXXX-XXXX-XXXX"><button class="btn" data-w="code">Use code</button></div></details>`);
+}
+async function welcomeAction(a) {
+  const w = a.dataset.w;
+  if (w === "league") {
+    const k = a.dataset.k, i = cfg.sports.leagues.findIndex((l) => l.key === k);
+    if (i >= 0) cfg.sports.leagues.splice(i, 1); else cfg.sports.leagues.push({ key: k, teams: [], showAll: true });
+    a.classList.toggle("sel"); save();
+  } else if (w === "city") {
+    const q = $("#wCity").value.trim(); if (!q) return;
+    try {
+      const d = await api(`https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(q)}&count=5&language=en`);
+      $("#wCityRes").innerHTML = `<div class="sugg">${(d.results || []).map((r, k) => `<button data-w="pick" data-k="${k}">${esc(r.name)}<small>${esc([r.admin1, r.country].filter(Boolean).join(", "))}</small></button>`).join("") || "<p class='hint'>No matches</p>"}</div>`;
+      welcomeAction.res = d.results || [];
+    } catch { toast("City search failed"); }
+  } else if (w === "pick") {
+    const r = welcomeAction.res[+a.dataset.k];
+    const region = r.country_code === "US" || r.country_code === "CA" ? abbrevRegion(r.admin1) : r.country;
+    cfg.weather.cities.push({ name: [r.name, region].filter(Boolean).join(", "), lat: r.latitude, lon: r.longitude });
+    $("#wCities").innerHTML = cfg.weather.cities.map((c) => `<span class="chip">${esc(c.name)}</span>`).join("");
+    $("#wCityRes").innerHTML = ""; $("#wCity").value = ""; save();
+  } else if (w === "code") {
+    const code = cleanCode($("#wCode").value);
+    try { await syncPull(code, true); closeModal(); afterConfigReplaced(); toast("Your settings are synced"); } catch (e) { toast(e.message); }
+  } else if (w === "done") {
+    cfg.name = $("#wName").value.trim();
+    delete cfg.needsSetup; save(); renameProfileEntry();
+    closeModal(); tickClock(); buildShell(); refresh();
+    if (cfg.sports.leagues.length) { openPicker = cfg.sports.leagues[0].key; openSettings("sports"); ensureTeams(openPicker).then(renderSettings); toast("Pick your teams — or skip to see every game"); }
+  }
+}
+
 // ============================================================ apps, More page, mobile views
 const appIcon = (a) => {
   const host = hostName(a.url);
@@ -980,6 +1536,11 @@ function renderMore() {
     <h3>Your apps</h3>
     <div class="apps-grid">${(cfg.apps || []).map((a) => `<a class="app-tile" href="${esc(a.url)}" target="_blank" rel="noopener">${appIcon(a)}<span>${esc(a.name)}</span></a>`).join("")}
       <button class="app-tile" data-config="apps"><span class="app-ico plus">${ic("plus")}</span><span>Add / edit</span></button></div>
+    <h3>Track a flight</h3>
+    <div class="inline flight"><input id="flightNo" placeholder="Flight number, e.g. UA 1234" autocapitalize="characters"><button class="btn" data-quick="flight">${ic("plane")} Track</button></div>
+    ${alertLogHTML()}
+    <h3>Who's using Daily HQ</h3>
+    ${profilesHTML()}
     <h3>Quick settings</h3>
     <div class="quick">
       <div class="row"><span class="grow">Theme</span>${seg("theme", [["dark", "Dark"], ["light", "Light"], ["auto", "Auto"]], cfg.theme)}</div>
@@ -1003,6 +1564,18 @@ function toggleAppsPop(force) {
   pop.hidden = !open;
 }
 
+function alertLogHTML() {
+  let log = [];
+  try { log = JSON.parse(store.get(LOG_KEY)) || []; } catch {}
+  if (!log.length) return "";
+  return `<h3>Recent alerts</h3><div class="quick alog">${log.slice(0, 6).map((a) => `<div class="row">${ic("bell")}<span class="grow"><b>${esc(a.title)}</b>${a.body ? ` · <span class="host">${esc(a.body)}</span>` : ""}</span><span class="host">${ago(a.t)}</span></div>`).join("")}</div>`;
+}
+function profilesHTML() {
+  const list = listProfiles();
+  return `<div class="quick">${list.map((p) => `<div class="row">${ic(p.id === profileId ? "circle-check" : "users")}<span class="grow">${esc(p.name || "Unnamed")}${p.id === profileId ? ` <span class="host">· you're here</span>` : ""}</span>${p.id === profileId ? "" : `<button class="btn sm" data-profile="${p.id}">Switch</button>`}${p.id !== "main" && p.id !== profileId ? `<button class="btn sm" data-profile-del="${p.id}" aria-label="Remove">${ic("x", "xs")}</button>` : ""}</div>`).join("")}
+    <div class="inline"><input id="newProfile" placeholder="Add a person, e.g. Jen"><button class="btn sm" data-quick="addprofile">${ic("user-plus")} Add</button></div></div>`;
+}
+
 function setView(v) {
   document.body.dataset.view = v;
   $$("#tabbar button").forEach((b) => b.classList.toggle("on", b.dataset.view === v));
@@ -1019,12 +1592,13 @@ function updateBadges() {
 }
 
 // ============================================================ refresh orchestration
-const loaders = { sports: loadSports, news: loadNews, weather: loadWeather, markets: loadMarkets };
+const loaders = { sports: loadSports, news: loadNews, weather: loadWeather, markets: loadMarkets, calendar: loadCalendar, brief: async () => renderBrief() };
 
 async function refresh(ids) {
   const btn = $("#refreshAll");
   btn.classList.add("spin");
-  const list = ids || ["sports", "news", "weather", "markets"];
+  let list = ids || ["sports", "news", "weather", "markets", "calendar"];
+  if (list.includes("brief")) list = ["sports", "news", "weather", "markets", "calendar"];
   await Promise.all(
     list.map((id) => {
       if (id === "markets") return (sectionOn("markets") || cfg.ticker.on) ? loadMarkets() : null;
@@ -1043,6 +1617,8 @@ function schedule() {
     if (due("markets", marketOpen() ? 60e3 : 10 * 60e3)) todo.push("markets");
     if (due("news", 10 * 60e3)) todo.push("news");
     if (due("weather", 10 * 60e3)) todo.push("weather");
+    if ((cfg.calendars || []).length && due("calendar", 15 * 60e3)) todo.push("calendar");
+    if ($("#calendar-body") && data.calendar) renderCalendar();
     if (todo.length) refresh(todo);
     tickClock();
   }, 15e3);
@@ -1063,6 +1639,30 @@ function toggleFlag(obj, key, id, box, btn) {
 // ============================================================ main page events
 document.addEventListener("click", (e) => {
   const t = e.target;
+  if (t.closest("[data-modal-close]") || t.id === "modal") { closeModal(); return; }
+  const wa = t.closest("[data-w]");
+  if (wa) { welcomeAction(wa); return; }
+  const sv = t.closest("[data-save]");
+  if (sv) {
+    const link = sv.dataset.save;
+    const i = (cfg.saved || []).findIndex((x) => x.link === link);
+    if (i >= 0) cfg.saved.splice(i, 1);
+    else {
+      const item = Object.values(data.news).flatMap((d) => d.items).find((x) => x.link === link);
+      if (item) cfg.saved.unshift({ title: item.title, link: item.link, source: item.source, ts: item.ts, img: item.img, desc: (item.desc || "").slice(0, 160), feed: item.feed });
+      cfg.saved = cfg.saved.slice(0, 100);
+      toast("Saved for later");
+    }
+    save(); renderNews(); return;
+  }
+  const stb = t.closest("[data-standings]");
+  if (stb) { showStandings(stb.dataset.standings); return; }
+  const gm = t.closest("[data-game]");
+  if (gm && !t.closest("a")) { showGame(gm.dataset.path, gm.dataset.game); return; }
+  const pf = t.closest("[data-profile]");
+  if (pf) { switchProfile(pf.dataset.profile); return; }
+  const pd = t.closest("[data-profile-del]");
+  if (pd) { if (pd.dataset.confirm) { removeProfile(pd.dataset.profileDel); renderMore(); } else { pd.dataset.confirm = 1; pd.innerHTML = "Remove?"; } return; }
   if (t.closest("#appsBtn")) { toggleAppsPop(); return; }
   if (!t.closest("#appsPop")) $("#appsPop").hidden = true;
   const vl = t.closest("[data-view-link]");
@@ -1104,6 +1704,13 @@ document.addEventListener("click", (e) => {
   if (qk) {
     const k = qk.dataset.quick, v = qk.dataset.v;
     if (k === "refresh") { refresh(); toast("Refreshing…"); return; }
+    if (k === "flight") {
+      const f = ($("#flightNo").value || "").toUpperCase().replace(/\s+/g, "");
+      if (!/^[A-Z0-9]{2,3}\d{1,4}$/.test(f)) { toast("Enter a flight like UA1234"); return; }
+      window.open(`https://www.flightaware.com/live/flight/${f}`, "_blank", "noopener");
+      return;
+    }
+    if (k === "addprofile") { const n = $("#newProfile").value.trim(); if (!n) { toast("Type a name first"); return; } addProfile(n); return; }
     if (k === "mkview") { cfg.markets.view = v; save(); renderMarkets(); }
     else { cfg[k] = v; save(); applyTheme(); if (k === "units") { data.weather = []; refresh(["weather"]); } }
     renderMore();
@@ -1122,12 +1729,19 @@ document.addEventListener("click", (e) => {
 });
 document.addEventListener("input", (e) => {
   if (e.target.id === "newsFilter") { newsFilter = e.target.value; renderNews(); }
+  if (e.target.id === "convUsd" || e.target.id === "convCad") {
+    const q = data.quotes["CAD=X"]; if (!q || q.error) return;
+    if (e.target.id === "convUsd") { converterHTML.usd = +e.target.value || 0; $("#convCad").value = (converterHTML.usd * q.price).toFixed(2); }
+    else { converterHTML.usd = +((+e.target.value || 0) / q.price).toFixed(2); $("#convUsd").value = converterHTML.usd; }
+  }
 });
 $("#refreshAll").onclick = () => refresh();
 $("#openSettings").onclick = () => openSettings();
 $("#footSettings").onclick = (e) => { e.preventDefault(); openSettings("general"); };
 
 document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && !$("#modal").hidden) { closeModal(); return; }
+  if ((e.key === "Enter" || e.key === " ") && e.target.matches?.("[data-game]")) { e.preventDefault(); e.target.click(); return; }
   if (e.target.matches("input, textarea, select")) { if (e.key === "Escape") e.target.blur(); return; }
   if (e.metaKey || e.ctrlKey || e.altKey) return;
   if (e.key === "Escape") closeSettings();
@@ -1185,7 +1799,10 @@ const hostOf = (u) => { try { return new URL(u).hostname.replace(/^www\./, ""); 
 function renderSettings() {
   const b = $("#drawerBody");
   const scroll = b.scrollTop;
-  b.innerHTML = ({ general: setGeneral, sports: setSports, news: setNews, weather: setWeather, markets: setMarkets, apps: setApps })[tab]();
+  const reg = { general: setGeneral, sports: setSports, news: setNews, weather: setWeather, markets: setMarkets, calendar: setCalendar, alerts: setAlerts, apps: setApps };
+  if (!reg[tab]) tab = "general";
+  $$("#drawerTabs button").forEach((x) => x.classList.toggle("on", x.dataset.tab === tab));
+  b.innerHTML = reg[tab]();
   b.scrollTop = scroll;
 }
 
@@ -1210,6 +1827,16 @@ function setGeneral() {
       )
       .join("")}
   </div>
+  <div class="set"><h4>${ic("refresh-cw")} Sync across your devices</h4>
+    ${cfg.sync?.code
+      ? `<p class="hint">Sync is on. Enter this code on your phone or another computer (Customize → General) to share these settings. Changes on any device update the others.</p>
+         <div class="sync-code">${fmtCode(cfg.sync.code)}</div>
+         <div class="inline"><button class="btn" data-act="sync-copy">${ic("copy")} Copy code</button><button class="btn danger" data-act="sync-off">Turn off on this device</button></div>`
+      : `<p class="hint">Keep your phone and computers in step. Your settings are stored privately under a random code that only you know.</p>
+         <div class="inline"><button class="btn primary" data-act="sync-on">Turn on sync</button></div>
+         <div class="inline"><input id="syncCode" placeholder="Have a code? XXXX-XXXX-XXXX"><button class="btn" data-act="sync-join">Use code</button></div>`}
+  </div>
+  <div class="set"><h4>${ic("users")} People on this device</h4><p class="hint">Each person gets their own teams, feeds, cities and apps. Switching doesn't change anyone else's setup.</p>${profilesHTML()}</div>
   <div class="set"><h4>Backup & move to another device</h4><p class="hint">Settings live in this browser. Copy them here, then paste on your phone or another computer.</p>
     <div class="inline"><button class="btn" data-act="export">Copy settings</button><button class="btn danger" data-act="reset">Reset to defaults</button></div>
     <textarea id="importBox" placeholder="Paste copied settings here…" style="margin-top:10px"></textarea>
@@ -1282,6 +1909,46 @@ function setNews() {
   <div class="set"><h4>Headlines per tab</h4><select data-act="per-cat" style="width:auto">${[12, 24, 36, 50].map((n) => `<option ${cfg.news.perCategory == n ? "selected" : ""}>${n}</option>`).join("")}</select></div>`;
 }
 
+function setCalendar() {
+  const C = cfg.calendars || [];
+  return `
+  <div class="set"><h4>Your calendars</h4><p class="hint">Shows today's and tomorrow's events, and your next meeting in the brief. Uses a private, read-only calendar link — Daily HQ can't change your calendar.</p>
+  ${C.map((c, i) => `<div class="row"><span class="ev-dot" style="background:${esc(c.color || CAL_COLORS[i % CAL_COLORS.length])}"></span><span class="grow">${esc(c.name)} <span class="host">${esc(hostOf(c.url.replace(/^webcal/, "https")))}</span></span><button class="btn sm" data-act="cal-del" data-i="${i}" aria-label="Remove">${ic("x", "xs")}</button></div>`).join("") || `<p class="hint">No calendars yet.</p>`}
+  </div>
+  <div class="set"><h4>Add a calendar</h4>
+    <div class="inline"><input id="calName" placeholder="Name, e.g. Work"></div>
+    <div class="inline"><input id="calUrl" placeholder="Private calendar link (.ics)"><button class="btn primary" data-act="cal-add">Add</button></div>
+  </div>
+  <div class="set"><h4>Where to find the link</h4>
+    <p class="hint"><b>Google Calendar</b> (on a computer): Settings → click your calendar on the left → <i>Integrate calendar</i> → copy <i>Secret address in iCal format</i>.</p>
+    <p class="hint"><b>Outlook / Microsoft 365</b>: Settings → Calendar → Shared calendars → <i>Publish a calendar</i> → choose "Can view all details" → copy the <i>ICS</i> link.</p>
+    <p class="hint"><b>iCloud</b>: Calendar app → share icon next to the calendar → turn on <i>Public Calendar</i> → copy the link.</p>
+    <p class="hint">Treat this link like a password: anyone with it can see your events. It's kept on this device (and in your sync, if on).</p>
+  </div>`;
+}
+
+function setAlerts() {
+  const A = cfg.alerts;
+  const perm = "Notification" in window ? Notification.permission : "unsupported";
+  return `
+  <div class="set"><h4>${ic("bell")} Alerts</h4><p class="hint">Alerts pop up in Daily HQ and, if you allow it, as notifications on this device while Daily HQ is open or in the background.</p>
+    ${perm === "granted" ? `<p class="hint ok">${ic("circle-check")} Notifications are on for this device.</p>`
+      : perm === "unsupported" ? `<p class="hint">This browser doesn't support notifications. On iPhone, add Daily HQ to your Home Screen first.</p>`
+      : `<button class="btn primary" data-act="notif-on">${ic("bell-ring")} Allow notifications on this device</button>`}
+  </div>
+  <div class="set"><h4>Your teams</h4>
+    <div class="row"><span class="grow">When a game starts</span>${sw("al-gameStart", A.gameStart)}</div>
+    <div class="row"><span class="grow">Final scores</span>${sw("al-finals", A.finals)}</div>
+  </div>
+  <div class="set"><h4>Weather</h4><div class="row"><span class="grow">Official weather alerts for your cities</span>${sw("al-weather", A.weather)}</div></div>
+  <div class="set"><h4>Markets</h4>
+    <div class="row"><span class="grow">When a stock on your boards moves</span><select data-act="al-move" style="width:auto">${[[0, "Off"], [2, "2% or more"], [3, "3% or more"], [5, "5% or more"]].map(([v, l]) => `<option value="${v}" ${+A.movePct === v ? "selected" : ""}>${l}</option>`).join("")}</select></div>
+    <p class="hint" style="margin-top:10px">Price targets</p>
+    ${(A.prices || []).map((p, i) => `<div class="row"><span class="grow"><b>${esc(label(p.symbol))}</b> ${p.above ? `above ${esc(p.above)}` : ""}${p.above && p.below ? " · " : ""}${p.below ? `below ${esc(p.below)}` : ""}</span><button class="btn sm" data-act="pt-del" data-i="${i}" aria-label="Remove">${ic("x", "xs")}</button></div>`).join("")}
+    <div class="inline"><input id="ptSym" placeholder="Symbol, e.g. NVDA" autocapitalize="characters"><select id="ptDir" style="flex:0 0 96px"><option value="above">above</option><option value="below">below</option></select><input id="ptVal" type="number" inputmode="decimal" placeholder="Price"><button class="btn sm" data-act="pt-add">Add</button></div>
+  </div>`;
+}
+
 function setApps() {
   const A = cfg.apps;
   return `
@@ -1336,6 +2003,7 @@ function setMarkets() {
     )
     .join("")}
   </div>
+  <div class="set"><div class="row"><span class="grow">USD ⇄ CAD converter</span>${sw("conv-on", cfg.markets.converter)}</div></div>
   <div class="set"><h4>Add a board</h4><div class="inline"><input id="grpName" placeholder="e.g. Tech peers, Canada, My portfolio"><button class="btn primary" data-act="grp-add">Add</button></div></div>`;
 }
 
@@ -1368,6 +2036,34 @@ $("#drawerBody").addEventListener("click", async (e) => {
   const L = cfg.sports.leagues, C = cfg.news.categories, G = cfg.markets.groups;
   switch (act) {
     case "theme": cfg.theme = a.dataset.v; applyTheme(); commit(); renderMore(); break;
+    case "sync-on": {
+      cfg.sync = { code: newCode(), updatedAt: Date.now() };
+      store.set(KEY, JSON.stringify(cfg)); await syncPush(); renderSettings(); toast("Sync is on — use this code on your other devices"); break;
+    }
+    case "sync-join": {
+      const code = cleanCode($("#syncCode").value);
+      if (code.length !== 12) { toast("Codes are 12 letters and numbers"); return; }
+      try { await syncPull(code, true); afterConfigReplaced(); renderSettings(); toast("Settings synced from your other device"); } catch (e) { toast(e.message); }
+      break;
+    }
+    case "sync-copy": try { await navigator.clipboard.writeText(fmtCode(cfg.sync.code)); toast("Code copied"); } catch { toast(fmtCode(cfg.sync.code)); } break;
+    case "sync-off": delete cfg.sync; store.set(KEY, JSON.stringify(cfg)); renderSettings(); toast("Sync turned off on this device"); break;
+    case "cal-add": {
+      const url = $("#calUrl").value.trim();
+      if (!/^(https|webcals?):\/\//i.test(url)) { toast("Paste the private calendar link (starts with https or webcal)"); return; }
+      cfg.calendars.push({ name: $("#calName").value.trim() || "Calendar", url, color: CAL_COLORS[cfg.calendars.length % CAL_COLORS.length] });
+      commit("calendar"); break;
+    }
+    case "cal-del": cfg.calendars.splice(i, 1); commit("calendar"); break;
+    case "notif-on":
+      try { const r = await Notification.requestPermission(); toast(r === "granted" ? "Notifications are on" : "Notifications weren't allowed"); } catch { toast("Notifications aren't available here"); }
+      renderSettings(); break;
+    case "pt-add": {
+      const sym = $("#ptSym").value.trim().toUpperCase(), v = $("#ptVal").value.trim(), dir = $("#ptDir").value;
+      if (!sym || !v) { toast("Add a symbol and a price"); return; }
+      cfg.alerts.prices.push({ symbol: sym, [dir]: v }); commit("markets"); break;
+    }
+    case "pt-del": cfg.alerts.prices.splice(i, 1); commit(); break;
     case "textSize": cfg.textSize = a.dataset.v; applyTheme(); commit(); renderMore(); break;
     case "mkview": cfg.markets.view = a.dataset.v; commit(); renderMarkets(); renderMore(); break;
     case "app-move": move(cfg.apps, i, d); commit(); renderApps(); break;
@@ -1479,6 +2175,9 @@ $("#drawerBody").addEventListener("change", (e) => {
   switch (act) {
     case "ticker-on": cfg.ticker.on = a.checked; commit("markets", "layout"); break;
     case "apps-on": cfg.showApps = a.checked; commit(); renderApps(); break;
+    case "al-gameStart": case "al-finals": case "al-weather": cfg.alerts[act.slice(3)] = a.checked; commit(); break;
+    case "al-move": cfg.alerts.movePct = +a.value; commit(); break;
+    case "conv-on": cfg.markets.converter = a.checked; commit("markets"); break;
     case "sec-on": cfg.sections[i].on = a.checked; commit("layout"); break;
     case "sec-w": cfg.sections[i].w = +a.value; commit("layout"); break;
     case "league-all": cfg.sports.leagues[i].showAll = a.checked; commit("sports"); break;
@@ -1493,7 +2192,7 @@ $("#drawerBody").addEventListener("change", (e) => {
 let symTimer;
 $("#drawerBody").addEventListener("input", (e) => {
   const a = e.target;
-  if (a.dataset.bind === "name") { cfg.name = a.value; save(); tickClock(); }
+  if (a.dataset.bind === "name") { cfg.name = a.value; save(); tickClock(); renameProfileEntry(); }
   if (a.dataset.act === "team-filter") {
     const lg = cfg.sports.leagues[+a.dataset.i];
     $(`#pick-${lg.key}`).innerHTML = teamChips(lg, teamCache[lg.key] || [], a.value);
@@ -1523,6 +2222,9 @@ $("#drawerBody").addEventListener("keydown", (e) => {
   else if (a.id === "catName") $('[data-act="cat-add"]').click();
   else if (a.id === "grpName") $('[data-act="grp-add"]').click();
   else if (a.id === "appUrl" || a.id === "appName") $('[data-act="app-add"]').click();
+  else if (a.id === "calUrl") $('[data-act="cal-add"]').click();
+  else if (a.id === "syncCode") $('[data-act="sync-join"]').click();
+  else if (a.id === "ptVal") $('[data-act="pt-add"]').click();
   else if (a.id?.startsWith("topic-")) $(`[data-act="topic-add"][data-i="${a.id.slice(6)}"]`).click();
   else if (a.id?.startsWith("furl-")) $(`[data-act="feed-add"][data-i="${a.id.slice(5)}"]`).click();
 });
@@ -1558,5 +2260,10 @@ if (loadSnapshot()) { refreshFromCache(); updateGlance(); stampSnapshot(); }
 renderTicker();
 refresh();
 schedule();
+if (cfg.needsSetup) showWelcome();
+syncPull().then((changed) => { if (changed) { afterConfigReplaced(); toast("Synced your latest settings"); } }).catch(() => {});
+document.addEventListener("visibilitychange", () => {
+  if (!document.hidden) syncPull().then((changed) => changed && afterConfigReplaced()).catch(() => {});
+});
 
 if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").catch(() => {});
