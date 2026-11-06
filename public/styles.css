@@ -755,3 +755,15 @@ body.modal-open { overflow: hidden; }
 .mort-grid label { align-content: start; }
 .mort-warn, .mort-shock { font-family: var(--font); }
 .mort-shock span.q { font-family: var(--font); font-weight: 600; }
+
+/* Real estate: one consistent heading size; larger rate chips */
+.re-h, .re-h.local { font-size: 15px; font-weight: 750; color: var(--text); letter-spacing: 0.6px; }
+.re-h .ic { width: 16px; height: 16px; }
+.re-h small { font-size: 13.5px; color: var(--muted); }
+.re-col > b { font-size: 15px; }
+.rate-chip { padding: 8px 12px; row-gap: 2px; }
+.rate-chip small { font-size: 14px; }
+.rate-chip b { font-size: 20px; }
+.rate-chip i { font-size: 13.5px; }
+.rate-chip em { font-size: 13px; }
+.mort-h b { font-size: 16px; }
