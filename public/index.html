@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>Daily HQ</title>
+  <meta name="theme-color" content="#0b0f17" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="Daily HQ" />
+  <link rel="manifest" href="/manifest.webmanifest" />
+  <link rel="icon" href="/icon.svg" type="image/svg+xml" />
+  <link rel="apple-touch-icon" href="/icon-192.png" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body>
+  <header class="top">
+    <div class="brand">
+      <div class="logo">HQ</div>
+      <div>
+        <div class="greet" id="greet">Good morning</div>
+        <div class="date" id="date"></div>
+      </div>
+    </div>
+    <div class="glance" id="glance"></div>
+    <div class="top-actions">
+      <button class="icon-btn" id="refreshAll" title="Refresh everything (R)" aria-label="Refresh">⟳</button>
+      <button class="icon-btn" id="openSettings" title="Customize (S)" aria-label="Customize">⚙</button>
+    </div>
+  </header>
+
+  <div class="ticker" id="ticker" aria-label="Market ticker"><div class="ticker-track" id="tickerTrack"></div></div>
+
+  <nav class="jump" id="jump"></nav>
+
+  <nav class="apps-bar" id="appsBar" aria-label="Your apps"></nav>
+
+  <main class="grid" id="grid"></main>
+
+  <section class="more-panel" id="more" aria-label="More"></section>
+
+  <nav class="tabbar" id="tabbar" aria-label="Sections">
+    <button data-view="home" class="on"><span class="tb-i">🏠</span>Home</button>
+    <button data-view="sports"><span class="tb-i">🏟️</span>Scores<i class="badge live" id="tb-sports" hidden></i></button>
+    <button data-view="weather"><span class="tb-i">🌤️</span>Weather<i class="badge warn" id="tb-weather" hidden></i></button>
+    <button data-view="news"><span class="tb-i">📰</span>News<i class="badge" id="tb-news" hidden></i></button>
+    <button data-view="markets"><span class="tb-i">📈</span>Markets</button>
+    <button data-view="more"><span class="tb-i">☰</span>More</button>
+  </nav>
+
+  <footer class="foot">
+    Scores: ESPN · Weather: Open-Meteo · Quotes: Yahoo Finance (may be delayed) · News: publisher RSS feeds.
+    Settings are saved in this browser — use <a href="#" id="footSettings">Customize → General → Backup</a> to move them to another device.
+  </footer>
+
+  <!-- Settings drawer -->
+  <div class="scrim" id="scrim" hidden></div>
+  <aside class="drawer" id="drawer" aria-hidden="true">
+    <div class="drawer-head">
+      <h2>Customize</h2>
+      <button class="icon-btn" id="closeSettings" aria-label="Close">✕</button>
+    </div>
+    <div class="drawer-tabs" id="drawerTabs">
+      <button data-tab="general" class="on">General</button>
+      <button data-tab="sports">Sports</button>
+      <button data-tab="news">News</button>
+      <button data-tab="weather">Weather</button>
+      <button data-tab="markets">Markets</button>
+      <button data-tab="apps">Apps</button>
+    </div>
+    <div class="drawer-body" id="drawerBody"></div>
+  </aside>
+
+  <div class="toast" id="toast" hidden></div>
+
+  <script src="/app.js" type="module"></script>
+</body>
+</html>
