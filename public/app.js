@@ -85,7 +85,7 @@ const SUGGESTED_FEEDS = {
 const feedsFrom = (cat, n) => SUGGESTED_FEEDS[cat].slice(0, n).map(([name, url]) => ({ name, url, on: true }));
 
 const DEFAULTS = {
-  version: 3,
+  version: 4,
   name: "Dean",
   theme: "dark",
   units: "F",
@@ -131,7 +131,7 @@ const DEFAULTS = {
     ],
   },
   ticker: {
-    on: true,
+    on: false,
     symbols: ["^GSPC", "^DJI", "^IXIC", "^RUT", "^VIX", "^GSPTSE", "^TNX", "BTC-USD", "GC=F", "CL=F", "CAD=X", "NVDA", "MSFT", "AAPL"],
   },
   markets: {
@@ -189,6 +189,10 @@ function migrate(c) {
     };
     for (const cat of c.news.categories) for (const f of cat.feeds) if (swap[f.url]) [f.name, f.url] = swap[f.url];
     c.version = 3;
+  }
+  if (c.version < 4) {
+    c.ticker.on = false; // v4: no scrolling ticker by default (can be turned back on in Customize)
+    c.version = 4;
   }
   return c;
 }
