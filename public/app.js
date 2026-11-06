@@ -555,7 +555,15 @@ function renderSports() {
         inner = games.length ? games.map((g) => gameHTML(g, L.teams || [])).join("") : `<div class="empty">${none}</div>`;
       }
       const tl = mode === "mine" ? `${(L.teams || []).join(" · ") || "All games"} · Live & latest` : SP_MODES.find((m) => m[0] === mode)[1];
-      return `<div class="league"><div class="league-h"><span>${meta.icon} ${meta.name}</span><small>${stale ? `<span class="stale">delayed</span> ` : ""}${esc(tl)}</small></div>${inner}</div>`;
+      const collapsed = !!cfg.sports.collapsed?.[L.key];
+      const liveN = (events || []).filter((e) => e.state === "in" && (mode !== "mine" || isMine(L, e))).length;
+      return `<div class="league ${collapsed ? "collapsed" : ""}">
+        <button class="league-h" data-league-toggle="${L.key}" aria-expanded="${!collapsed}">
+          <span class="chev" aria-hidden="true">▾</span><span class="lg-name">${meta.icon} ${meta.name}</span>
+          ${liveN ? `<span class="pill live">${liveN} LIVE</span>` : ""}
+          <small>${stale ? `<span class="stale">delayed</span> ` : ""}${esc(tl)}</small>
+        </button>
+        <div class="league-body">${inner}</div></div>`;
     })
     .join("");
   body.innerHTML = seg + upnext + `<div class="leagues">${tiles}</div>`;
@@ -903,24 +911,15 @@ function renderTicker() {
 
 // ============================================================ at a glance
 function updateGlance() {
-  const chips = [];
-  const w = data.weather[0];
-  if (w?.d) chips.push(`${wmo(w.d.current.weather_code, w.d.current.is_day)[0]} ${Math.round(w.d.current.temperature_2m)}° ${esc(w.c.name.split(",")[0])}`);
-  const al = data.weather.flatMap((x) => (x.alerts || []).map((a) => ({ a, city: x.c.name.split(",")[0] })))[0];
-  if (al) chips.push(`<span class="warn-t">⚠️ ${esc(al.a.event)}</span> ${esc(al.city)}`);
-  const spx = data.quotes["^GSPC"];
-  if (spx && !spx.error) chips.push(`S&P <span class="${cls(spx.pct)}">${sign(spx.pct)}${fmtNum(spx.pct, 2)}%</span>`);
-  const live = data.sports.flatMap((r) => (r.events || []).filter((e) => e.state === "in" && r.L.teams?.some((ab) => e.teams.some((t) => t.abbr === ab))));
-  if (live.length) chips.push(`<span class="pill live">LIVE</span> ${live.length} of your games`);
-  else {
-    const next = data.sports
-      .flatMap((r) => (r.events || []).filter((e) => e.state === "pre" && r.L.teams?.some((ab) => e.teams.some((t) => t.abbr === ab))))
-      .sort((a, b) => new Date(a.date) - new Date(b.date))[0];
-    if (next && sameDay(new Date(next.date), new Date())) chips.push(`🏟️ ${esc(next.name)} ${new Date(next.date).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}`);
-  }
-  const fresh = Object.values(data.news).reduce((n, d) => n + d.items.filter((i) => i.ts > prevVisit).length, 0);
-  if (fresh) chips.push(`📰 ${fresh} new headlines`);
-  $("#glance").innerHTML = chips.map((c) => `<span class="chip">${c}</span>`).join("");
+  // Local weather line under the greeting (first city in Weather settings)
+  const el = $("#localWx");
+  const w = data.weather.find((x) => x.d);
+  if (!w) { el.innerHTML = ""; return; }
+  const cur = w.d.current, dl = w.d.daily;
+  const [ico, desc] = wmo(cur.weather_code, cur.is_day);
+  const alert = (w.alerts || [])[0];
+  el.innerHTML = `<a href="#sec-weather" data-view-link="weather">${ico} <b>${Math.round(cur.temperature_2m)}°</b> ${esc(w.c.name.split(",")[0])} · ${esc(desc)} · H ${Math.round(dl.temperature_2m_max[0])}° L ${Math.round(dl.temperature_2m_min[0])}°</a>` +
+    (alert ? ` <span class="warn-t">· ⚠️ ${esc(alert.event)}</span>` : "");
 }
 
 // ============================================================ apps, More page, mobile views
@@ -1017,8 +1016,21 @@ document.addEventListener("click", (e) => {
   const t = e.target;
   if (t.closest("#appsBtn")) { toggleAppsPop(); return; }
   if (!t.closest("#appsPop")) $("#appsPop").hidden = true;
+  const vl = t.closest("[data-view-link]");
+  if (vl && matchMedia("(max-width: 680px)").matches) { e.preventDefault(); setView(vl.dataset.viewLink); return; }
   const tabBtn = t.closest("#tabbar [data-view]");
   if (tabBtn) { setView(tabBtn.dataset.view); return; }
+  const lt = t.closest("[data-league-toggle]");
+  if (lt) {
+    const k = lt.dataset.leagueToggle;
+    cfg.sports.collapsed = { ...(cfg.sports.collapsed || {}), [k]: !cfg.sports.collapsed?.[k] };
+    if (!cfg.sports.collapsed[k]) delete cfg.sports.collapsed[k];
+    save();
+    const box = lt.closest(".league");
+    box.classList.toggle("collapsed", !!cfg.sports.collapsed[k]);
+    lt.setAttribute("aria-expanded", String(!cfg.sports.collapsed[k]));
+    return;
+  }
   const sp = t.closest("[data-spmode]");
   if (sp) { cfg.sports.mode = sp.dataset.spmode; save(); renderSports(); return; }
   const src = t.closest("[data-src]");
