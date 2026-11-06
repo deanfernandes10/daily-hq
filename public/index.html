@@ -29,6 +29,7 @@
     </div>
     <div class="spacer-flex"></div>
     <div class="top-actions">
+      <button class="icon-btn bell-btn" id="bellBtn" title="Alerts" aria-label="Alerts"><svg class="ic"><use href="#i-bell"/></svg><i class="bell-badge" id="bellBadge" hidden></i></button>
       <button class="icon-btn apps-btn" id="appsBtn" title="Your apps" aria-label="Your apps"><svg class="ic"><use href="#i-layout-grid"/></svg></button>
       <button class="icon-btn" id="refreshAll" title="Refresh everything (R)" aria-label="Refresh"><svg class="ic"><use href="#i-refresh-cw"/></svg></button>
       <button class="icon-btn" id="openSettings" title="Customize (S)" aria-label="Customize"><svg class="ic"><use href="#i-settings"/></svg></button>
@@ -36,6 +37,7 @@
   </header>
 
   <div class="apps-pop" id="appsPop" hidden></div>
+  <div class="apps-pop bell-pop" id="bellPop" hidden aria-label="Alerts"></div>
 
   <div class="ticker" id="ticker" aria-label="Market ticker"><div class="ticker-track" id="tickerTrack"></div></div>
 

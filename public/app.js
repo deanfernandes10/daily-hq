@@ -1469,14 +1469,41 @@ function checkAlerts(kind) {
   }
   for (const c of fresh.slice(0, 4)) notify(c);
 }
+const UNREAD_KEY = pkey("dailyhq.alertUnread");
+const unreadCount = () => Number(store.get(UNREAD_KEY)) || 0;
+function setUnread(n) {
+  store.set(UNREAD_KEY, String(n));
+  const b = $("#bellBadge");
+  if (b) { b.hidden = !n; b.textContent = n > 9 ? "9+" : String(n); }
+  // number on the home-screen icon (installed app; needs notification permission on iPhone)
+  try { if (n && navigator.setAppBadge) navigator.setAppBadge(n); else if (navigator.clearAppBadge) navigator.clearAppBadge(); } catch {}
+}
+function renderBellPop() {
+  let log = [];
+  try { log = JSON.parse(store.get(LOG_KEY)) || []; } catch {}
+  const unread = unreadCount();
+  const perm = "Notification" in window ? Notification.permission : "unsupported";
+  $("#bellPop").innerHTML = `<div class="bell-h"><b>Alerts</b><button class="mini-btn" data-config="alerts">Settings</button></div>
+    ${perm !== "granted" && perm !== "unsupported" ? `<button class="btn primary wide" data-quick="notif">${ic("bell-ring")} Also show alerts on this device</button>` : ""}
+    ${log.length ? log.slice(0, 15).map((a, i) => `<div class="bell-item ${i < unread ? "unread" : ""}">${ic("bell")}<div><b>${esc(a.title)}</b>${a.body ? `<span>${esc(a.body)}</span>` : ""}<small>${ago(a.t)}</small></div></div>`).join("")
+      : `<div class="empty">No alerts yet. You'll see game starts, final scores, weather warnings and stock moves here.</div>`}`;
+}
+function toggleBell(force) {
+  const pop = $("#bellPop");
+  const open = force ?? pop.hidden;
+  if (open) { renderBellPop(); $("#appsPop").hidden = true; }
+  pop.hidden = !open;
+  if (open) setUnread(0);
+}
 function notify(c) {
   toast(`${c.title}${c.body ? " — " + c.body : ""}`);
+  setUnread(unreadCount() + 1);
   let log = [];
   try { log = JSON.parse(store.get(LOG_KEY)) || []; } catch {}
   log.unshift({ ...c, t: Date.now() });
   store.set(LOG_KEY, JSON.stringify(log.slice(0, 15)));
   if ("Notification" in window && Notification.permission === "granted") {
-    const opts = { body: c.body || "", icon: "/icon-192.png", badge: "/icon-192.png", tag: c.id };
+    const opts = { body: c.body || "", icon: "/icon-192.png", badge: "/icon-192.png", tag: c.id, data: { url: "/?alerts" } };
     navigator.serviceWorker?.ready?.then((r) => r.showNotification(c.title, opts)).catch(() => { try { new Notification(c.title, opts); } catch {} });
   }
 }
@@ -1649,7 +1676,7 @@ function toggleFlag(obj, key, id, box, btn) {
 }
 
 // ============================================================ main page events
-document.addEventListener("click", (e) => {
+document.addEventListener("click", async (e) => {
   const t = e.target;
   if (t.closest("[data-modal-close]") || t.id === "modal") { closeModal(); return; }
   const wa = t.closest("[data-w]");
@@ -1675,6 +1702,8 @@ document.addEventListener("click", (e) => {
   if (pf) { switchProfile(pf.dataset.profile); return; }
   const pd = t.closest("[data-profile-del]");
   if (pd) { if (pd.dataset.confirm) { removeProfile(pd.dataset.profileDel); renderMore(); } else { pd.dataset.confirm = 1; pd.innerHTML = "Remove?"; } return; }
+  if (t.closest("#bellBtn")) { toggleBell(); return; }
+  if (!t.closest("#bellPop")) $("#bellPop").hidden = true;
   if (t.closest("#appsBtn")) { toggleAppsPop(); return; }
   if (!t.closest("#appsPop")) $("#appsPop").hidden = true;
   const vl = t.closest("[data-view-link]");
@@ -1716,6 +1745,10 @@ document.addEventListener("click", (e) => {
   if (qk) {
     const k = qk.dataset.quick, v = qk.dataset.v;
     if (k === "refresh") { refresh(); toast("Refreshing…"); return; }
+    if (k === "notif") {
+      try { const r = await Notification.requestPermission(); toast(r === "granted" ? "Alerts will also show on this device" : "Notifications weren't allowed"); setUnread(unreadCount()); } catch { toast("Notifications aren't available here"); }
+      renderBellPop(); return;
+    }
     if (k === "flight") {
       const f = ($("#flightNo").value || "").toUpperCase().replace(/\s+/g, "");
       if (!/^[A-Z0-9]{2,3}\d{1,4}$/.test(f)) { toast("Enter a flight like UA1234"); return; }
@@ -1753,6 +1786,7 @@ $("#footSettings").onclick = (e) => { e.preventDefault(); openSettings("general"
 
 document.addEventListener("keydown", (e) => {
   if (e.key === "Escape" && !$("#modal").hidden) { closeModal(); return; }
+  if (e.key === "Escape" && !$("#bellPop").hidden) { $("#bellPop").hidden = true; return; }
   if ((e.key === "Enter" || e.key === " ") && e.target.matches?.("[data-game]")) { e.preventDefault(); e.target.click(); return; }
   if (e.target.matches("input, textarea, select")) { if (e.key === "Escape") e.target.blur(); return; }
   if (e.metaKey || e.ctrlKey || e.altKey) return;
@@ -1773,6 +1807,7 @@ let citySearch = [];
 
 function openSettings(which) {
   $("#appsPop").hidden = true;
+  $("#bellPop").hidden = true;
   if (which) tab = which;
   $$("#drawerTabs button").forEach((b) => b.classList.toggle("on", b.dataset.tab === tab));
   renderSettings();
@@ -1943,7 +1978,7 @@ function setAlerts() {
   const A = cfg.alerts;
   const perm = "Notification" in window ? Notification.permission : "unsupported";
   return `
-  <div class="set"><h4>${ic("bell")} Alerts</h4><p class="hint">Alerts pop up in Daily HQ and, if you allow it, as notifications on this device while Daily HQ is open or in the background.</p>
+  <div class="set"><h4>${ic("bell")} Alerts</h4><p class="hint">Alerts pop up in Daily HQ, collect under the bell at the top, and add a number to the Daily HQ icon on your home screen. If you allow it, they also appear as notifications on this device while Daily HQ is open or recently used.</p>
     ${perm === "granted" ? `<p class="hint ok">${ic("circle-check")} Notifications are on for this device.</p>`
       : perm === "unsupported" ? `<p class="hint">This browser doesn't support notifications. On iPhone, add Daily HQ to your Home Screen first.</p>`
       : `<button class="btn primary" data-act="notif-on">${ic("bell-ring")} Allow notifications on this device</button>`}
@@ -2068,7 +2103,7 @@ $("#drawerBody").addEventListener("click", async (e) => {
     }
     case "cal-del": cfg.calendars.splice(i, 1); commit("calendar"); break;
     case "notif-on":
-      try { const r = await Notification.requestPermission(); toast(r === "granted" ? "Notifications are on" : "Notifications weren't allowed"); } catch { toast("Notifications aren't available here"); }
+      try { const r = await Notification.requestPermission(); toast(r === "granted" ? "Notifications are on" : "Notifications weren't allowed"); setUnread(unreadCount()); } catch { toast("Notifications aren't available here"); }
       renderSettings(); break;
     case "pt-add": {
       const sym = $("#ptSym").value.trim().toUpperCase(), v = $("#ptVal").value.trim(), dir = $("#ptDir").value;
@@ -2273,6 +2308,8 @@ renderTicker();
 refresh();
 schedule();
 if (cfg.needsSetup) showWelcome();
+setUnread(unreadCount());
+if (location.search.includes("alerts")) { history.replaceState(null, "", "/"); setTimeout(() => toggleBell(true), 300); }
 syncPull().then((changed) => { if (changed) { afterConfigReplaced(); toast("Synced your latest settings"); } }).catch(() => {});
 document.addEventListener("visibilitychange", () => {
   if (!document.hidden) syncPull().then((changed) => changed && afterConfigReplaced()).catch(() => {});
