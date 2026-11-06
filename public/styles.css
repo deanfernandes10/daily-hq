@@ -767,3 +767,11 @@ body.modal-open { overflow: hidden; }
 .rate-chip i { font-size: 13.5px; }
 .rate-chip em { font-size: 13px; }
 .mort-h b { font-size: 16px; }
+
+/* Close buttons on pop-ups */
+.apps-pop-h { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.pop-acts { display: inline-flex; align-items: center; gap: 6px; }
+.pop-x { width: 34px; height: 34px; display: grid; place-items: center; border-radius: 10px; border: 1px solid var(--line); background: var(--panel-2); color: var(--text); padding: 0; flex: none; }
+.pop-x:hover { border-color: var(--accent); }
+.pop-x .ic { width: 18px; height: 18px; }
+.modal-h .icon-btn, .drawer-head .icon-btn { width: 38px; height: 38px; }

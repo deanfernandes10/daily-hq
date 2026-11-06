@@ -1549,7 +1549,7 @@ function renderBellPop() {
   try { log = JSON.parse(store.get(LOG_KEY)) || []; } catch {}
   const unread = unreadCount();
   const perm = "Notification" in window ? Notification.permission : "unsupported";
-  $("#bellPop").innerHTML = `<div class="bell-h"><b>Alerts</b><button class="mini-btn" data-config="alerts">Settings</button></div>
+  $("#bellPop").innerHTML = `<div class="bell-h"><b>Alerts</b><span class="pop-acts"><button class="mini-btn" data-config="alerts">Settings</button><button class="pop-x" data-pop-close aria-label="Close">${ic("x")}</button></span></div>
     ${perm !== "granted" && perm !== "unsupported" ? `<button class="btn primary wide" data-quick="notif">${ic("bell-ring")} Also show alerts on this device</button>` : ""}
     ${log.length ? log.slice(0, 15).map((a, i) => `<div class="bell-item ${i < unread ? "unread" : ""}">${ic("bell")}<div><b>${esc(a.title)}</b>${a.body ? `<span>${esc(a.body)}</span>` : ""}<small>${ago(a.t)}</small></div></div>`).join("")
       : `<div class="empty">No alerts yet. You'll see game starts, final scores, weather warnings and stock moves here.</div>`}`;
@@ -2082,7 +2082,7 @@ function renderMore() {
 }
 
 function renderAppsPop() {
-  $("#appsPop").innerHTML = `<div class="apps-pop-h">Your apps</div><div class="apps-grid">${(cfg.apps || []).map((a) => `<a class="app-tile" href="${esc(a.url)}" target="_blank" rel="noopener">${appIcon(a)}<span>${esc(a.name)}</span></a>`).join("")}
+  $("#appsPop").innerHTML = `<div class="apps-pop-h"><span>Your apps</span><button class="pop-x" data-pop-close aria-label="Close">${ic("x")}</button></div><div class="apps-grid">${(cfg.apps || []).map((a) => `<a class="app-tile" href="${esc(a.url)}" target="_blank" rel="noopener">${appIcon(a)}<span>${esc(a.name)}</span></a>`).join("")}
     <button class="app-tile" data-config="apps"><span class="app-ico plus">${ic("plus")}</span><span>Add / edit</span></button></div>`;
 }
 function toggleAppsPop(force) {
@@ -2191,6 +2191,7 @@ document.addEventListener("click", async (e) => {
   if (pf) { switchProfile(pf.dataset.profile); return; }
   const pd = t.closest("[data-profile-del]");
   if (pd) { if (pd.dataset.confirm) { removeProfile(pd.dataset.profileDel); renderMore(); } else { pd.dataset.confirm = 1; pd.innerHTML = "Remove?"; } return; }
+  if (t.closest("[data-pop-close]")) { $("#bellPop").hidden = true; $("#appsPop").hidden = true; return; }
   if (t.closest("#bellBtn")) { toggleBell(); return; }
   if (!t.closest("#bellPop")) $("#bellPop").hidden = true;
   if (t.closest("#appsBtn")) { toggleAppsPop(); return; }
@@ -2340,7 +2341,7 @@ $("#footSettings").onclick = (e) => { e.preventDefault(); openSettings("general"
 document.addEventListener("keydown", (e) => {
   if (e.key === "Enter" && e.target.id === "reNewArea") { $("[data-re-addtyped]")?.click(); return; }
   if (e.key === "Escape" && !$("#modal").hidden) { closeModal(); return; }
-  if (e.key === "Escape" && !$("#bellPop").hidden) { $("#bellPop").hidden = true; return; }
+  if (e.key === "Escape" && (!$("#bellPop").hidden || !$("#appsPop").hidden)) { $("#bellPop").hidden = true; $("#appsPop").hidden = true; return; }
   if ((e.key === "Enter" || e.key === " ") && e.target.matches?.("[data-game]")) { e.preventDefault(); e.target.click(); return; }
   if (e.target.matches("input, textarea, select")) { if (e.key === "Escape") e.target.blur(); return; }
   if (e.metaKey || e.ctrlKey || e.altKey) return;
