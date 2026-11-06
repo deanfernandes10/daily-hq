@@ -145,10 +145,10 @@ const DEFAULTS = {
 };
 
 const SECTION_META = {
-  sports: { title: "Sports", icon: "🏟️" },
-  news: { title: "News", icon: "📰" },
-  weather: { title: "Weather", icon: "🌤️" },
-  markets: { title: "Markets", icon: "📈" },
+  sports: { title: "Sports", icon: "trophy" },
+  news: { title: "News", icon: "newspaper" },
+  weather: { title: "Weather", icon: "cloud-sun" },
+  markets: { title: "Markets", icon: "trending-up" },
 };
 
 const FRIENDLY = {
@@ -246,6 +246,28 @@ const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 const esc = (s) =>
   String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const uid = () => Math.random().toString(36).slice(2, 9);
+const ic = (name, cls = "") => `<svg class="ic ${cls}" aria-hidden="true"><use href="#i-${name}"/></svg>`;
+const wxSrc = (n) => (window.WX_INLINE && window.WX_INLINE[n]) || `/wx/${n}.svg`;
+const hostName = (u) => { try { return new URL(u).hostname.replace(/^www\./, ""); } catch { return ""; } };
+// League logos come from ESPN's own scoreboard data (light + dark versions), remembered between visits
+let leagueLogos = {};
+try { leagueLogos = JSON.parse(localStorage.getItem("dailyhq.leagueLogos") || "{}"); } catch {}
+function captureLeague(path, logos) {
+  if (!logos?.length) return;
+  const pick = (rel) => logos.find((l) => (l.rel || []).includes(rel))?.href;
+  const entry = { light: pick("default") || logos[0].href, dark: pick("dark") || pick("default") || logos[0].href };
+  if (JSON.stringify(leagueLogos[path]) !== JSON.stringify(entry)) {
+    leagueLogos[path] = entry;
+    try { localStorage.setItem("dailyhq.leagueLogos", JSON.stringify(leagueLogos)); } catch {}
+  }
+}
+function leagueBadge(key, cls = "lg-logo") {
+  const m = LEAGUES[key];
+  const lg = leagueLogos[m.path];
+  if (!lg) return `<span class="${cls} lg-emoji">${m.icon}</span>`;
+  const dark = document.documentElement.dataset.theme !== "light";
+  return `<img class="${cls}" src="${esc(dark ? lg.dark : lg.light)}" alt="${esc(m.name)}" loading="lazy" onerror="this.outerHTML='<span class=&quot;${cls} lg-emoji&quot;>${m.icon}</span>'">`;
+}
 const hashStr = (str) => { let h = 7; for (const c of String(str)) h = (h * 31 + c.charCodeAt(0)) >>> 0; return h; };
 
 async function api(url, asText = false) {
@@ -340,18 +362,18 @@ function buildShell() {
       const m = SECTION_META[s.id];
       return `<section class="card w-${s.w || 12}" id="sec-${s.id}" data-sec="${s.id}">
         <div class="card-head">
-          <h2><span class="ico">${m.icon}</span>${m.title}</h2><span class="sub" id="${s.id}-sub"></span>
+          <h2><span class="ico">${ic(m.icon)}</span>${m.title}</h2><span class="sub" id="${s.id}-sub"></span>
           <span class="spacer"></span>
           <span id="${s.id}-extra"></span>
           <button class="mini-btn" data-config="${s.id}" title="Customize ${m.title}">Edit</button>
-          <button class="mini-btn" data-reload="${s.id}" title="Refresh">⟳</button>
+          <button class="mini-btn" data-reload="${s.id}" title="Refresh" aria-label="Refresh">${ic("refresh-cw")}</button>
         </div>
         <div class="card-body" id="${s.id}-body">${skeleton(4)}</div>
       </section>`;
     })
     .join("") || `<div class="card w-12"><div class="empty">All sections are hidden. <br><button class="btn" data-config="general">Customize</button></div></div>`;
 
-  $("#jump").innerHTML = on.map((s) => `<a href="#sec-${s.id}" data-sec="${s.id}">${SECTION_META[s.id].icon} ${SECTION_META[s.id].title}</a>`).join("");
+  $("#jump").innerHTML = on.map((s) => `<a href="#sec-${s.id}" data-sec="${s.id}">${ic(SECTION_META[s.id].icon)} ${SECTION_META[s.id].title}</a>`).join("");
   $("#ticker").hidden = !cfg.ticker.on;
 }
 
@@ -404,17 +426,18 @@ async function espnJSON(url) {
 let espnMode = null; // remembers which request format ESPN accepted: "range" | "days" | "proxy"
 async function fetchScoreboard(path, dates) {
   const tries = {
-    range: async () => trimEvents(await espnJSON(`${ESPN}${path}/scoreboard?dates=${dates}`)),
+    range: async () => { const d = await espnJSON(`${ESPN}${path}/scoreboard?dates=${dates}`); captureLeague(path, d.leagues?.[0]?.logos); return trimEvents(d); },
     days: async () => {
       // one request per day (yesterday-3 … +6), merged
       const days = [...Array(10)].map((_, i) => ymd(addDays(i - 3)));
       const res = await Promise.allSettled(days.map((d) => espnJSON(`${ESPN}${path}/scoreboard?dates=${d}`)));
       const ok = res.filter((r) => r.status === "fulfilled");
       if (!ok.length) throw new Error("no days");
+      captureLeague(path, ok[0].value.leagues?.[0]?.logos);
       const seen = new Set();
       return ok.flatMap((r) => trimEvents(r.value)).filter((e) => !seen.has(e.id) && seen.add(e.id));
     },
-    proxy: async () => (await api(`/api/sports?path=${path}&dates=${dates}`)).events,
+    proxy: async () => { const d = await api(`/api/sports?path=${path}&dates=${dates}`); captureLeague(path, d.leagueLogos); return d.events; },
   };
   const order = espnMode ? [espnMode, ...Object.keys(tries).filter((k) => k !== espnMode)] : Object.keys(tries);
   let lastErr;
@@ -500,10 +523,10 @@ function gameHTML(e, watched) {
     })
     .join("");
   const meta = [];
-  if (e.broadcasts?.length) meta.push(`<span class="tv">${esc(e.broadcasts.slice(0, 4).join(", "))}</span>`);
+  if (e.broadcasts?.length) meta.push(`<span class="tv">${ic("tv")}${esc(e.broadcasts.slice(0, 4).join(", "))}</span>`);
   if (e.state === "pre" && e.venue) meta.push(esc(e.venue));
   if (e.note) meta.push(esc(e.note));
-  if (e.link) meta.push(`<a href="${esc(e.link)}" target="_blank" rel="noopener">Game ↗</a>`);
+  if (e.link) meta.push(`<a href="${esc(e.link)}" target="_blank" rel="noopener">Game ${ic("external-link", "xs")}</a>`);
   return `<div class="game ${e.state === "in" ? "is-live" : e.state === "post" ? "is-final" : ""}"><div class="g-status">${pill}</div>${rows}${meta.length ? `<div class="g-meta">${meta.join("<span>·</span>")}</div>` : ""}</div>`;
 }
 
@@ -534,8 +557,8 @@ function renderSports() {
       .filter((x) => x && !seenUp.has(x.e.id) && seenUp.add(x.e.id))
       .sort((a, b) => new Date(a.e.date) - new Date(b.e.date));
     if (ups.length)
-      upnext = `<div class="upnext"><div class="upnext-h">📅 Coming up for your teams</div>${ups
-        .map(({ e, L }) => `<div class="up-row ${sameDay(new Date(e.date), new Date()) ? "today" : ""}"><span class="up-when">${esc(when(e.date))}</span><span class="up-ico">${LEAGUES[L.key].icon}</span><span class="up-name">${esc(matchup(e))}</span><span class="up-tv">${esc((e.broadcasts || []).slice(0, 2).join(", "))}</span></div>`)
+      upnext = `<div class="upnext"><div class="upnext-h">${ic("calendar")} Coming up for your teams</div>${ups
+        .map(({ e, L }) => `<div class="up-row ${sameDay(new Date(e.date), new Date()) ? "today" : ""}"><span class="up-when">${esc(when(e.date))}</span><span class="up-ico">${leagueBadge(L.key, "lg-logo sm")}</span><span class="up-name">${esc(matchup(e))}</span><span class="up-tv">${esc((e.broadcasts || []).slice(0, 2).join(", "))}</span></div>`)
         .join("")}</div>`;
   }
 
@@ -563,7 +586,7 @@ function renderSports() {
       const liveN = (events || []).filter((e) => e.state === "in" && (mode !== "mine" || isMine(L, e))).length;
       return `<div class="league ${collapsed ? "collapsed" : ""}">
         <button class="league-h" data-league-toggle="${L.key}" aria-expanded="${!collapsed}">
-          <span class="chev" aria-hidden="true">▾</span><span class="lg-name">${meta.icon} ${meta.name}</span>
+          ${ic("chevron-down", "chev")}<span class="lg-name">${leagueBadge(L.key)} ${meta.name}</span>
           ${liveN ? `<span class="pill live">${liveN} LIVE</span>` : ""}
           <small>${stale ? `<span class="stale">delayed</span> ` : ""}${esc(tl)}</small>
         </button>
@@ -724,18 +747,26 @@ function renderNews() {
 }
 
 // ============================================================ weather
+// WMO weather code -> [day icon, night icon, label]  (icons: Meteocons by Bas Milius, MIT)
 const WMO = {
-  0: ["☀️", "Clear"], 1: ["🌤️", "Mostly clear"], 2: ["⛅", "Partly cloudy"], 3: ["☁️", "Overcast"],
-  45: ["🌫️", "Fog"], 48: ["🌫️", "Icy fog"], 51: ["🌦️", "Light drizzle"], 53: ["🌦️", "Drizzle"], 55: ["🌧️", "Heavy drizzle"],
-  56: ["🌧️", "Freezing drizzle"], 57: ["🌧️", "Freezing drizzle"], 61: ["🌦️", "Light rain"], 63: ["🌧️", "Rain"], 65: ["🌧️", "Heavy rain"],
-  66: ["🌧️", "Freezing rain"], 67: ["🌧️", "Freezing rain"], 71: ["🌨️", "Light snow"], 73: ["🌨️", "Snow"], 75: ["❄️", "Heavy snow"],
-  77: ["🌨️", "Snow grains"], 80: ["🌦️", "Showers"], 81: ["🌧️", "Showers"], 82: ["⛈️", "Violent showers"], 85: ["🌨️", "Snow showers"],
-  86: ["❄️", "Snow showers"], 95: ["⛈️", "Thunderstorm"], 96: ["⛈️", "Storm & hail"], 99: ["⛈️", "Storm & hail"],
+  0: ["clear-day", "clear-night", "Clear"], 1: ["partly-cloudy-day", "partly-cloudy-night", "Mostly clear"],
+  2: ["partly-cloudy-day", "partly-cloudy-night", "Partly cloudy"], 3: ["overcast", "overcast", "Overcast"],
+  45: ["fog", "fog", "Fog"], 48: ["fog", "fog", "Icy fog"],
+  51: ["drizzle", "drizzle", "Light drizzle"], 53: ["drizzle", "drizzle", "Drizzle"], 55: ["drizzle", "drizzle", "Heavy drizzle"],
+  56: ["sleet", "sleet", "Freezing drizzle"], 57: ["sleet", "sleet", "Freezing drizzle"],
+  61: ["rain", "rain", "Light rain"], 63: ["rain", "rain", "Rain"], 65: ["rain", "rain", "Heavy rain"],
+  66: ["sleet", "sleet", "Freezing rain"], 67: ["sleet", "sleet", "Freezing rain"],
+  71: ["snow", "snow", "Light snow"], 73: ["snow", "snow", "Snow"], 75: ["snow", "snow", "Heavy snow"], 77: ["snow", "snow", "Snow grains"],
+  80: ["partly-cloudy-day-rain", "partly-cloudy-night-rain", "Showers"], 81: ["partly-cloudy-day-rain", "partly-cloudy-night-rain", "Showers"],
+  82: ["rain", "rain", "Heavy showers"], 85: ["partly-cloudy-day-snow", "partly-cloudy-night-snow", "Snow showers"],
+  86: ["snow", "snow", "Snow showers"], 95: ["thunderstorms-day-rain", "thunderstorms-rain", "Thunderstorm"],
+  96: ["thunderstorms-rain", "thunderstorms-rain", "Storm & hail"], 99: ["thunderstorms-rain", "thunderstorms-rain", "Storm & hail"],
 };
+// returns [<img> icon html, label]
 const wmo = (c, day = 1) => {
-  const w = WMO[c] || ["🌡️", "—"];
-  if (!day && (c === 0 || c === 1)) return ["🌙", w[1]];
-  return w;
+  const w = WMO[c] || ["not-available", "not-available", "—"];
+  const name = day ? w[0] : w[1];
+  return [`<img class="wxi" src="${wxSrc(name)}" alt="${w[2]}" title="${w[2]}" loading="lazy">`, w[2]];
 };
 
 async function loadWeather() {
@@ -782,7 +813,7 @@ function renderWeather() {
         const j = nowIdx + i;
         const hh = Number(t.slice(11, 13));
         const lbl = i === 0 ? "Now" : `${hh % 12 || 12}${hh < 12 ? "a" : "p"}`;
-        return `<div class="wx-h">${lbl}<span style="display:block;font-size:16px">${wmo(hr.weather_code[j], hr.is_day[j])[0]}</span><b>${Math.round(i === 0 ? cur.temperature_2m : hr.temperature_2m[j])}°</b>${hr.precipitation_probability[j] >= 20 ? `<span class="rp">${hr.precipitation_probability[j]}%</span>` : "&nbsp;"}</div>`;
+        return `<div class="wx-h">${lbl}${wmo(hr.weather_code[j], hr.is_day[j])[0]}<b>${Math.round(i === 0 ? cur.temperature_2m : hr.temperature_2m[j])}°</b>${hr.precipitation_probability[j] >= 20 ? `<span class="rp">${hr.precipitation_probability[j]}%</span>` : "&nbsp;"}</div>`;
       });
       const lo = Math.min(...dl.temperature_2m_min), hi = Math.max(...dl.temperature_2m_max);
       const days = dl.time.map((t, i) => {
@@ -795,7 +826,7 @@ function renderWeather() {
       const sev = (a) => (["extreme", "severe"].includes(a.severity) ? "sev-high" : a.severity === "moderate" ? "sev-mid" : "sev-low");
       const alertHTML = (alerts || [])
         .slice(0, 2)
-        .map((a) => `<a class="wx-alert ${sev(a)}" href="${esc(a.url)}" target="_blank" rel="noopener" title="${esc(a.headline || a.event)} — ${esc(a.source)}">⚠️ <b>${esc(a.event)}</b>${a.ends ? ` · until ${esc(when(a.ends))}` : ""}</a>`)
+        .map((a) => `<a class="wx-alert ${sev(a)}" href="${esc(a.url)}" target="_blank" rel="noopener" title="${esc(a.headline || a.event)} — ${esc(a.source)}">${ic("triangle-alert")} <b>${esc(a.event)}</b>${a.ends ? ` · until ${esc(when(a.ends))}` : ""}</a>`)
         .join("");
       return `<div class="wx ${alerts?.length ? "has-alert" : ""}" data-wx="${idx}">
         ${alertHTML}
@@ -803,10 +834,10 @@ function renderWeather() {
           <div><div class="wx-city">${esc(c.name)}</div><div class="wx-temp">${Math.round(cur.temperature_2m)}°</div></div>
           <div class="wx-right"><div><b>${esc(desc)}</b></div>
             <div>H ${Math.round(dl.temperature_2m_max[0])}° · L ${Math.round(dl.temperature_2m_min[0])}° · Feels ${Math.round(cur.apparent_temperature)}°</div>
-            <div>💨 ${Math.round(cur.wind_speed_10m)} ${wind} · 💧 ${cur.relative_humidity_2m}% · ☔ ${dl.precipitation_probability_max[0] ?? 0}%</div>
+            <div class="wx-stats"><span title="Wind">${ic("wind")}${Math.round(cur.wind_speed_10m)} ${wind}</span><span title="Humidity">${ic("droplets")}${cur.relative_humidity_2m}%</span><span title="Chance of rain today">${ic("umbrella")}${dl.precipitation_probability_max[0] ?? 0}%</span></div>
           </div></div>
         <div class="wx-hours">${hours.join("")}</div>
-        <div class="wx-days">${days.join("")}<div class="meta">🌅 ${sun(dl.sunrise[0])} · 🌇 ${sun(dl.sunset[0])}</div></div>
+        <div class="wx-days">${days.join("")}<div class="meta">${ic("sunrise")} ${sun(dl.sunrise[0])} · ${ic("sunset")} ${sun(dl.sunset[0])}</div></div>
       </div>`;
     })
     .join("")}</div><div class="meta" style="justify-content:center;margin-top:8px">Tap a city for the 7-day forecast · Alerts: NWS (US) & Environment Canada</div>`;
@@ -864,7 +895,7 @@ function renderMarkets() {
   const body = $("#markets-body");
   if (!body) return;
   if (!cfg.markets.groups.length) { body.innerHTML = emptyState("No watchlists yet.", "markets"); return; }
-  const viewSeg = `<div class="seg mk-view">${[["tiles", "▦ Tiles"], ["list", "☰ List"]].map(([v, l]) => `<button data-mkview="${v}" class="${cfg.markets.view === v ? "on" : ""}">${l}</button>`).join("")}</div>`;
+  const viewSeg = `<div class="seg mk-view">${[["tiles", "layout-grid", "Tiles"], ["list", "list", "List"]].map(([v, i, l]) => `<button data-mkview="${v}" class="${cfg.markets.view === v ? "on" : ""}">${ic(i)} ${l}</button>`).join("")}</div>`;
   if (cfg.markets.view === "list") {
     body.innerHTML = viewSeg + cfg.markets.groups.map((g) => `<div class="mk-group"><h3>${esc(g.name)}</h3><div class="mk-list">${g.symbols.map((s) => {
       const q = data.quotes[s];
@@ -923,17 +954,21 @@ function updateGlance() {
   const [ico, desc] = wmo(cur.weather_code, cur.is_day);
   const alert = (w.alerts || [])[0];
   el.innerHTML = `<a href="#sec-weather" data-view-link="weather">${ico} <b>${Math.round(cur.temperature_2m)}°</b> ${esc(w.c.name.split(",")[0])} · ${esc(desc)} · H ${Math.round(dl.temperature_2m_max[0])}° L ${Math.round(dl.temperature_2m_min[0])}°</a>` +
-    (alert ? ` <span class="warn-t">· ⚠️ ${esc(alert.event)}</span>` : "");
+    (alert ? ` <span class="warn-t">· ${ic("triangle-alert", "xs")} ${esc(alert.event)}</span>` : "");
 }
 
 // ============================================================ apps, More page, mobile views
-const appIcon = (a) => `<span class="app-ico" style="--h:${hashStr(a.name) % 360}">${esc(a.icon || a.name.slice(0, 1).toUpperCase())}</span>`;
+const appIcon = (a) => {
+  const host = hostName(a.url);
+  const fav = host ? `<img src="https://www.google.com/s2/favicons?domain=${encodeURIComponent(host)}&sz=128" alt="" loading="lazy" onload="if(this.naturalWidth>16)this.parentNode.classList.add('has-img');else this.remove()" onerror="this.remove()">` : "";
+  return `<span class="app-ico" style="--h:${hashStr(a.name) % 360}">${fav}<em>${esc(a.icon || a.name.slice(0, 1).toUpperCase())}</em></span>`;
+};
 function renderApps() {
   const bar = $("#appsBar");
   const apps = cfg.apps || [];
   bar.hidden = !cfg.showApps || !apps.length;
   bar.innerHTML = apps.map((a) => `<a class="app" href="${esc(a.url)}" target="_blank" rel="noopener">${appIcon(a)}<span>${esc(a.name)}</span></a>`).join("") +
-    `<button class="app app-edit" data-config="apps" title="Edit apps"><span class="app-ico plus">+</span><span>Edit</span></button>`;
+    `<button class="app app-edit" data-config="apps" title="Edit apps"><span class="app-ico plus">${ic("plus")}</span><span>Edit</span></button>`;
   renderMore();
   if (!$("#appsPop").hidden) renderAppsPop();
 }
@@ -943,7 +978,7 @@ function renderMore() {
   $("#more").innerHTML = `
     <h3>Your apps</h3>
     <div class="apps-grid">${(cfg.apps || []).map((a) => `<a class="app-tile" href="${esc(a.url)}" target="_blank" rel="noopener">${appIcon(a)}<span>${esc(a.name)}</span></a>`).join("")}
-      <button class="app-tile" data-config="apps">${`<span class="app-ico plus">+</span>`}<span>Add / edit</span></button></div>
+      <button class="app-tile" data-config="apps"><span class="app-ico plus">${ic("plus")}</span><span>Add / edit</span></button></div>
     <h3>Quick settings</h3>
     <div class="quick">
       <div class="row"><span class="grow">Theme</span>${seg("theme", [["dark", "Dark"], ["light", "Light"], ["auto", "Auto"]], cfg.theme)}</div>
@@ -952,13 +987,13 @@ function renderMore() {
       <div class="row"><span class="grow">Markets</span>${seg("mkview", [["tiles", "Tiles"], ["list", "List"]], cfg.markets.view)}</div>
     </div>
     <button class="btn primary wide" data-config="general">Customize layout, teams, feeds & cities</button>
-    <button class="btn wide" data-quick="refresh">⟳ Refresh everything</button>
+    <button class="btn wide" data-quick="refresh">${ic("refresh-cw")} Refresh everything</button>
     <p class="more-foot">Scores: ESPN · Weather: Open-Meteo · Alerts: NWS & Environment Canada · Quotes: Yahoo Finance (may be delayed) · News: publisher RSS feeds.</p>`;
 }
 
 function renderAppsPop() {
   $("#appsPop").innerHTML = `<div class="apps-pop-h">Your apps</div><div class="apps-grid">${(cfg.apps || []).map((a) => `<a class="app-tile" href="${esc(a.url)}" target="_blank" rel="noopener">${appIcon(a)}<span>${esc(a.name)}</span></a>`).join("")}
-    <button class="app-tile" data-config="apps"><span class="app-ico plus">+</span><span>Add / edit</span></button></div>`;
+    <button class="app-tile" data-config="apps"><span class="app-ico plus">${ic("plus")}</span><span>Add / edit</span></button></div>`;
 }
 function toggleAppsPop(force) {
   const pop = $("#appsPop");
@@ -1145,7 +1180,7 @@ function setGeneral() {
   <div class="set"><h4>Sections & layout</h4><p class="hint">Turn sections on/off, reorder them, and pick how wide each one is on a big screen.</p>
     ${cfg.sections
       .map(
-        (s, i) => `<div class="row">${ord("sec-move", i, n)}<span class="grow">${SECTION_META[s.id].icon} ${SECTION_META[s.id].title}</span>
+        (s, i) => `<div class="row">${ord("sec-move", i, n)}<span class="grow">${ic(SECTION_META[s.id].icon)} ${SECTION_META[s.id].title}</span>
         <select data-act="sec-w" data-i="${i}" style="width:auto">${[[12, "Full"], [8, "Wide"], [6, "Half"], [4, "Narrow"]].map(([v, l]) => `<option value="${v}" ${s.w == v ? "selected" : ""}>${l}</option>`).join("")}</select>
         ${sw("sec-on", s.on, `data-i="${i}"`)}</div>`
       )
@@ -1175,17 +1210,17 @@ function setSports() {
           ? `<input data-act="team-filter" data-i="${i}" placeholder="Filter teams…" style="margin-top:8px" value="">
              <div class="team-pick chips" id="pick-${L.key}">${teams ? teamChips(L, teams, "") : skeleton(3)}</div>`
           : "";
-      return `<div class="box"><div class="box-h">${ord("league-move", i, cfg.sports.leagues.length)}<b class="grow" style="flex:1">${m.icon} ${m.name}</b>
+      return `<div class="box"><div class="box-h">${ord("league-move", i, cfg.sports.leagues.length)}<b class="grow lg-set" style="flex:1">${leagueBadge(L.key)} ${m.name}</b>
           <button class="btn sm danger" data-act="league-del" data-i="${i}">Remove</button></div>
         <div class="row"><span class="grow">All of today's games</span>${sw("league-all", L.showAll, `data-i="${i}"`)}</div>
         <div class="chips">${(L.teams || [])
-          .map((ab) => `<span class="chip">${byAbbr[ab]?.logo ? `<img src="${esc(byAbbr[ab].logo)}" alt="">` : ""}${esc(byAbbr[ab]?.short || ab)}<button data-act="team-del" data-i="${i}" data-v="${esc(ab)}" aria-label="Remove">✕</button></span>`)
+          .map((ab) => `<span class="chip">${byAbbr[ab]?.logo ? `<img src="${esc(byAbbr[ab].logo)}" alt="">` : ""}${esc(byAbbr[ab]?.short || ab)}<button data-act="team-del" data-i="${i}" data-v="${esc(ab)}" aria-label="Remove">${ic("x", "xs")}</button></span>`)
           .join("")}<span class="chip add" data-act="team-pick" data-i="${i}">${openPicker === L.key ? "Done" : "+ Teams"}</span></div>
         ${picker}</div>`;
     })
     .join("")}
   </div>
-  ${avail.length ? `<div class="set"><h4>Add a league</h4><div class="inline"><select id="leagueAdd">${avail.map(([k, m]) => `<option value="${k}">${m.icon} ${m.name}</option>`).join("")}</select><button class="btn primary" data-act="league-add">Add</button></div></div>` : ""}`;
+  ${avail.length ? `<div class="set"><h4>Add a league</h4><div class="inline"><select id="leagueAdd">${avail.map(([k, m]) => `<option value="${k}">${m.name}</option>`).join("")}</select><button class="btn primary" data-act="league-add">Add</button></div></div>` : ""}`;
 }
 
 function teamChips(L, teams, q) {
@@ -1208,7 +1243,7 @@ function setNews() {
         ${c.feeds
           .map(
             (f, j) => `<div class="row">${sw("feed-on", f.on, `data-i="${i}" data-j="${j}"`)}<span class="grow">${esc(f.name)} <span class="host">${esc(hostOf(f.url))}</span></span>
-            <button class="btn sm" data-act="feed-del" data-i="${i}" data-j="${j}" aria-label="Remove">✕</button></div>`
+            <button class="btn sm" data-act="feed-del" data-i="${i}" data-j="${j}" aria-label="Remove">${ic("x", "xs")}</button></div>`
           )
           .join("") || `<div class="hint" style="color:var(--muted);font-size:12.5px;padding:6px 0">No feeds yet.</div>`}
         ${sugg.length ? `<div class="chips">${sugg.map(([n, u]) => `<span class="chip add" data-act="feed-sugg" data-i="${i}" data-name="${esc(n)}" data-url="${esc(u)}">+ ${esc(n)}</span>`).join("")}</div>` : ""}
@@ -1226,15 +1261,15 @@ function setNews() {
 function setApps() {
   const A = cfg.apps;
   return `
-  <div class="set"><h4>Your apps</h4><p class="hint">Shortcuts to the sites you use every day. Open them from the ▦ button at the top (computer) or the More tab (phone).</p>
-  ${A.map((a, i) => `<div class="row">${ord("app-move", i, A.length)}${appIcon(a)}<span class="grow">${esc(a.name)} <span class="host">${esc(hostOf(a.url))}</span></span><button class="btn sm" data-act="app-del" data-i="${i}" aria-label="Remove">✕</button></div>`).join("") || `<p class="hint">No apps yet.</p>`}
+  <div class="set"><h4>Your apps</h4><p class="hint">Shortcuts to the sites you use every day. Open them from the apps button at the top (computer) or the More tab (phone). Each shows the site's own icon.</p>
+  ${A.map((a, i) => `<div class="row">${ord("app-move", i, A.length)}${appIcon(a)}<span class="grow">${esc(a.name)} <span class="host">${esc(hostOf(a.url))}</span></span><button class="btn sm" data-act="app-del" data-i="${i}" aria-label="Remove">${ic("x", "xs")}</button></div>`).join("") || `<p class="hint">No apps yet.</p>`}
   </div>
   <div class="set"><h4>Add an app</h4>
-    <div class="inline"><input id="appIcon" placeholder="🙂" maxlength="2" style="flex:0 0 56px;text-align:center"><input id="appName" placeholder="Name, e.g. LinkedIn"></div>
+    <div class="inline"><input id="appIcon" placeholder="🙂" maxlength="2" title="Fallback icon if the site has none" style="flex:0 0 56px;text-align:center"><input id="appName" placeholder="Name, e.g. LinkedIn"></div>
     <div class="inline"><input id="appUrl" placeholder="https://…"><button class="btn primary" data-act="app-add">Add</button></div>
     <div class="chips">${[["LinkedIn", "https://www.linkedin.com", "💼"], ["Gmail", "https://mail.google.com", "✉️"], ["Google Calendar", "https://calendar.google.com", "📅"], ["NJ Transit", "https://www.njtransit.com", "🚆"], ["Netlify", "https://app.netlify.com", "🌐"], ["GitHub", "https://github.com", "🐙"]]
       .filter(([n]) => !A.some((a) => a.name === n))
-      .map(([n, u, ic]) => `<span class="chip add" data-act="app-sugg" data-name="${esc(n)}" data-url="${esc(u)}" data-icon="${ic}">+ ${ic} ${esc(n)}</span>`).join("")}</div>
+      .map(([n, u, em]) => `<span class="chip add" data-act="app-sugg" data-name="${esc(n)}" data-url="${esc(u)}" data-icon="${em}">+ ${esc(n)}</span>`).join("")}</div>
   </div>`;
 }
 
@@ -1242,18 +1277,18 @@ function setWeather() {
   const cs = cfg.weather.cities;
   return `
   <div class="set"><h4>Your cities</h4><p class="hint">The first city shows in the header "at a glance" bar.</p>
-  ${cs.map((c, i) => `<div class="row">${ord("city-move", i, cs.length)}<span class="grow">${esc(c.name)}</span><button class="btn sm" data-act="city-del" data-i="${i}">✕</button></div>`).join("") || `<p class="hint">No cities yet.</p>`}
+  ${cs.map((c, i) => `<div class="row">${ord("city-move", i, cs.length)}<span class="grow">${esc(c.name)}</span><button class="btn sm" data-act="city-del" data-i="${i}">${ic("x", "xs")}</button></div>`).join("") || `<p class="hint">No cities yet.</p>`}
   </div>
   <div class="set"><h4>Add a city</h4>
     <div class="inline"><input id="cityQ" placeholder="Search a city… e.g. Tampa"><button class="btn primary" data-act="city-search">Search</button></div>
-    <div class="inline"><button class="btn" data-act="city-here">📍 Use my current location</button></div>
+    <div class="inline"><button class="btn" data-act="city-here">${ic("map-pin")} Use my current location</button></div>
     ${citySearch.length ? `<div class="sugg">${citySearch.map((r, k) => `<button data-act="city-add" data-k="${k}">${esc(r.name)}<small>${esc([r.admin1, r.country].filter(Boolean).join(", "))}</small></button>`).join("")}</div>` : ""}
   </div>`;
 }
 
 function symChips(list, act, gi = "") {
   return list
-    .map((s, k) => `<span class="chip">${esc(label(s))}${label(s) !== s ? ` <span class="host">${esc(s)}</span>` : ""}<button data-act="${act}" data-g="${gi}" data-k="${k}" aria-label="Remove">✕</button></span>`)
+    .map((s, k) => `<span class="chip">${esc(label(s))}${label(s) !== s ? ` <span class="host">${esc(s)}</span>` : ""}<button data-act="${act}" data-g="${gi}" data-k="${k}" aria-label="Remove">${ic("x", "xs")}</button></span>`)
     .join("");
 }
 function symAdder(target) {

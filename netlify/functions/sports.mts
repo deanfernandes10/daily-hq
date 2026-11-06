@@ -95,7 +95,8 @@ export default async (req: Request) => {
     };
   });
   const live = events.some((e: any) => e.state === "in");
-  return json({ events, via: used }, 200, live ? 20 : 120);
+  const leagueLogos = (d?.leagues?.[0]?.logos || []).map((l: any) => ({ href: l.href, rel: l.rel }));
+  return json({ events, leagueLogos, via: used }, 200, live ? 20 : 120);
 };
 
 export const config = { path: "/api/sports" };
