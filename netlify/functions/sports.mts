@@ -22,16 +22,24 @@ export default async (req: Request) => {
     url = `${base}/scoreboard?limit=400${dates ? `&dates=${dates}` : ""}`;
   }
 
-  let d: any;
-  try {
-    const r = await fetch(url, {
-      headers: { "user-agent": UA, accept: "application/json" },
-      signal: AbortSignal.timeout(9000),
-    });
-    if (!r.ok) return json({ error: `ESPN returned ${r.status}` }, 502);
-    d = await r.json();
-  } catch (e: any) {
-    return json({ error: "Could not reach ESPN" }, 502);
+  let d: any = null;
+  let lastErr = "";
+  for (const host of ["site.api.espn.com", "site.web.api.espn.com"]) {
+    try {
+      const r = await fetch(url.replace("site.api.espn.com", host), {
+        headers: { "user-agent": UA, accept: "application/json", referer: "https://www.espn.com/" },
+        signal: AbortSignal.timeout(8000),
+      });
+      if (!r.ok) { lastErr = `${host} ${r.status}`; continue; }
+      d = await r.json();
+      break;
+    } catch (e: any) {
+      lastErr = `${host} ${e?.message || e}`;
+    }
+  }
+  if (!d) {
+    console.log("ESPN fetch failed:", lastErr);
+    return json({ error: `ESPN unavailable (${lastErr})` }, 502);
   }
 
   if (kind === "teams") {

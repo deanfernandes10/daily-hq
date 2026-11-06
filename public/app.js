@@ -29,12 +29,14 @@ const SUGGESTED_FEEDS = {
     ["CBS News", "https://www.cbsnews.com/latest/rss/main"],
   ],
   sports: [
-    ["ESPN", "https://www.espn.com/espn/rss/news"],
     ["CBS Sports", "https://www.cbssports.com/rss/headlines/"],
     ["Yahoo Sports", "https://sports.yahoo.com/rss/"],
-    ["ESPN NHL", "https://www.espn.com/espn/rss/nhl/news"],
-    ["ESPN NFL", "https://www.espn.com/espn/rss/nfl/news"],
-    ["ESPN NBA", "https://www.espn.com/espn/rss/nba/news"],
+    ["Google News – Sports", "https://news.google.com/rss/headlines/section/topic/SPORTS?hl=en-US&gl=US&ceid=US:en"],
+    ["NHL news", gnews("NHL")],
+    ["NFL news", gnews("NFL")],
+    ["NBA news", gnews("NBA")],
+    ["Devils", gnews("New Jersey Devils")],
+    ["Maple Leafs", gnews("Toronto Maple Leafs")],
   ],
   ai: [
     ["The Verge – AI", "https://www.theverge.com/rss/ai-artificial-intelligence/index.xml"],
@@ -47,7 +49,7 @@ const SUGGESTED_FEEDS = {
   markets: [
     ["CNBC Top News", "https://www.cnbc.com/id/100003114/device/rss/rss.html"],
     ["MarketWatch", "https://feeds.content.dowjones.io/public/rss/mw_topstories"],
-    ["Yahoo Finance", "https://finance.yahoo.com/news/rssindex"],
+    ["Google News – Business", "https://news.google.com/rss/headlines/section/topic/BUSINESS?hl=en-US&gl=US&ceid=US:en"],
     ["CNBC Markets", "https://www.cnbc.com/id/15839069/device/rss/rss.html"],
   ],
   entertainment: [
@@ -75,7 +77,7 @@ const SUGGESTED_FEEDS = {
   leadership: [
     ["CIO Dive", "https://www.ciodive.com/feeds/news/"],
     ["CIO.com", "https://www.cio.com/feed/"],
-    ["Harvard Business Review", "https://feeds.hbr.org/harvardbusiness"],
+    ["Google News – Technology", "https://news.google.com/rss/headlines/section/topic/TECHNOLOGY?hl=en-US&gl=US&ceid=US:en"],
     ["Google News – Managed services", "https://news.google.com/rss/search?q=%22managed%20services%22&hl=en-US&gl=US&ceid=US:en"],
   ],
 };
@@ -83,12 +85,12 @@ const SUGGESTED_FEEDS = {
 const feedsFrom = (cat, n) => SUGGESTED_FEEDS[cat].slice(0, n).map(([name, url]) => ({ name, url, on: true }));
 
 const DEFAULTS = {
-  version: 2,
+  version: 3,
   name: "Dean",
   theme: "dark",
   units: "F",
   textSize: "standard",
-  showApps: true,
+  showApps: false,
   apps: [
     { name: "Executive Search", url: "https://dean-executive-search.netlify.app", icon: "💼" },
     { name: "United Airlines", url: "https://www.united.com", icon: "✈️" },
@@ -176,6 +178,17 @@ function migrate(c) {
     for (const id of ["realestate", "politics"])
       if (!c.news.categories.some((x) => x.id === id)) c.news.categories.splice(at, 0, d.news.categories.find((x) => x.id === id));
     c.version = 2;
+  }
+  if (c.version < 3) {
+    // v3: apps live under More; replace feeds that block cloud servers
+    c.showApps = false;
+    const swap = {
+      "https://www.espn.com/espn/rss/news": ["Google News – Sports", "https://news.google.com/rss/headlines/section/topic/SPORTS?hl=en-US&gl=US&ceid=US:en"],
+      "https://finance.yahoo.com/news/rssindex": ["Google News – Business", "https://news.google.com/rss/headlines/section/topic/BUSINESS?hl=en-US&gl=US&ceid=US:en"],
+      "https://feeds.hbr.org/harvardbusiness": ["Google News – Technology", "https://news.google.com/rss/headlines/section/topic/TECHNOLOGY?hl=en-US&gl=US&ceid=US:en"],
+    };
+    for (const cat of c.news.categories) for (const f of cat.feeds) if (swap[f.url]) [f.name, f.url] = swap[f.url];
+    c.version = 3;
   }
   return c;
 }
@@ -357,6 +370,49 @@ function stampSnapshot() {
 }
 
 // ============================================================ sports
+// Scores come straight from ESPN in the browser (ESPN blocks many cloud servers); the server proxy is the backup.
+const ESPN = "https://site.api.espn.com/apis/site/v2/sports/";
+const espnScore = (s) => (s && typeof s === "object" ? s.displayValue ?? s.value : s);
+function trimEvents(d) {
+  return (d?.events || []).map((e) => {
+    const c = e.competitions?.[0] || {};
+    const st = e.status || c.status || {};
+    const nets = new Set();
+    for (const b of c.broadcasts || []) for (const n of b.names || []) nets.add(n);
+    for (const g of c.geoBroadcasts || []) if (g?.media?.shortName) nets.add(g.media.shortName);
+    return {
+      id: e.id, date: e.date, name: e.shortName || e.name,
+      state: st.type?.state, detail: st.type?.shortDetail || st.type?.detail || "", completed: !!st.type?.completed,
+      venue: c.venue?.fullName, note: c.notes?.[0]?.headline, broadcasts: [...nets],
+      link: e.links?.find((l) => (l.rel || []).includes("summary"))?.href || e.links?.[0]?.href,
+      teams: (c.competitors || []).map((t) => ({
+        abbr: t.team?.abbreviation, name: t.team?.shortDisplayName || t.team?.displayName, logo: t.team?.logo,
+        score: espnScore(t.score), homeAway: t.homeAway, winner: !!t.winner, record: t.records?.[0]?.summary,
+      })),
+    };
+  });
+}
+async function fetchScoreboard(path, dates) {
+  try {
+    const r = await fetch(`${ESPN}${path}/scoreboard?limit=400&dates=${dates}`);
+    if (!r.ok) throw new Error(r.status);
+    return trimEvents(await r.json());
+  } catch {
+    return (await api(`/api/sports?path=${path}&dates=${dates}`)).events;
+  }
+}
+async function fetchTeams(path) {
+  try {
+    const r = await fetch(`${ESPN}${path}/teams?limit=500`);
+    if (!r.ok) throw new Error(r.status);
+    const d = await r.json();
+    return (d?.sports?.[0]?.leagues?.[0]?.teams || []).map((x) => x.team).filter(Boolean)
+      .map((t) => ({ id: t.id, abbr: t.abbreviation, name: t.displayName, short: t.shortDisplayName, logo: t.logos?.[0]?.href }))
+      .sort((a, b) => a.name.localeCompare(b.name));
+  } catch {
+    return (await api(`/api/sports?path=${path}&kind=teams`)).teams;
+  }
+}
 async function loadSports() {
   const body = $("#sports-body");
   if (!body) return;
@@ -367,8 +423,7 @@ async function loadSports() {
   data.sports = await Promise.all(
     leagues.map(async (L) => {
       try {
-        const d = await api(`/api/sports?path=${LEAGUES[L.key].path}&dates=${range}`);
-        return { L, events: d.events };
+        return { L, events: await fetchScoreboard(LEAGUES[L.key].path, range) };
       } catch (e) {
         const p = prev[L.key];
         return p?.events ? { L, events: p.events, stale: true } : { L, error: e.message };
@@ -857,6 +912,7 @@ function renderApps() {
   bar.innerHTML = apps.map((a) => `<a class="app" href="${esc(a.url)}" target="_blank" rel="noopener">${appIcon(a)}<span>${esc(a.name)}</span></a>`).join("") +
     `<button class="app app-edit" data-config="apps" title="Edit apps"><span class="app-ico plus">+</span><span>Edit</span></button>`;
   renderMore();
+  if (!$("#appsPop").hidden) renderAppsPop();
 }
 
 function renderMore() {
@@ -875,6 +931,17 @@ function renderMore() {
     <button class="btn primary wide" data-config="general">Customize layout, teams, feeds & cities</button>
     <button class="btn wide" data-quick="refresh">⟳ Refresh everything</button>
     <p class="more-foot">Scores: ESPN · Weather: Open-Meteo · Alerts: NWS & Environment Canada · Quotes: Yahoo Finance (may be delayed) · News: publisher RSS feeds.</p>`;
+}
+
+function renderAppsPop() {
+  $("#appsPop").innerHTML = `<div class="apps-pop-h">Your apps</div><div class="apps-grid">${(cfg.apps || []).map((a) => `<a class="app-tile" href="${esc(a.url)}" target="_blank" rel="noopener">${appIcon(a)}<span>${esc(a.name)}</span></a>`).join("")}
+    <button class="app-tile" data-config="apps"><span class="app-ico plus">+</span><span>Add / edit</span></button></div>`;
+}
+function toggleAppsPop(force) {
+  const pop = $("#appsPop");
+  const open = force ?? pop.hidden;
+  if (open) renderAppsPop();
+  pop.hidden = !open;
 }
 
 function setView(v) {
@@ -928,6 +995,8 @@ function schedule() {
 // ============================================================ main page events
 document.addEventListener("click", (e) => {
   const t = e.target;
+  if (t.closest("#appsBtn")) { toggleAppsPop(); return; }
+  if (!t.closest("#appsPop")) $("#appsPop").hidden = true;
   const tabBtn = t.closest("#tabbar [data-view]");
   if (tabBtn) { setView(tabBtn.dataset.view); return; }
   const sp = t.closest("[data-spmode]");
@@ -982,6 +1051,7 @@ let suggest = { target: null, results: [] };
 let citySearch = [];
 
 function openSettings(which) {
+  $("#appsPop").hidden = true;
   if (which) tab = which;
   $$("#drawerTabs button").forEach((b) => b.classList.toggle("on", b.dataset.tab === tab));
   renderSettings();
@@ -1034,7 +1104,7 @@ function setGeneral() {
     <div class="row"><span class="grow">Text size</span><span class="seg">${[["standard", "Standard"], ["large", "Larger"]].map(([v, l]) => `<button data-act="textSize" data-v="${v}" class="${cfg.textSize === v ? "on" : ""}">${l}</button>`).join("")}</span></div>
     <div class="row"><span class="grow">Markets view</span><span class="seg">${[["tiles", "Tiles"], ["list", "List"]].map(([v, l]) => `<button data-act="mkview" data-v="${v}" class="${cfg.markets.view === v ? "on" : ""}">${l}</button>`).join("")}</span></div>
     <div class="row"><span class="grow">Scrolling market ticker</span>${sw("ticker-on", cfg.ticker.on)}</div>
-    <div class="row"><span class="grow">Apps shortcut bar</span>${sw("apps-on", cfg.showApps)}</div>
+    <div class="row"><span class="grow">Also show apps bar on Home</span>${sw("apps-on", cfg.showApps)}</div>
   </div>
   <div class="set"><h4>Sections & layout</h4><p class="hint">Turn sections on/off, reorder them, and pick how wide each one is on a big screen.</p>
     ${cfg.sections
@@ -1120,7 +1190,7 @@ function setNews() {
 function setApps() {
   const A = cfg.apps;
   return `
-  <div class="set"><h4>Your apps</h4><p class="hint">Shortcuts to the sites you use every day. They appear under the header (desktop) and on the More tab (phone).</p>
+  <div class="set"><h4>Your apps</h4><p class="hint">Shortcuts to the sites you use every day. Open them from the ▦ button at the top (computer) or the More tab (phone).</p>
   ${A.map((a, i) => `<div class="row">${ord("app-move", i, A.length)}${appIcon(a)}<span class="grow">${esc(a.name)} <span class="host">${esc(hostOf(a.url))}</span></span><button class="btn sm" data-act="app-del" data-i="${i}" aria-label="Remove">✕</button></div>`).join("") || `<p class="hint">No apps yet.</p>`}
   </div>
   <div class="set"><h4>Add an app</h4>
@@ -1179,7 +1249,7 @@ function commit(...sections) { save(); sections.forEach((s) => dirty.add(s)); re
 
 async function ensureTeams(key) {
   if (teamCache[key]) return;
-  try { teamCache[key] = (await api(`/api/sports?path=${LEAGUES[key].path}&kind=teams`)).teams; }
+  try { teamCache[key] = await fetchTeams(LEAGUES[key].path); }
   catch { teamCache[key] = []; toast("Couldn't load team list"); }
 }
 

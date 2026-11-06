@@ -34,7 +34,7 @@ export default async (req: Request) => {
       redirect: "follow",
       signal: AbortSignal.timeout(9000),
     });
-    if (!r.ok) return new Response(`Feed returned ${r.status}`, { status: 502 });
+    if (!r.ok) { console.log("Feed failed:", target.hostname, r.status); return new Response(`Feed returned ${r.status}`, { status: 502 }); }
     const text = await r.text();
     if (text.length > 4_000_000) return new Response("Feed too large", { status: 502 });
     if (!/<(rss|feed|rdf:RDF)[\s>]/i.test(text.slice(0, 5000)))
