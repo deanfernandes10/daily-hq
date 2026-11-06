@@ -113,10 +113,16 @@ const SUGGESTED_FEEDS = {
   ],
 };
 
+const RIDE_APPS = [
+  { name: "Uber", url: "https://m.uber.com", icon: "🚗" },
+  { name: "Lyft", url: "https://ride.lyft.com", icon: "🚕" },
+  { name: "Uber Eats", url: "https://www.ubereats.com", icon: "🍔" },
+  { name: "DoorDash", url: "https://www.doordash.com", icon: "🥡" },
+];
 const feedsFrom = (cat, n) => SUGGESTED_FEEDS[cat].slice(0, n).map(([name, url]) => ({ name, url, on: true }));
 
 const DEFAULTS = {
-  version: 5,
+  version: 6,
   name: "Dean",
   theme: "dark",
   units: "F",
@@ -125,6 +131,7 @@ const DEFAULTS = {
   apps: [
     { name: "Executive Search", url: "https://dean-executive-search.netlify.app", icon: "💼" },
     { name: "United Airlines", url: "https://www.united.com", icon: "✈️" },
+    ...RIDE_APPS,
   ],
   sections: [
     { id: "brief", on: true, w: 8 },
@@ -264,6 +271,11 @@ function migrate(c) {
     for (const id of ["local", "industry"]) if (!c.news.categories.some((x) => x.id === id)) c.news.categories.splice(at, 0, d.news.categories.find((x) => x.id === id));
     c.markets.converter ??= true;
     c.version = 5;
+  }
+  if (c.version < 6) {
+    // v6: ride and food delivery shortcuts (only for the original profile; others choose their own)
+    if (profileId === "main") for (const a of RIDE_APPS) if (!c.apps.some((x) => x.url === a.url)) c.apps.push({ ...a });
+    c.version = 6;
   }
   c.calendars ??= []; c.saved ??= []; c.collapsed ??= {};
   c.alerts = { ...clone(DEFAULTS.alerts), ...(c.alerts || {}) };
@@ -1958,8 +1970,8 @@ function setApps() {
   <div class="set"><h4>Add an app</h4>
     <div class="inline"><input id="appIcon" placeholder="🙂" maxlength="2" title="Fallback icon if the site has none" style="flex:0 0 56px;text-align:center"><input id="appName" placeholder="Name, e.g. LinkedIn"></div>
     <div class="inline"><input id="appUrl" placeholder="https://…"><button class="btn primary" data-act="app-add">Add</button></div>
-    <div class="chips">${[["LinkedIn", "https://www.linkedin.com", "💼"], ["Gmail", "https://mail.google.com", "✉️"], ["Google Calendar", "https://calendar.google.com", "📅"], ["NJ Transit", "https://www.njtransit.com", "🚆"], ["Netlify", "https://app.netlify.com", "🌐"], ["GitHub", "https://github.com", "🐙"]]
-      .filter(([n]) => !A.some((a) => a.name === n))
+    <div class="chips">${[["LinkedIn", "https://www.linkedin.com", "💼"], ["Gmail", "https://mail.google.com", "✉️"], ["Google Calendar", "https://calendar.google.com", "📅"], ["NJ Transit", "https://www.njtransit.com", "🚆"], ["Netlify", "https://app.netlify.com", "🌐"], ["GitHub", "https://github.com", "🐙"], ...RIDE_APPS.map((a) => [a.name, a.url, a.icon]), ["Instacart", "https://www.instacart.com", "🛒"], ["OpenTable", "https://www.opentable.com", "🍽️"]]
+      .filter(([n, u]) => !A.some((a) => a.name === n || a.url === u))
       .map(([n, u, em]) => `<span class="chip add" data-act="app-sugg" data-name="${esc(n)}" data-url="${esc(u)}" data-icon="${em}">+ ${esc(n)}</span>`).join("")}</div>
   </div>`;
 }
