@@ -392,20 +392,40 @@ function trimEvents(d) {
     };
   });
 }
+async function espnJSON(url) {
+  const r = await fetch(url);
+  if (!r.ok) throw new Error(String(r.status));
+  return r.json();
+}
+let espnMode = null; // remembers which request format ESPN accepted: "range" | "days" | "proxy"
 async function fetchScoreboard(path, dates) {
-  try {
-    const r = await fetch(`${ESPN}${path}/scoreboard?limit=400&dates=${dates}`);
-    if (!r.ok) throw new Error(r.status);
-    return trimEvents(await r.json());
-  } catch {
-    return (await api(`/api/sports?path=${path}&dates=${dates}`)).events;
+  const tries = {
+    range: async () => trimEvents(await espnJSON(`${ESPN}${path}/scoreboard?dates=${dates}`)),
+    days: async () => {
+      // one request per day (yesterday-3 … +6), merged
+      const days = [...Array(10)].map((_, i) => ymd(addDays(i - 3)));
+      const res = await Promise.allSettled(days.map((d) => espnJSON(`${ESPN}${path}/scoreboard?dates=${d}`)));
+      const ok = res.filter((r) => r.status === "fulfilled");
+      if (!ok.length) throw new Error("no days");
+      const seen = new Set();
+      return ok.flatMap((r) => trimEvents(r.value)).filter((e) => !seen.has(e.id) && seen.add(e.id));
+    },
+    proxy: async () => (await api(`/api/sports?path=${path}&dates=${dates}`)).events,
+  };
+  const order = espnMode ? [espnMode, ...Object.keys(tries).filter((k) => k !== espnMode)] : Object.keys(tries);
+  let lastErr;
+  for (const k of order) {
+    try {
+      const ev = await tries[k]();
+      espnMode = k;
+      return ev;
+    } catch (e) { lastErr = e; }
   }
+  throw lastErr || new Error("Scores unavailable");
 }
 async function fetchTeams(path) {
   try {
-    const r = await fetch(`${ESPN}${path}/teams?limit=500`);
-    if (!r.ok) throw new Error(r.status);
-    const d = await r.json();
+    const d = await espnJSON(`${ESPN}${path}/teams`);
     return (d?.sports?.[0]?.leagues?.[0]?.teams || []).map((x) => x.team).filter(Boolean)
       .map((t) => ({ id: t.id, abbr: t.abbreviation, name: t.displayName, short: t.shortDisplayName, logo: t.logos?.[0]?.href }))
       .sort((a, b) => a.name.localeCompare(b.name));

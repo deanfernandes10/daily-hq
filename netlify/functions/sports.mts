@@ -3,6 +3,7 @@ import { UA, json } from "../lib/shared.mts";
 // Proxies ESPN's public scoreboard / teams API and trims it to what the dashboard needs.
 // GET /api/sports?path=hockey/nhl&dates=20261101-20261113
 // GET /api/sports?path=hockey/nhl&kind=teams
+// ESPN is picky about query formats, so several are tried (most complete first) and failures are logged.
 
 const score = (s: any) => (s && typeof s === "object" ? s.displayValue ?? s.value : s);
 
@@ -11,36 +12,43 @@ export default async (req: Request) => {
   const path = p.get("path") || "";
   if (!/^[a-z]+\/[a-z0-9.\-]+$/.test(path)) return json({ error: "Unknown league" }, 400);
   const kind = p.get("kind") || "scoreboard";
-  const base = `https://site.api.espn.com/apis/site/v2/sports/${path}`;
+  const dates = p.get("dates") || "";
+  if (dates && !/^\d{8}(-\d{8})?$/.test(dates)) return json({ error: "Bad dates" }, 400);
+  const today = new Date().toISOString().slice(0, 10).replace(/-/g, "");
 
-  let url: string;
-  if (kind === "teams") {
-    url = `${base}/teams?limit=500`;
-  } else {
-    const dates = p.get("dates") || "";
-    if (dates && !/^\d{8}(-\d{8})?$/.test(dates)) return json({ error: "Bad dates" }, 400);
-    url = `${base}/scoreboard?limit=400${dates ? `&dates=${dates}` : ""}`;
-  }
+  const variants =
+    kind === "teams"
+      ? ["teams", "teams?limit=100"]
+      : [
+          ...(dates ? [`scoreboard?dates=${dates}`, `scoreboard?dates=${dates}&limit=100`] : []),
+          "scoreboard",
+          `scoreboard?dates=${today}`,
+        ];
 
   let d: any = null;
-  let lastErr = "";
-  for (const host of ["site.api.espn.com", "site.web.api.espn.com"]) {
-    try {
-      const r = await fetch(url.replace("site.api.espn.com", host), {
-        headers: { "user-agent": UA, accept: "application/json", referer: "https://www.espn.com/" },
-        signal: AbortSignal.timeout(8000),
-      });
-      if (!r.ok) { lastErr = `${host} ${r.status}`; continue; }
-      d = await r.json();
-      break;
-    } catch (e: any) {
-      lastErr = `${host} ${e?.message || e}`;
+  let used = "";
+  const errs: string[] = [];
+  outer: for (const v of variants) {
+    for (const host of ["site.api.espn.com", "site.web.api.espn.com"]) {
+      try {
+        const r = await fetch(`https://${host}/apis/site/v2/sports/${path}/${v}`, {
+          headers: { "user-agent": UA, accept: "application/json" },
+          signal: AbortSignal.timeout(7000),
+        });
+        if (!r.ok) {
+          errs.push(`${host}/${v} -> ${r.status} ${(await r.text()).slice(0, 120).replace(/\s+/g, " ")}`);
+          continue;
+        }
+        d = await r.json();
+        used = `${host}/${v}`;
+        break outer;
+      } catch (e: any) {
+        errs.push(`${host}/${v} -> ${e?.message || e}`);
+      }
     }
   }
-  if (!d) {
-    console.log("ESPN fetch failed:", lastErr);
-    return json({ error: `ESPN unavailable (${lastErr})` }, 502);
-  }
+  if (errs.length) console.log(`ESPN ${path} ${used ? "OK via " + used + " after" : "FAILED"}:`, errs.join(" | "));
+  if (!d) return json({ error: "ESPN unavailable" }, 502);
 
   if (kind === "teams") {
     const raw = d?.sports?.[0]?.leagues?.[0]?.teams || [];
@@ -55,7 +63,7 @@ export default async (req: Request) => {
         logo: t.logos?.[0]?.href,
       }))
       .sort((a: any, b: any) => a.name.localeCompare(b.name));
-    return json({ teams }, 200, 86400);
+    return json({ teams, via: used }, 200, 86400);
   }
 
   const events = (d?.events || []).map((e: any) => {
@@ -87,7 +95,7 @@ export default async (req: Request) => {
     };
   });
   const live = events.some((e: any) => e.state === "in");
-  return json({ events }, 200, live ? 20 : 120);
+  return json({ events, via: used }, 200, live ? 20 : 120);
 };
 
 export const config = { path: "/api/sports" };
