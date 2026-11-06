@@ -195,7 +195,7 @@ const DEFAULTS = {
 
 const SECTION_META = {
   brief: { title: "Your brief", icon: "sparkles" },
-  calendar: { title: "Today", icon: "calendar-days" },
+  calendar: { title: "Calendar", icon: "calendar-days" },
   sports: { title: "Sports", icon: "trophy" },
   news: { title: "News", icon: "newspaper" },
   weather: { title: "Weather", icon: "cloud-sun" },
@@ -656,6 +656,7 @@ async function loadSports() {
   );
   anyLive = data.sports.some((r) => r.events?.some((e) => e.state === "in"));
   renderSports();
+  renderCalendar();
   stamp("sports", data.sports.some((r) => r.stale || r.error));
   updateGlance();
 }
@@ -1245,6 +1246,8 @@ function parseICS(text) {
       case "UID": cur.uid = val; break;
       case "SUMMARY": cur.title = icsText(val); break;
       case "LOCATION": cur.location = icsText(val); break;
+      case "DESCRIPTION": cur.desc = icsText(val).slice(0, 1500); break;
+      case "URL": cur.url = val; break;
       case "STATUS": cur.status = val; break;
       case "RRULE": cur.rrule = Object.fromEntries(val.split(";").map((x) => x.split("="))); break;
       case "DTSTART": { const d = icsDate(val, params); if (d) { cur.start = d.date; cur.allDay = d.allDay; } break; }
@@ -1301,55 +1304,286 @@ function expandEvents(events, from, to) {
 }
 
 async function loadCalendar() {
-  const body = $("#calendar-body");
-  if (!body) return;
+  if (!$("#calendar-body")) return;
   const cals = cfg.calendars || [];
-  if (!cals.length) { data.calendar = null; renderCalendar(); renderBrief(); return; }
-  const from = new Date(); from.setHours(0, 0, 0, 0);
-  const to = new Date(from); to.setDate(to.getDate() + 2);
-  const prev = data.calendar;
-  const results = await Promise.all(cals.map(async (c, i) => {
-    try {
-      const text = await api(`/api/ics?url=${encodeURIComponent(c.url)}`, true);
-      return { events: expandEvents(parseICS(text), from, to).map((e) => ({ ...e, cal: c.name, color: c.color || CAL_COLORS[i % CAL_COLORS.length] })) };
-    } catch (e) { return { error: `${c.name}: ${e.message}` }; }
+  const prev = data.calRaw || [];
+  data.calRaw = await Promise.all(cals.map(async (c, i) => {
+    const color = c.color || CAL_COLORS[i % CAL_COLORS.length];
+    try { return { cal: c.name, color, events: parseICS(await api(`/api/ics?url=${encodeURIComponent(c.url)}`, true)) }; }
+    catch (e) { return { cal: c.name, color, events: prev.find((p) => p.cal === c.name)?.events, error: `${c.name}: ${e.message}` }; }
   }));
-  const events = results.flatMap((r) => r.events || []).sort((a, b) => a.start - b.start);
-  const errors = results.filter((r) => r.error).map((r) => r.error);
-  data.calendar = !events.length && errors.length && prev?.events?.length ? { ...prev, errors, stale: true } : { events, errors };
+  data.calErrors = data.calRaw.filter((r) => r.error).map((r) => r.error);
+  refreshCalData();
   renderCalendar();
-  stamp("calendar", !!errors.length);
+  renderBrief();
+  stamp("calendar", !!data.calErrors.length);
 }
 const CAL_COLORS = ["#5b8cff", "#22c27a", "#f5b041", "#ff5c6c", "#a78bfa", "#38bdf8"];
+const LOCAL_CAL = "Daily HQ", LOCAL_COLOR = "#ec4899", GAME_CAL = "My games", GAME_COLOR = "#ff8a3d";
+const sod = (d) => { const x = new Date(d); x.setHours(0, 0, 0, 0); return x; };
+const dkey = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+const plusDays = (d, n) => { const x = new Date(d); x.setDate(x.getDate() + n); return x; };
+const calUI = { month: null, sel: null, list: [] };
+function calMonthView() {
+  const v = store.get(pkey("dhq-cal-view"));
+  return v ? v === "month" : !matchMedia("(max-width: 680px)").matches;
+}
+function myGames() {
+  const seen = new Set(), out = [];
+  for (const { L, events } of data.sports || [])
+    for (const e of events || []) {
+      if (!isMine(L, e) || seen.has(e.id)) continue;
+      seen.add(e.id);
+      const st = new Date(e.date);
+      out.push({ title: matchup(e), start: st, end: new Date(st.getTime() + 3 * 3600e3), cal: GAME_CAL, color: GAME_COLOR, game: true, tv: (e.broadcasts || []).slice(0, 2).join(", "), detail: e.state !== "pre" ? e.detail : "", league: L.key });
+    }
+  return out;
+}
+function calEventsBetween(from, to, games = true) {
+  const hidden = new Set(cfg.calHidden || []);
+  const out = [];
+  for (const r of data.calRaw || [])
+    if (r.events && !hidden.has(r.cal)) out.push(...expandEvents(r.events, from, to).map((e) => ({ ...e, cal: r.cal, color: r.color })));
+  if (!hidden.has(LOCAL_CAL))
+    for (const e of cfg.events || []) {
+      const st = new Date(e.start), en = new Date(e.end || e.start);
+      if (en > from && st < to) out.push({ ...e, start: st, end: en, cal: LOCAL_CAL, color: LOCAL_COLOR, local: true });
+    }
+  if (games && !hidden.has(GAME_CAL)) for (const g of myGames()) if (g.end > from && g.start < to) out.push(g);
+  return out.sort((a, b) => a.start - b.start || b.allDay - a.allDay);
+}
+// today + tomorrow, used by the brief and alerts
+function refreshCalData() {
+  const t = sod(new Date());
+  data.calendar = { events: calEventsBetween(t, plusDays(t, 2), false), errors: data.calErrors || [] };
+}
+const JOIN_RE = /https?:\/\/[^\s<>"')]*(?:teams\.microsoft\.com|teams\.live\.com|zoom\.us|meet\.google\.com|webex\.com|gotomeet|whereby\.com)[^\s<>"')]*/i;
+const joinLink = (e) => [e.location, e.desc, e.url].map((x) => (x || "").match(JOIN_RE)?.[0]).find(Boolean);
+const placeOf = (e) => {
+  const l = (e.location || "").trim();
+  return !l || /^https?:|microsoft teams|zoom meeting|google meet|webex/i.test(l) ? "" : l;
+};
+const mapsLink = (l) => `https://maps.apple.com/?q=${encodeURIComponent(l)}`;
+const untilText = (ms) => {
+  const m = Math.round(ms / 60000);
+  if (m < 1) return "starting now";
+  if (m < 60) return `in ${m} min`;
+  const h = Math.floor(m / 60), r = m % 60;
+  if (h < 24) return `in ${h}h${r ? ` ${r}m` : ""}`;
+  const d = Math.round(h / 24);
+  return `in ${d} day${d > 1 ? "s" : ""}`;
+};
+const calDayLabel = (d) => {
+  const t = sod(new Date());
+  if (sameDay(d, t)) return "Today";
+  if (sameDay(d, plusDays(t, 1))) return "Tomorrow";
+  if (sameDay(d, plusDays(t, -1))) return "Yesterday";
+  return d.toLocaleDateString([], { weekday: "long", month: "short", day: "numeric" });
+};
+function dayWeather() {
+  const w = data.weather?.find((x) => x.d)?.d?.daily;
+  const m = new Map();
+  if (w) w.time.forEach((t, i) => m.set(t, { code: w.weather_code[i], hi: Math.round(w.temperature_2m_max[i]), lo: Math.round(w.temperature_2m_min[i]), pop: w.precipitation_probability_max?.[i] }));
+  return m;
+}
+const evTime = (e) => (e.allDay ? "All day" : `${hm(e.start)}${e.end - e.start > 0 && !e.game ? ` – ${hm(e.end)}` : ""}`);
 
 function renderCalendar() {
   const body = $("#calendar-body");
   if (!body) return;
-  if (!(cfg.calendars || []).length) {
-    body.innerHTML = `<div class="empty cal-empty">${ic("calendar-days", "big")}<b>See today's meetings here</b><span>Add a private calendar link from Google, Outlook or iCloud.</span><button class="btn sm primary" data-config="calendar">Connect a calendar</button></div>`;
-    return;
+  const now = new Date(), today = sod(now);
+  calUI.sel ||= today;
+  calUI.month ||= new Date(today.getFullYear(), today.getMonth(), 1);
+  const month = calMonthView(), sel = calUI.sel;
+  let gStart, gEnd;
+  if (month) {
+    gStart = plusDays(calUI.month, -calUI.month.getDay());
+    const last = new Date(calUI.month.getFullYear(), calUI.month.getMonth() + 1, 0);
+    gEnd = plusDays(last, 7 - last.getDay());
+  } else {
+    gStart = plusDays(sel, -sel.getDay());
+    gEnd = plusDays(gStart, 7);
   }
-  const d = data.calendar;
-  if (!d) return;
+  const evs = calEventsBetween(gStart, gEnd);
+  const byDay = new Map();
+  for (const e of evs) {
+    const d = sod(e.start < gStart ? gStart : e.start);
+    do { const k = dkey(d); byDay.has(k) ? byDay.get(k).push(e) : byDay.set(k, [e]); d.setDate(d.getDate() + 1); } while (d < e.end && d < gEnd);
+  }
+  const wx = dayWeather();
+  const cells = [];
+  for (let d = new Date(gStart); d < gEnd; d = plusDays(d, 1)) {
+    const k = dkey(d), list = byDay.get(k) || [];
+    const colors = [...new Set(list.map((e) => e.color))].slice(0, 4);
+    const w = wx.get(k);
+    cells.push(`<button class="cal-d ${month && d.getMonth() !== calUI.month.getMonth() ? "out" : ""} ${sameDay(d, today) ? "today" : ""} ${sameDay(d, sel) ? "sel" : ""} ${d < today ? "past" : ""} ${[0, 6].includes(d.getDay()) ? "we" : ""}" data-cal-day="${k}" aria-label="${esc(d.toDateString())}${list.length ? `, ${list.length} events` : ""}">
+      <span class="cal-n">${d.getDate()}</span>${w && d >= today ? `<span class="cal-wx">${wmo(w.code)[0]}</span>` : ""}
+      <span class="cal-dots">${colors.map((c) => `<i style="background:${esc(c)}"></i>`).join("")}</span></button>`);
+  }
+  const title = month
+    ? calUI.month.toLocaleDateString([], { month: "long", year: "numeric" })
+    : `${gStart.toLocaleDateString([], { month: "short", day: "numeric" })} – ${plusDays(gEnd, -1).toLocaleDateString([], { month: gStart.getMonth() === plusDays(gEnd, -1).getMonth() ? undefined : "short", day: "numeric" })}`;
+
+  // filters: subscribed calendars + Daily HQ + games
+  const hidden = new Set(cfg.calHidden || []);
+  const srcs = [...(data.calRaw || []).map((r) => [r.cal, r.color]), [LOCAL_CAL, LOCAL_COLOR]];
+  if ((data.sports || []).some(({ L }) => (L.teams || []).length)) srcs.push([GAME_CAL, GAME_COLOR]);
+  const filters = srcs.length > 1 ? `<div class="cal-filters">${srcs.map(([n, c]) => `<button class="cal-f ${hidden.has(n) ? "off" : ""}" data-cal-filter="${esc(n)}" aria-pressed="${!hidden.has(n)}"><i style="background:${esc(c)}"></i>${esc(n)}</button>`).join("")}</div>` : "";
+
+  // up next (next 30 days, timed events)
+  const ahead = calEventsBetween(now, plusDays(today, 30));
+  const nextEv = ahead.find((e) => !e.allDay && e.end > now);
+  calUI.list = [];
+  const reg = (e) => calUI.list.push(e) - 1;
+  let nextHTML = "";
+  if (nextEv) {
+    const live = nextEv.start <= now, join = joinLink(nextEv), place = placeOf(nextEv);
+    nextHTML = `<div class="cal-next" style="--evc:${esc(nextEv.color)}">
+      <button class="cal-next-main" data-cal-ev="${reg(nextEv)}">
+        <small>${live ? `<span class="pill live">NOW</span> until ${hm(nextEv.end)}` : `Up next · ${esc(calDayLabel(nextEv.start))} ${hm(nextEv.start)} · <b>${untilText(nextEv.start - now)}</b>`}</small>
+        <b class="cal-next-t">${esc(nextEv.title || "Busy")}</b>
+        <span class="cal-next-m">${esc(nextEv.cal)}${nextEv.tv ? ` · ${esc(nextEv.tv)}` : ""}</span></button>
+      ${join || place ? `<div class="cal-next-acts">${join ? `<a class="btn sm primary" href="${esc(join)}" target="_blank" rel="noopener">${ic("video")} Join</a>` : ""}${place ? `<a class="btn sm" href="${esc(mapsLink(place))}" target="_blank" rel="noopener">${ic("map-pin")} ${esc(place.length > 28 ? place.slice(0, 27) + "…" : place)}</a>` : ""}</div>` : ""}
+    </div>`;
+  }
+
+  // selected day list
+  const dayEvs = calEventsBetween(sel, plusDays(sel, 1));
+  const w = wx.get(dkey(sel));
+  const dayHTML = `<div class="cal-dayh"><b>${esc(calDayLabel(sel))}</b>${calDayLabel(sel) !== sel.toLocaleDateString([], { weekday: "long", month: "short", day: "numeric" }) ? `<small>${esc(sel.toLocaleDateString([], { weekday: "short", month: "short", day: "numeric" }))}</small>` : ""}
+      ${w ? `<span class="cal-daywx">${wmo(w.code)[0]} ${w.hi}° / ${w.lo}°${w.pop >= 30 ? ` · ${w.pop}% rain` : ""}</span>` : ""}
+      <button class="mini-btn" data-cal-add="${dkey(sel)}">${ic("plus")} Add</button></div>
+    ${dayEvs.map((e) => {
+      const live = e.start <= now && e.end > now;
+      return `<button class="ev ${live ? "now" : ""} ${e.end <= now ? "past" : ""}" data-cal-ev="${reg(e)}"><span class="ev-dot" style="background:${esc(e.color)}"></span>
+        <span class="ev-main"><span class="ev-title">${e.game ? ic("trophy", "xs") + " " : ""}${esc(e.title || "Busy")}</span><span class="ev-meta">${evTime(e)}${placeOf(e) ? ` · ${esc(placeOf(e))}` : ""}${e.tv ? ` · ${esc(e.tv)}` : ""} · ${esc(e.cal)}</span></span>
+        ${live ? `<span class="pill live">NOW</span>` : joinLink(e) && e.end > now ? ic("video", "xs") : ""}</button>`;
+    }).join("") || `<div class="ev-none">Nothing scheduled. <button class="linkish" data-cal-add="${dkey(sel)}">Add something</button></div>`}`;
+
+  const connect = !(cfg.calendars || []).length ? `<div class="cal-connect">${ic("link")} Show your Outlook, Google or iCloud events here. <button class="linkish" data-config="calendar">Connect a calendar</button></div>` : "";
+  body.innerHTML = `
+    <form class="cal-quick" data-cal-quick><span class="cal-quick-ic">${ic("sparkles")}</span><input name="q" placeholder="Quick add: Lunch with Jen Tue 12:30" autocomplete="off" enterkeyhint="done"><button class="btn sm primary" type="submit" aria-label="Add">${ic("plus")}</button></form>
+    ${nextHTML}
+    <div class="cal-top">
+      <div class="cal-nav"><button class="icon-btn sm" data-cal-nav="-1" aria-label="Previous">${ic("chevron-left")}</button><b>${esc(title)}</b><button class="icon-btn sm" data-cal-nav="1" aria-label="Next">${ic("chevron-right")}</button></div>
+      <div class="cal-acts"><button class="mini-btn" data-cal-today>Today</button><button class="mini-btn" data-cal-view>${month ? "Week" : "Month"}</button></div>
+    </div>
+    <div class="cal-grid ${month ? "month" : "week"}">${["S", "M", "T", "W", "T", "F", "S"].map((x) => `<span class="cal-dow">${x}</span>`).join("")}${cells.join("")}</div>
+    ${filters}
+    <div class="cal-day">${dayHTML}</div>
+    ${connect}
+    ${data.calErrors?.length ? `<div class="err">${esc(data.calErrors.join(" · "))}</div>` : ""}`;
+}
+
+// ---------- quick add: "Lunch with Jen Tue 12:30", "Dentist Nov 12 3pm for 45m", "Gym tomorrow 6am"
+const MONTHS3 = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"];
+function parseQuick(text, base) {
+  let s = ` ${text.trim()} `;
   const now = new Date();
-  const today = new Date(); today.setHours(0, 0, 0, 0);
-  const tomorrow = new Date(today); tomorrow.setDate(tomorrow.getDate() + 1);
-  const row = (e) => {
-    const live = e.start <= now && e.end > now;
-    const t = e.allDay ? "All day" : `${hm(e.start)}${e.end - e.start > 0 ? `–${hm(e.end)}` : ""}`;
-    return `<div class="ev ${live ? "now" : ""} ${e.end <= now ? "past" : ""}"><span class="ev-dot" style="background:${esc(e.color)}"></span>
-      <div class="ev-main"><div class="ev-title">${esc(e.title || "Busy")}</div><div class="ev-meta">${t}${e.location ? ` · ${esc(e.location)}` : ""}${(cfg.calendars || []).length > 1 ? ` · ${esc(e.cal)}` : ""}</div></div>
-      ${live ? `<span class="pill live">NOW</span>` : ""}</div>`;
-  };
-  const todays = d.events.filter((e) => e.start < tomorrow && e.end > today);
-  const tmr = d.events.filter((e) => e.start >= tomorrow);
-  const next = todays.find((e) => e.start > now && !e.allDay);
-  const mins = next ? Math.round((next.start - now) / 60000) : null;
-  body.innerHTML =
-    (next ? `<div class="ev-next">${ic("clock")} Next: <b>${esc(next.title || "Busy")}</b> ${mins < 60 ? `in ${mins} min` : `at ${hm(next.start)}`}</div>` : "") +
-    `<div class="ev-day">Today</div>${todays.map(row).join("") || `<div class="ev-none">Nothing on the calendar today.</div>`}` +
-    `<div class="ev-day">Tomorrow</div>${tmr.slice(0, 6).map(row).join("") || `<div class="ev-none">Nothing scheduled.</div>`}` +
-    (d.errors?.length ? `<div class="err">${esc(d.errors.join(" · "))}</div>` : "");
+  let date = null, time = null, dur = 60;
+  const take = (re, fn) => { const m = s.match(re); if (!m) return false; fn(m); s = s.replace(m[0], " "); return true; };
+  take(/\s(?:for\s)?(\d+(?:\.\d+)?)\s?(hours?|hrs?|h|minutes?|mins?|m)(?=\s)/i, (m) => (dur = /^h/i.test(m[2]) ? +m[1] * 60 : +m[1]));
+  take(/\s(today|tonight)(?=\s)/i, (m) => { date = sod(now); if (/night/i.test(m[1])) time = [19, 0]; }) ||
+    take(/\s(?:tomorrow|tmrw|tmr)(?=\s)/i, () => (date = plusDays(sod(now), 1))) ||
+    take(/\s(?:on\s)?(next\s)?(sun|mon|tue|wed|thu|fri|sat)[a-z]*\.?(?=\s)/i, (m) => {
+      const t = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"].indexOf(m[2].toLowerCase());
+      let add = (t - now.getDay() + 7) % 7;
+      if (add === 0 || m[1]) add += add === 0 ? 7 : 0;
+      date = plusDays(sod(now), add);
+    }) ||
+    take(/\s(?:on\s)?(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.?\s(\d{1,2})(?:st|nd|rd|th)?,?(?=\s)/i, (m) => {
+      date = new Date(now.getFullYear(), MONTHS3.indexOf(m[1].toLowerCase()), +m[2]);
+      if (date < sod(now)) date.setFullYear(date.getFullYear() + 1);
+    }) ||
+    take(/\s(?:on\s)?(\d{1,2})\/(\d{1,2})(?=\s)/, (m) => {
+      date = new Date(now.getFullYear(), +m[1] - 1, +m[2]);
+      if (date < sod(now)) date.setFullYear(date.getFullYear() + 1);
+    });
+  take(/\s(?:at\s|@\s?)?(\d{1,2})(?::(\d{2}))?\s?(am|pm|a|p)(?=\s)/i, (m) => { let h = +m[1] % 12; if (/^p/i.test(m[3])) h += 12; time = [h, +(m[2] || 0)]; }) ||
+    take(/\s(?:at\s|@\s?)?(\d{1,2}):(\d{2})(?=\s)/, (m) => { let h = +m[1]; if (h < 7) h += 12; time = [h, +m[2]]; }) ||
+    take(/\s(?:at\s)?(noon|midnight)(?=\s)/i, (m) => (time = /noon/i.test(m[1]) ? [12, 0] : [0, 0])) ||
+    take(/\s(?:at|@)\s(\d{1,2})(?=\s)/i, (m) => { let h = +m[1]; if (h < 7) h += 12; time = [h, 0]; });
+  date ||= sod(base || now);
+  const start = new Date(date);
+  if (time) start.setHours(time[0], time[1], 0, 0);
+  const end = time ? new Date(start.getTime() + dur * 60000) : plusDays(start, 1);
+  const title = s.replace(/\s(at|on|@)\s*$/i, " ").replace(/\s+/g, " ").trim();
+  return { title: title || "New event", start, end, allDay: !time };
+}
+
+// ---------- local events + "send to your calendar"
+const toLocalInput = (d) => `${dkey(d)}T${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+const icsStamp = (d) => d.toISOString().replace(/[-:]/g, "").replace(/\.\d{3}/, "");
+function sendLinks(e) {
+  const st = new Date(e.start), en = new Date(e.end);
+  const q = (o) => Object.entries(o).filter(([, v]) => v !== "" && v != null).map(([k, v]) => `${k}=${encodeURIComponent(v)}`).join("&");
+  const allEnd = plusDays(sod(en), sameDay(st, en) || en.getHours() || en.getMinutes() ? 1 : 0);
+  const ol = (host) => `https://${host}/calendar/0/deeplink/compose?` + q({ path: "/calendar/action/compose", rru: "addevent", subject: e.title, startdt: e.allDay ? dkey(st) : st.toISOString(), enddt: e.allDay ? dkey(allEnd) : en.toISOString(), allday: e.allDay ? "true" : "", location: e.location, body: e.notes });
+  const g = "https://calendar.google.com/calendar/render?" + q({ action: "TEMPLATE", text: e.title, dates: e.allDay ? `${ymd(st)}/${ymd(allEnd)}` : `${icsStamp(st)}/${icsStamp(en)}`, location: e.location, details: e.notes });
+  const ics = "/api/event.ics?" + q({ title: e.title, start: e.allDay ? ymd(st) : icsStamp(st), end: e.allDay ? ymd(allEnd) : icsStamp(en), location: e.location, notes: e.notes });
+  return `<div class="send-cal"><small>Also add it to your calendar</small><div class="send-btns">
+    <a class="btn sm" href="${esc(ol("outlook.live.com"))}" target="_blank" rel="noopener">${ic("mail")} Outlook.com</a>
+    <a class="btn sm" href="${esc(ol("outlook.office.com"))}" target="_blank" rel="noopener">${ic("briefcase")} Outlook (work)</a>
+    <a class="btn sm" href="${esc(g)}" target="_blank" rel="noopener">${ic("calendar-days")} Google</a>
+    <a class="btn sm" href="${esc(ics)}">${ic("smartphone")} iPhone / Apple</a></div>
+    <p class="hint">Opens that calendar with everything filled in — tap Save there. Subscribed calendars can take a while to refresh in Daily HQ.</p></div>`;
+}
+function eventForm(e = {}) {
+  const st = e.start ? new Date(e.start) : (() => { const d = new Date(calUI.sel || new Date()); const n = new Date(); d.setHours(n.getHours() + 1, 0, 0, 0); return d; })();
+  const en = e.end ? new Date(e.end) : new Date(st.getTime() + 3600e3);
+  openModal(`${ic(e.id ? "pencil" : "calendar-plus")} ${e.id ? "Edit event" : "New event"}`, `
+    <form class="ev-form" data-ev-form="${esc(e.id || "")}">
+      <label class="fld">What<input name="title" value="${esc(e.title || "")}" placeholder="e.g. Lunch with Jen" required></label>
+      <label class="chk"><input type="checkbox" name="allDay" ${e.allDay ? "checked" : ""}> All day</label>
+      <div class="ev-when">
+        <label class="fld">Starts<input type="${e.allDay ? "date" : "datetime-local"}" name="start" value="${e.allDay ? dkey(st) : toLocalInput(st)}" required></label>
+        <label class="fld">Ends<input type="${e.allDay ? "date" : "datetime-local"}" name="end" value="${e.allDay ? dkey(plusDays(en, sameDay(st, en) ? 0 : -1)) : toLocalInput(en)}"></label>
+      </div>
+      <label class="fld">Where<input name="location" value="${esc(e.location || "")}" placeholder="Address or meeting link"></label>
+      <label class="fld">Notes<textarea name="notes" rows="2">${esc(e.notes || "")}</textarea></label>
+      <button class="btn primary wide" type="submit">${ic("check")} ${e.id ? "Save changes" : "Save to Daily HQ"}</button>
+    </form>`);
+}
+function saveEventForm(form) {
+  const f = new FormData(form), allDay = !!f.get("allDay");
+  const parse = (v) => (allDay ? new Date(v + "T00:00") : new Date(v));
+  const start = parse(f.get("start"));
+  if (isNaN(start)) return toast("Pick a start date");
+  let end = f.get("end") ? parse(f.get("end")) : null;
+  if (allDay) end = plusDays(end && !isNaN(end) && end >= start ? end : start, 1);
+  else if (!end || isNaN(end) || end <= start) end = new Date(start.getTime() + 3600e3);
+  const id = form.dataset.evForm || `l${Date.now().toString(36)}`;
+  const ev = { id, title: (f.get("title") || "").trim() || "New event", start: start.toISOString(), end: end.toISOString(), allDay, location: (f.get("location") || "").trim(), notes: (f.get("notes") || "").trim() };
+  addLocalEvent(ev);
+  showEvent(ev, true);
+}
+function addLocalEvent(ev) {
+  cfg.events = (cfg.events || []).filter((x) => x.id !== ev.id);
+  cfg.events.push(ev);
+  const cutoff = Date.now() - 120 * 864e5;
+  cfg.events = cfg.events.filter((x) => new Date(x.end) > cutoff).sort((a, b) => new Date(a.start) - new Date(b.start));
+  calUI.sel = sod(new Date(ev.start));
+  calUI.month = new Date(calUI.sel.getFullYear(), calUI.sel.getMonth(), 1);
+  save(); refreshCalData(); renderCalendar(); renderBrief();
+}
+function showEvent(e, justSaved = false) {
+  const st = new Date(e.start), en = new Date(e.end);
+  const join = joinLink(e), place = placeOf(e);
+  const when2 = e.allDay ? `${calDayLabel(st)} · All day` : `${calDayLabel(st)} · ${hm(st)}${e.game ? "" : ` – ${hm(en)}`}`;
+  const local = e.local || (cfg.events || []).some((x) => x.id === e.id);
+  openModal(`${e.game ? ic("trophy") : ic("calendar-days")} ${esc(e.title || "Busy")}`, `
+    ${justSaved ? `<div class="ok-note">${ic("check")} Saved to Daily HQ${cfg.sync?.code ? " and synced to your devices" : ""}.</div>` : ""}
+    <div class="ev-det">
+      <div>${ic("clock")} ${esc(when2)}${!e.allDay && en > new Date() && st > new Date() ? ` <small>(${untilText(st - new Date())})</small>` : ""}</div>
+      <div><i class="ev-dot" style="background:${esc(e.color || LOCAL_COLOR)}"></i> ${esc(e.cal || LOCAL_CAL)}</div>
+      ${e.tv ? `<div>${ic("tv")} ${esc(e.tv)}</div>` : ""}
+      ${place ? `<div>${ic("map-pin")} <a href="${esc(mapsLink(place))}" target="_blank" rel="noopener">${esc(place)}</a></div>` : ""}
+      ${join ? `<a class="btn primary wide" href="${esc(join)}" target="_blank" rel="noopener">${ic("video")} Join meeting</a>` : ""}
+      ${e.notes ? `<p class="ev-notes">${esc(e.notes)}</p>` : e.desc && !e.game ? `<p class="ev-notes">${esc(e.desc.slice(0, 400))}${e.desc.length > 400 ? "…" : ""}</p>` : ""}
+    </div>
+    ${local ? sendLinks(e) + `<div class="ev-acts"><button class="btn" data-ev-edit="${esc(e.id)}">${ic("pencil")} Edit</button><button class="btn danger" data-ev-del="${esc(e.id)}">${ic("trash-2")} Delete</button></div>` : ""}
+    ${e.game ? `<button class="btn wide" data-cal-scores>${ic("trophy")} Open Scores</button>` : ""}
+    ${!local && !e.game ? `<p class="hint">From your ${esc(e.cal)} calendar — edit it there.</p>` : ""}`);
 }
 
 // ============================================================ brief
@@ -1373,7 +1607,7 @@ function renderBrief() {
       rows.push(`<div class="br-row warn">${ic("triangle-alert")}<div><b>${esc(a.al.event)}</b> for ${esc(a.city)}${a.al.ends ? ` until ${esc(when(a.al.ends))}` : ""}.</div></div>`);
   }
   // calendar
-  if ((cfg.calendars || []).length && data.calendar) {
+  if (((cfg.calendars || []).length || (cfg.events || []).length) && data.calendar) {
     const now = new Date(), end = new Date(); end.setHours(23, 59, 59);
     const left = data.calendar.events.filter((e) => e.end > now && e.start <= end && !e.allDay);
     const next = left.find((e) => e.start > now) || left[0];
@@ -2146,7 +2380,7 @@ function schedule() {
     if (due("news", 10 * 60e3)) todo.push("news");
     if (due("weather", 10 * 60e3)) todo.push("weather");
     if ((cfg.calendars || []).length && due("calendar", 15 * 60e3)) todo.push("calendar");
-    if ($("#calendar-body") && data.calendar) renderCalendar();
+    if ($("#calendar-body")) { refreshCalData(); renderCalendar(); }
     if (todo.length) refresh(todo);
     tickClock();
   }, 15e3);
@@ -2168,6 +2402,37 @@ function toggleFlag(obj, key, id, box, btn) {
 document.addEventListener("click", async (e) => {
   const t = e.target;
   if (t.closest("[data-modal-close]") || t.id === "modal") { closeModal(); return; }
+  if (t.closest("[data-cal-scores]")) { closeModal(); if (matchMedia("(max-width: 680px)").matches) setView("sports"); else $("#sec-sports")?.scrollIntoView({ behavior: "smooth" }); return; }
+  const cd = t.closest("[data-cal-day]");
+  if (cd) {
+    const [y, m, d] = cd.dataset.calDay.split("-").map(Number);
+    calUI.sel = new Date(y, m - 1, d);
+    if (calUI.month && calUI.sel.getMonth() !== calUI.month.getMonth()) calUI.month = new Date(y, m - 1, 1);
+    renderCalendar(); return;
+  }
+  const cn = t.closest("[data-cal-nav]");
+  if (cn) {
+    const k = +cn.dataset.calNav;
+    if (calMonthView()) { calUI.month = new Date(calUI.month.getFullYear(), calUI.month.getMonth() + k, 1); const td = sod(new Date()); calUI.sel = calUI.month.getMonth() === td.getMonth() && calUI.month.getFullYear() === td.getFullYear() ? td : calUI.month; }
+    else { calUI.sel = plusDays(calUI.sel, 7 * k); calUI.month = new Date(calUI.sel.getFullYear(), calUI.sel.getMonth(), 1); }
+    renderCalendar(); return;
+  }
+  if (t.closest("[data-cal-today]")) { calUI.sel = sod(new Date()); calUI.month = new Date(calUI.sel.getFullYear(), calUI.sel.getMonth(), 1); renderCalendar(); return; }
+  if (t.closest("[data-cal-view]")) { store.set(pkey("dhq-cal-view"), calMonthView() ? "week" : "month"); calUI.month = new Date(calUI.sel.getFullYear(), calUI.sel.getMonth(), 1); renderCalendar(); return; }
+  const cf = t.closest("[data-cal-filter]");
+  if (cf) { const n = cf.dataset.calFilter, h = new Set(cfg.calHidden || []); h.has(n) ? h.delete(n) : h.add(n); cfg.calHidden = [...h]; save(); refreshCalData(); renderCalendar(); renderBrief(); return; }
+  const cadd = t.closest("[data-cal-add]");
+  if (cadd) { const v = cadd.dataset.calAdd; if (v) { const [y, m, d] = v.split("-").map(Number); calUI.sel = new Date(y, m - 1, d); } eventForm(); return; }
+  const ce = t.closest("[data-cal-ev]");
+  if (ce) { const ev = calUI.list[+ce.dataset.calEv]; if (ev) showEvent(ev); return; }
+  const ee = t.closest("[data-ev-edit]");
+  if (ee) { const ev = (cfg.events || []).find((x) => x.id === ee.dataset.evEdit); if (ev) eventForm(ev); return; }
+  const ed = t.closest("[data-ev-del]");
+  if (ed) {
+    if (!ed.dataset.confirm) { ed.dataset.confirm = 1; ed.innerHTML = `${ic("trash-2")} Tap again to delete`; return; }
+    cfg.events = (cfg.events || []).filter((x) => x.id !== ed.dataset.evDel);
+    save(); closeModal(); refreshCalData(); renderCalendar(); renderBrief(); toast("Event deleted"); return;
+  }
   const wa = t.closest("[data-w]");
   if (wa) { welcomeAction(wa); return; }
   const sv = t.closest("[data-save]");
@@ -2318,7 +2583,31 @@ document.addEventListener("toggle", (e) => {
 document.addEventListener("focusout", (e) => {
   if (e.target.closest?.("[data-mort-box]") && renderMarkets.pending) setTimeout(() => { if (!document.activeElement?.closest?.("[data-mort-box]")) { renderMarkets.pending = false; renderMarkets(); } }, 50);
 });
+document.addEventListener("submit", (e) => {
+  const q = e.target.closest("[data-cal-quick]");
+  if (q) {
+    e.preventDefault();
+    const text = q.q.value.trim();
+    if (!text) return eventForm();
+    const p = parseQuick(text, calUI.sel);
+    const ev = { id: `l${Date.now().toString(36)}`, title: p.title, start: p.start.toISOString(), end: p.end.toISOString(), allDay: p.allDay, location: "", notes: "" };
+    addLocalEvent(ev);
+    showEvent(ev, true);
+    return;
+  }
+  const f = e.target.closest("[data-ev-form]");
+  if (f) { e.preventDefault(); saveEventForm(f); }
+});
 document.addEventListener("change", (e) => {
+  if (e.target.name === "allDay" && e.target.closest("[data-ev-form]")) {
+    const form = e.target.closest("form"), ad = e.target.checked;
+    for (const n of ["start", "end"]) {
+      const inp = form[n], v = inp.value;
+      inp.type = ad ? "date" : "datetime-local";
+      inp.value = ad ? v.slice(0, 10) : v ? `${v.slice(0, 10)}T${n === "start" ? "09:00" : "10:00"}` : "";
+    }
+    return;
+  }
   const f = e.target.dataset?.mort; if (!f) return;
   const m = mortgageDefaults();
   m[f] = e.target.type === "checkbox" ? e.target.checked : e.target.value;
