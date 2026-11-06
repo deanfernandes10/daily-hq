@@ -730,3 +730,13 @@ body.modal-open { overflow: hidden; }
 .mort-shock i { font-style: normal; }
 .mort-shock .q { color: var(--warn); }
 @media (max-width: 680px) { .re-two { grid-template-columns: 1fr; } .re-tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); } .re-tile b { font-size: 18px; } }
+
+/* Markets tabs */
+.mk-tabs { margin-bottom: 4px; }
+.mk-tabs button { white-space: nowrap; }
+.re-mk { display: grid; gap: 10px; }
+.re-mk .re-col { padding: 10px 12px; border: 1px solid var(--line); border-radius: 12px; }
+.re-mk .mk-reareas { display: flex; gap: 6px; flex-wrap: wrap; }
+.re-mk .mk-reareas .chip { padding: 5px 11px; border-radius: 999px; border: 1px solid var(--line); background: transparent; color: var(--text); font: inherit; font-size: 13px; cursor: pointer; }
+.re-mk .mk-reareas .chip.on { background: var(--sec); border-color: var(--sec); color: #fff; }
+.linkish { background: none; border: 0; padding: 0; color: var(--sec); font: inherit; cursor: pointer; text-decoration: underline; }

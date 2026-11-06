@@ -122,8 +122,8 @@ const RIDE_APPS = [
 const feedsFrom = (cat, n) => SUGGESTED_FEEDS[cat].slice(0, n).map(([name, url]) => ({ name, url, on: true }));
 
 const DEFAULTS = {
-  version: 8,
-  realestate: { country: "CA", areas: { CA: ["Ontario", "Mississauga"], US: ["New Jersey", "Monmouth County"] }, area: { CA: "", US: "" } },
+  version: 9,
+  realestate: { country: "CA", areas: { CA: ["Ontario", "GTA", "Mississauga", "Brampton", "Oakville", "Hamilton", "Ottawa", "Kitchener-Waterloo"], US: ["New Jersey", "Monmouth County"] }, area: { CA: "", US: "" } },
   name: "Dean",
   theme: "dark",
   units: "F",
@@ -235,7 +235,7 @@ function freshDefaults(name = "") {
     if (c.id === "local") c.feeds = [];
     if (c.id === "industry" || c.id === "leadership") c.on = false;
   }
-  d.realestate = { country: "US", areas: { CA: [], US: [] }, area: { CA: "", US: "" } };
+  d.realestate = { country: "CA", areas: { CA: ["Ontario", "GTA", "Ottawa", "Hamilton"], US: [] }, area: { CA: "", US: "" } };
   d.needsSetup = true;
   return d;
 }
@@ -287,6 +287,15 @@ function migrate(c) {
     const areasFrom = (x, fb) => (x?.region ? [x.region, x.city].filter(Boolean) : fb);
     c.realestate = { country: o.country || d.country, areas: { CA: areasFrom(o.CA, d.areas.CA), US: areasFrom(o.US, d.areas.US) }, area: { CA: "", US: "" } };
     c.version = 8;
+  }
+  if (c.version < 9) {
+    // v9: Canada/Ontario first — add the Ontario areas that now carry local board data
+    const r = c.realestate || (c.realestate = clone(DEFAULTS.realestate));
+    r.areas ||= { CA: [], US: [] };
+    const ca = (r.areas.CA ||= []);
+    if (!ca.includes("Ontario")) ca.unshift("Ontario");
+    ["GTA", "Mississauga", "Brampton", "Oakville", "Hamilton", "Ottawa", "Kitchener-Waterloo"].forEach((a) => { if (!ca.includes(a)) ca.push(a); });
+    c.version = 9;
   }
   c.calendars ??= []; c.saved ??= []; c.collapsed ??= {};
   c.alerts = { ...clone(DEFAULTS.alerts), ...(c.alerts || {}) };
@@ -1079,42 +1088,82 @@ function renderMarkets(force = false) {
   const body = $("#markets-body");
   if (!body) return;
   if (!cfg.markets.groups.length) { body.innerHTML = emptyState("No watchlists yet.", "markets"); return; }
+  const tabsList = marketTabs();
+  let tab = cfg.markets.tab || "all";
+  if (!tabsList.some(([k]) => k === tab)) tab = "all";
+  const tabBar = `<div class="tabs mk-tabs" role="tablist">${tabsList.map(([k, l, i]) => `<button data-mktab="${esc(k)}" class="${k === tab ? "on" : ""}">${i ? ic(i, "xs") + " " : ""}${l}</button>`).join("")}</div>`;
+  const err = data.marketsError ? `<div class="err">Some quotes are delayed — showing the last prices received.</div>` : "";
+  if (tab.startsWith("re:")) { body.innerHTML = tabBar + reMarketTabHTML(tab.slice(3)); return; }
+  if (tab === "fx") { body.innerHTML = tabBar + converterHTML(true) + fxGroupHTML(); return; }
+  const groups = tab.startsWith("grp:") ? cfg.markets.groups.filter((g) => g.name === tab.slice(4)) : cfg.markets.groups;
+  const extras = tab === "all" ? realEstateMarketsHTML() + converterHTML() : "";
   const viewSeg = `<div class="seg mk-view">${[["tiles", "layout-grid", "Tiles"], ["list", "list", "List"]].map(([v, i, l]) => `<button data-mkview="${v}" class="${cfg.markets.view === v ? "on" : ""}">${ic(i)} ${l}</button>`).join("")}</div>`;
-  if (cfg.markets.view === "list") {
-    body.innerHTML = viewSeg + cfg.markets.groups.map((g) => `<div class="mk-group ${cfg.markets.collapsed?.[g.name] ? "collapsed" : ""}"><h3><button data-grp-toggle="${esc(g.name)}">${ic("chevron-down", "chev")}${esc(g.name)} <small>${g.symbols.length}</small></button></h3><div class="mk-list">${g.symbols.map((s) => {
-      const q = data.quotes[s];
-      if (!q || q.error) return `<div class="mk-row"><span class="sym">${esc(label(s))}</span><span class="nm">${q ? "No data" : "Loading…"}</span><span></span><span></span><span></span></div>`;
-      return `<a class="mk-row" href="https://finance.yahoo.com/quote/${encodeURIComponent(s)}" target="_blank" rel="noopener">
-        <span class="sym">${esc(label(s))}</span><span class="nm">${esc(q.name)}</span>
-        <span class="mini">${spark(q.spark, q.prev, q.change >= 0)}</span>
-        <span class="px">${fmtNum(q.price, priceDigits(q.price))}</span>
-        <span class="pct ${cls(q.change)}">${sign(q.pct)}${fmtNum(q.pct, 2)}%</span></a>`;
-    }).join("")}</div></div>`).join("") + realEstateMarketsHTML() + converterHTML() + (data.marketsError ? `<div class="err">Some quotes are delayed — showing the last prices received.</div>` : "");
-    return;
-  }
-  body.innerHTML = viewSeg +
-    cfg.markets.groups
-      .map(
-        (g) => `<div class="mk-group ${cfg.markets.collapsed?.[g.name] ? "collapsed" : ""}"><h3><button data-grp-toggle="${esc(g.name)}">${ic("chevron-down", "chev")}${esc(g.name)} <small>${g.symbols.length}</small></button></h3><div class="mk-grid">${g.symbols
-          .map((s) => {
-            const q = data.quotes[s];
-            if (!q) return `<div class="q"><div class="q-top"><span class="sym">${esc(label(s))}</span></div>${skeleton(2)}</div>`;
-            if (q.error) return `<div class="q"><div class="q-top"><span class="sym">${esc(label(s))}</span></div><div class="px">—</div><div class="nm">No data for ${esc(s)}</div></div>`;
-            const pctSuffix = s === "^TNX" ? "" : "";
-            return `<a class="q ${q.change == null ? "" : q.change >= 0 ? "q-up" : "q-down"}" href="https://finance.yahoo.com/quote/${encodeURIComponent(s)}" target="_blank" rel="noopener" title="${esc(q.name)}">
-              <div class="q-top"><span class="sym">${esc(label(s))}</span><span class="pct ${cls(q.change)}">${sign(q.pct)}${fmtNum(q.pct, 2)}%</span></div>
-              <div class="px">${fmtNum(q.price, priceDigits(q.price))}</div>
-              <div class="nm"><span class="${cls(q.change)}">${sign(q.change)}${fmtNum(q.change, priceDigits(q.price))}</span> · ${esc(q.name)}</div>
-              ${spark(q.spark, q.prev, q.change >= 0)}
-            </a>`;
-          })
-          .join("")}</div></div>`
-      )
-      .join("") + realEstateMarketsHTML() + converterHTML() + (data.marketsError ? `<div class="err">Some quotes are delayed — showing the last prices received.</div>` : "");
+  body.innerHTML = tabBar + viewSeg + groups.map((g) => groupHTML(g, tab !== "all")).join("") + extras + err;
 }
+function marketTabs() {
+  const t = [["all", "All"]];
+  cfg.markets.groups.forEach((g) => t.push([`grp:${g.name}`, esc(g.name)]));
+  if (cfg.markets.realestate) {
+    const order = reDefaults().country === "US" ? ["US", "CA"] : ["CA", "US"];
+    order.forEach((c) => t.push([`re:${c}`, `${RE_MARKETS[c].flag} Real estate ${c === "CA" ? "Canada" : "U.S."}`]));
+  }
+  if (cfg.markets.converter) t.push(["fx", "USD ⇄ CAD", "arrow-left-right"]);
+  return t;
+}
+function quoteTile(s) {
+  const q = data.quotes[s];
+  if (!q) return `<div class="q"><div class="q-top"><span class="sym">${esc(label(s))}</span></div>${skeleton(2)}</div>`;
+  if (q.error) return `<div class="q"><div class="q-top"><span class="sym">${esc(label(s))}</span></div><div class="px">—</div><div class="nm">No data for ${esc(s)}</div></div>`;
+  return `<a class="q ${q.change == null ? "" : q.change >= 0 ? "q-up" : "q-down"}" href="https://finance.yahoo.com/quote/${encodeURIComponent(s)}" target="_blank" rel="noopener" title="${esc(q.name)}">
+    <div class="q-top"><span class="sym">${esc(label(s))}</span><span class="pct ${cls(q.change)}">${sign(q.pct)}${fmtNum(q.pct, 2)}%</span></div>
+    <div class="px">${fmtNum(q.price, priceDigits(q.price))}</div>
+    <div class="nm"><span class="${cls(q.change)}">${sign(q.change)}${fmtNum(q.change, priceDigits(q.price))}</span> · ${esc(q.name)}</div>
+    ${spark(q.spark, q.prev, q.change >= 0)}
+  </a>`;
+}
+function quoteRow(s) {
+  const q = data.quotes[s];
+  if (!q || q.error) return `<div class="mk-row"><span class="sym">${esc(label(s))}</span><span class="nm">${q ? "No data" : "Loading…"}</span><span></span><span></span><span></span></div>`;
+  return `<a class="mk-row" href="https://finance.yahoo.com/quote/${encodeURIComponent(s)}" target="_blank" rel="noopener">
+    <span class="sym">${esc(label(s))}</span><span class="nm">${esc(q.name)}</span>
+    <span class="mini">${spark(q.spark, q.prev, q.change >= 0)}</span>
+    <span class="px">${fmtNum(q.price, priceDigits(q.price))}</span>
+    <span class="pct ${cls(q.change)}">${sign(q.pct)}${fmtNum(q.pct, 2)}%</span></a>`;
+}
+function groupHTML(g, single) {
+  const list = cfg.markets.view === "list";
+  const inner = list ? `<div class="mk-list">${g.symbols.map(quoteRow).join("")}</div>` : `<div class="mk-grid">${g.symbols.map(quoteTile).join("")}</div>`;
+  const col = !single && cfg.markets.collapsed?.[g.name];
+  return `<div class="mk-group ${col ? "collapsed" : ""}"><h3><button data-grp-toggle="${esc(g.name)}">${ic("chevron-down", "chev")}${esc(g.name)} <small>${g.symbols.length}</small></button></h3>${inner}</div>`;
+}
+function fxGroupHTML() {
+  const fx = ["CAD=X", "EURUSD=X", "GBPUSD=X", "JPY=X"].filter((s) => data.quotes[s]);
+  return fx.length ? `<div class="mk-group"><h3><button>${ic("arrow-left-right", "chev")}Currencies</button></h3><div class="mk-grid">${fx.map(quoteTile).join("")}</div></div>` : "";
+}
+function reMarketTabHTML(c) {
+  const M = RE_MARKETS[c], snap = RE_SNAPSHOT[c], def = reDefaults();
+  const tiles = (arr) => `<div class="re-tiles">${arr.map(([l, val, sub]) => `<div class="re-tile"><small>${esc(l)}</small><b>${esc(val)}</b><span>${esc(sub)}</span></div>`).join("")}</div>`;
+  const areas = (def.areas[c] || []).filter((a) => reLocal(a));
+  const seen = new Set();
+  const uniq = areas.filter((a) => { const k = reLocal(a).name; return !seen.has(k) && seen.add(k); });
+  let pick = marketREArea[c];
+  if (!uniq.includes(pick)) pick = uniq.includes(def.area[c]) ? def.area[c] : uniq[0];
+  const loc = pick ? reLocal(pick) : null;
+  const areaChips = uniq.length ? `<div class="chips mk-reareas">${uniq.map((a) => `<button class="chip ${a === pick ? "on" : ""}" data-mk-rearea="${c}|${esc(a)}">${esc(a)}</button>`).join("")}</div>` : "";
+  const localHTML = loc ? `<h4 class="re-h local">${ic("map-pin")} ${esc(loc.name)} <small>${esc(loc.assoc)} · ${esc(loc.period)}</small></h4>${tiles(loc.tiles)}
+    <p class="re-src">${esc(loc.summary)} <a href="${esc(loc.source)}" target="_blank" rel="noopener">Source ${ic("external-link", "xs")}</a></p>` : "";
+  return `<div class="re re-mk">
+    <div class="re-col"><b>${M.flag} ${c === "CA" ? "Canada" : "U.S."} rates</b><div class="re-rates">${RATE_ROWS[c].map(rateChip).join("") || `<span class="hint">Rates loading…</span>`}</div></div>
+    ${uniq.length ? `<h4 class="re-h">${ic("building-2")} Local markets</h4>${areaChips}${localHTML}` : ""}
+    <h4 class="re-h">${ic("flag")} National · ${esc(snap.source[0])} ${esc(snap.period)}</h4>${tiles(snap.tiles)}
+    <p class="re-src">Next update ${esc(snap.next)} · <a href="${esc(snap.source[1])}" target="_blank" rel="noopener">${esc(snap.source[0])} ${ic("external-link", "xs")}</a> · <button class="linkish" data-mk-renews="${c}">Agent briefing &amp; news ${ic("arrow-right", "xs")}</button></p>
+    ${mortgageHTML(c)}
+  </div>`;
+}
+const marketREArea = {};
 
-function converterHTML() {
-  if (!cfg.markets.converter) return "";
+function converterHTML(force = false) {
+  if (!cfg.markets.converter && !force) return "";
   const q = data.quotes["CAD=X"];
   const rate = q && !q.error ? q.price : null;
   const usd = converterHTML.usd ?? 1000;
@@ -1612,6 +1661,7 @@ const RE_LOCAL = {
       ["New listings", "16,500", "−14.4% year over year"],
       ["Active listings", "26,131", "−9.3% year over year"],
       ["Days on market", "34", "average listing DOM · 51 property DOM"],
+      ["HPI composite benchmark", "$917,600", "−4.65% · detached $1,196,400"],
     ],
     summary: "GTA sales are down 9% and new listings down 14% from a year ago, so supply is tightening while prices sit about 5% lower. Buyers can still negotiate; well-priced listings are selling in about a month.",
     buyer: ["Prices are about 5% below last year — use recent comparables to anchor offers.", "Fewer new listings means good homes get attention; be pre-approved before showings.", "Condos remain the softest segment for negotiating."],
@@ -1647,11 +1697,91 @@ const RE_LOCAL = {
     buyer: ["Expect competition on well-priced single-family homes; come in strong and pre-approved.", "Townhouse-condo prices are flat — a value angle for first-time buyers.", "Use escalation clauses carefully and set a firm ceiling."],
     seller: ["Prices are still rising; price at market, not above it, to draw multiple offers.", "Homes sell in about 28 days — prep and staging should be done before listing.", "New listings are down 7%, so supply works in sellers' favour."],
   },
+  Brampton: {
+    name: "Brampton", assoc: "TRREB", period: "September 2026", released: "2026-10-06",
+    source: "https://www.insauga.com/home-prices-drop-4-as-sales-stall-in-brampton-report/", board: "https://trreb.ca/",
+    tiles: [
+      ["Average price", "≈ −4%", "vs August · all home types"],
+      ["Detached", "$1,001,613", "234 sales · −1.9% vs August"],
+      ["Semi-detached", "$778,223", "+0.5% vs August · sales −25%"],
+      ["HPI benchmark (Mar)", "$855,000", "−11.3% year over year"],
+    ],
+    summary: "Brampton eased into the fall: average prices slipped about 4% from August and semi-detached sales fell by a quarter. Detached homes are hovering right around $1M, well under the GTA average.",
+    buyer: ["Detached homes near $1M give move-up buyers a cheaper route than Mississauga or Toronto.", "Semi sales dropped 25% month over month — room to negotiate on listings that have sat.", "Watch the condo segment, which has seen the steepest declines this year."],
+    seller: ["Price detached homes under the $1M mark when comparables allow; it widens the buyer pool.", "Slower semi sales mean presentation and pricing decide days on market.", "Use the GTA-wide drop in new listings (−14%) as a selling point for well-priced homes."],
+    parent: "GTA",
+  },
+  "Oakville-Milton": {
+    name: "Oakville & Milton", assoc: "Oakville, Milton and District Real Estate Board", period: "August 2026", released: "2026-09",
+    source: "https://stats.crea.ca/board/oakv/", board: "https://www.omdreb.ca/",
+    tiles: [
+      ["Average price", "$1,152,029", "−4.7% year over year"],
+      ["HPI benchmark", "$1,044,000", "−5.7% year over year"],
+      ["Sales", "382", "−9% year over year"],
+      ["New listings", "833", "−30.2% year over year"],
+      ["Active listings", "1,766", "−20.5% · 4.6 months of inventory"],
+      ["Oakville condo apt (Sep)", "$552,100", "TRREB HPI · −6.2% y/y"],
+    ],
+    summary: "Oakville-Milton supply is shrinking fast — new listings are down 30% and inventory 20% — while prices sit about 5% below last year. With 4.6 months of inventory, the market is moving toward balanced.",
+    buyer: ["Prices are about 5% below last year, but fewer listings means less choice — act on the right home.", "Milton offers detached product well below Oakville prices for commuting families.", "Condo apartments are the softest segment for negotiating."],
+    seller: ["With new listings down 30%, a well-prepared listing faces less competition than a year ago.", "Price to the benchmark (~$1.04M), not to 2025 sales.", "Inventory is 4.6 months — plan for a measured, not instant, sale."],
+    parent: "GTA",
+  },
+  Hamilton: {
+    name: "Hamilton", assoc: "Cornerstone Association of REALTORS®", period: "September 2026", released: "2026-10",
+    source: "https://creastats.crea.ca/board/hami", board: "https://www.cornerstone.inc/",
+    tiles: [
+      ["HPI benchmark", "$718,600", "−5.1% y/y · −1.3% vs August"],
+      ["Sales", "376", "−22.8% year over year"],
+      ["New listings", "1,061", "−24.9% year over year"],
+      ["Sales-to-new-listings", "35.4%", "buyer's market"],
+    ],
+    summary: "Hamilton remains a buyer's market: sales are down 23% from a year ago and the benchmark price is about 5% lower, with apartment-style homes seeing the largest adjustment.",
+    buyer: ["A 35% sales-to-new-listings ratio gives buyers real leverage — conditions and price reductions are on the table.", "Apartment-style homes have seen the biggest price drops this year.", "Value for GTA commuters: the benchmark is roughly $200K below the GTA composite."],
+    seller: ["Price at or slightly below the benchmark to stand out in a buyer's market.", "Expect conditional offers and longer days on market; set timelines with clients.", "New listings are down 25%, so a sharp listing still gets seen."],
+  },
+  Ottawa: {
+    name: "Ottawa", assoc: "Ottawa Real Estate Board", period: "September 2026", released: "2026-10",
+    source: "https://www.ctvnews.ca/ottawa/article/ottawa-home-sales-down-7-so-far-this-year/", board: "https://www.oreb.ca/",
+    tiles: [
+      ["Sales (Sep)", "1,010", "up from 1,002 in August"],
+      ["Sales year to date", "−7%", "vs 2025"],
+      ["Composite price (Aug)", "$637,700", "+1.0% year over year"],
+      ["Single-family (Aug)", "$726,700", "+2.2% year over year"],
+      ["Condo (Aug)", "$392,900", "−3.6% year over year"],
+      ["Sales-to-new-listings (Aug)", "47.3%", "balanced market"],
+    ],
+    summary: "Ottawa is balanced and steady: prices are roughly flat to slightly up, while sales are running about 7% behind last year. Single-family homes are holding value better than condos.",
+    buyer: ["Balanced conditions mean conditional offers (financing, inspection) are usually accepted.", "Condos are slightly cheaper than last year — the best value segment.", "Federal-workforce news moves this market; watch it when timing a purchase."],
+    seller: ["Single-family prices are still up about 2% — price to recent comparables.", "Sales are slower than last year, so expect more showings before an offer.", "Condo sellers should price sharply against competing units."],
+  },
+  "Kitchener-Waterloo": {
+    name: "Kitchener-Waterloo & Cambridge", assoc: "Cornerstone Association of REALTORS®", period: "September 2026", released: "2026-10",
+    source: "https://stats.crea.ca/board/wrar", board: "https://www.cornerstone.inc/",
+    tiles: [
+      ["K-W HPI benchmark", "$630,200", "−5.6% y/y · +0.3% vs August"],
+      ["Cambridge HPI", "$662,700", "−4.1% y/y · −0.6% vs August"],
+      ["Sales", "−18.9%", "year over year · −14.2% vs August"],
+      ["New listings", "−16.7%", "year over year · +38.4% vs August"],
+      ["Months of supply", "3.8", "−5.0% year over year"],
+    ],
+    summary: "Waterloo Region sales dropped about 19% from a year ago while new listings jumped back after summer. Benchmark prices are 4–6% below last year but have stopped falling month to month in Kitchener-Waterloo.",
+    buyer: ["Prices are 4–6% below last year and supply rose in September — more choice this fall.", "K-W benchmark ticked up from August; the bottom may be near.", "Cambridge is slightly pricier than K-W on the benchmark but still down 4% y/y."],
+    seller: ["The September jump in new listings means more competition; price to the benchmark.", "3.8 months of supply is balanced — expect normal conditions in offers.", "Lead with the home's value versus GTA prices for relocating buyers."],
+  },
 };
-const RE_ALIAS = { Toronto: "GTA", Brampton: "GTA", "Greater Toronto Area": "GTA", Manalapan: "Monmouth County" };
+const RE_ALIAS = {
+  Toronto: "GTA", "Greater Toronto Area": "GTA", Oakville: "Oakville-Milton", Milton: "Oakville-Milton",
+  Kitchener: "Kitchener-Waterloo", Waterloo: "Kitchener-Waterloo", Cambridge: "Kitchener-Waterloo", "Waterloo Region": "Kitchener-Waterloo",
+  Manalapan: "Monmouth County",
+};
 const RE_BOARDS = {
   GTA: ["TRREB", "https://trreb.ca/"], Toronto: ["TRREB", "https://trreb.ca/"], Brampton: ["TRREB", "https://trreb.ca/"], Mississauga: ["TRREB", "https://trreb.ca/"],
   Ontario: ["CREA board statistics", "https://creastats.crea.ca/en-CA/"], Ottawa: ["Ottawa Real Estate Board", "https://www.oreb.ca/"],
+  Oakville: ["OMDREB", "https://www.omdreb.ca/"], Milton: ["OMDREB", "https://www.omdreb.ca/"], "Oakville-Milton": ["OMDREB", "https://www.omdreb.ca/"],
+  Hamilton: ["Cornerstone Association of REALTORS®", "https://www.cornerstone.inc/"], Burlington: ["Cornerstone Association of REALTORS®", "https://www.cornerstone.inc/"],
+  "Kitchener-Waterloo": ["Cornerstone Association of REALTORS®", "https://www.cornerstone.inc/"], Kitchener: ["Cornerstone Association of REALTORS®", "https://www.cornerstone.inc/"], Waterloo: ["Cornerstone Association of REALTORS®", "https://www.cornerstone.inc/"], Cambridge: ["Cornerstone Association of REALTORS®", "https://www.cornerstone.inc/"],
+  London: ["London St. Thomas Association of REALTORS", "https://www.lstar.ca/"],
   Vancouver: ["Greater Vancouver Realtors", "https://www.gvrealtors.ca/"], Calgary: ["CREB", "https://www.creb.com/"],
   "New Jersey": ["New Jersey REALTORS®", "https://www.njrealtor.com/"], "Monmouth County": ["New Jersey REALTORS®", "https://www.njrealtor.com/"], Manalapan: ["New Jersey REALTORS®", "https://www.njrealtor.com/"],
   "Middlesex County": ["New Jersey REALTORS®", "https://www.njrealtor.com/"], Hoboken: ["New Jersey REALTORS®", "https://www.njrealtor.com/"], "Jersey City": ["New Jersey REALTORS®", "https://www.njrealtor.com/"], Princeton: ["New Jersey REALTORS®", "https://www.njrealtor.com/"],
@@ -1663,7 +1793,7 @@ const RE_MARKETS = {
   CA: {
     label: "Canada", flag: "🇨🇦",
     news: [["Canadian Mortgage Trends", "https://www.canadianmortgagetrends.com/feed/"], ["Canada housing", gnews("Canada housing market")], ["CREA & CMHC", gnews("CREA OR CMHC housing")]],
-    suggest: { Ontario: ["GTA", "Toronto", "Mississauga", "Oakville", "Brampton", "Milton", "Hamilton", "Ottawa"], "British Columbia": ["Vancouver", "Victoria"], Alberta: ["Calgary", "Edmonton"], Quebec: ["Montreal"], "Nova Scotia": ["Halifax"] },
+    suggest: { Ontario: ["GTA", "Toronto", "Mississauga", "Brampton", "Oakville", "Milton", "Hamilton", "Burlington", "Ottawa", "Kitchener-Waterloo", "Cambridge", "London"], "British Columbia": ["Vancouver", "Victoria"], Alberta: ["Calgary", "Edmonton"], Quebec: ["Montreal"], "Nova Scotia": ["Halifax"] },
     board: { Toronto: "https://trreb.ca/market-data/", Mississauga: "https://trreb.ca/market-data/", Brampton: "https://trreb.ca/market-data/", Ontario: "https://trreb.ca/market-data/" },
   },
   US: {
@@ -1677,7 +1807,7 @@ const HOUSING_WORDS = /hous|home|mortgage|real estate|realtor|condo|rent|listing
 const reDefaults = () => {
   const r = (cfg.realestate ||= {});
   r.country ||= "CA";
-  r.areas ||= { CA: ["Ontario", "Mississauga"], US: ["New Jersey", "Monmouth County"] };
+  r.areas ||= { CA: ["Ontario", "GTA", "Mississauga", "Brampton", "Oakville", "Hamilton", "Ottawa", "Kitchener-Waterloo"], US: ["New Jersey", "Monmouth County"] };
   r.area ||= { CA: "", US: "" };
   return r;
 };
@@ -1885,7 +2015,7 @@ function mortgageHTML(forceCountry) {
   const freqs = m.country === "CA" ? [["monthly", "Monthly"], ["biweekly", "Bi-weekly"], ["accel", "Accelerated bi-weekly"]] : [["monthly", "Monthly"], ["biweekly", "Bi-weekly"]];
   return `<div class="mort" data-mort-box>
     <div class="mort-h">${ic("house")}<b>Mortgage calculator</b>
-      <span class="seg">${["CA", "US"].map((k) => `<button data-mort-country="${k}" class="${m.country === k ? "on" : ""}">${RE_MARKETS[k].flag} ${k === "CA" ? "Canada" : "U.S."}</button>`).join("")}</span></div>
+      <span class="seg" ${forceCountry ? "hidden" : ""}>${["CA", "US"].map((k) => `<button data-mort-country="${k}" class="${m.country === k ? "on" : ""}">${RE_MARKETS[k].flag} ${k === "CA" ? "Canada" : "U.S."}</button>`).join("")}</span></div>
     <div class="mort-grid">
       <label>Home price<input data-mort="price" type="number" inputmode="numeric" value="${m.price}"></label>
       <label>Down payment %<input data-mort="downPct" type="number" inputmode="decimal" step="0.5" value="${m.downPct}"><small data-mort-hint="down">$${fmtNum(c.down, 0)}</small></label>
@@ -2131,6 +2261,16 @@ document.addEventListener("click", async (e) => {
   if (src) { newsSource[activeNews] = src.dataset.src; newsLimit[activeNews] = 0; renderNews(); return; }
   const mv = t.closest("[data-mkview]");
   if (mv) { cfg.markets.view = mv.dataset.mkview; save(); renderMarkets(); renderMore(); return; }
+  const mt = t.closest("[data-mktab]");
+  if (mt) { cfg.markets.tab = mt.dataset.mktab; save(); if (mt.dataset.mktab.startsWith("re:")) loadRates().then(() => renderMarkets(true)); renderMarkets(true); mt.parentNode && $(`[data-mktab="${CSS.escape(cfg.markets.tab)}"]`)?.scrollIntoView({ block: "nearest", inline: "center" }); return; }
+  const mra = t.closest("[data-mk-rearea]");
+  if (mra) { const [c, a] = mra.dataset.mkRearea.split("|"); marketREArea[c] = a; renderMarkets(true); return; }
+  const mrn = t.closest("[data-mk-renews]");
+  if (mrn) {
+    const c = mrn.dataset.mkRenews, rc = cfg.news.categories.find((x) => x.id === "realestate");
+    if (rc) { rc.on = true; reCur().country = c; activeNews = "realestate"; save(); loadCategory(rc).then(renderNews); renderNews(); if (matchMedia("(max-width: 680px)").matches) setView("news"); else $("#sec-news")?.scrollIntoView({ behavior: "smooth" }); }
+    return;
+  }
   const qk = t.closest("[data-quick]");
   if (qk) {
     const k = qk.dataset.quick, v = qk.dataset.v;
