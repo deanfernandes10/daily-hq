@@ -360,9 +360,10 @@ function buildShell() {
   grid.innerHTML = on
     .map((s) => {
       const m = SECTION_META[s.id];
-      return `<section class="card w-${s.w || 12}" id="sec-${s.id}" data-sec="${s.id}">
+      const col = !!cfg.collapsed?.[s.id];
+      return `<section class="card w-${s.w || 12} ${col ? "collapsed" : ""}" id="sec-${s.id}" data-sec="${s.id}">
         <div class="card-head">
-          <h2><span class="ico">${ic(m.icon)}</span>${m.title}</h2><span class="sub" id="${s.id}-sub"></span>
+          <button class="sec-toggle" data-sec-toggle="${s.id}" aria-expanded="${!col}" title="Collapse / expand">${ic("chevron-down", "chev")}<h2><span class="ico">${ic(m.icon)}</span>${m.title}</h2></button><span class="sub" id="${s.id}-sub"></span>
           <span class="spacer"></span>
           <span id="${s.id}-extra"></span>
           <button class="mini-btn" data-config="${s.id}" title="Customize ${m.title}">Edit</button>
@@ -373,7 +374,7 @@ function buildShell() {
     })
     .join("") || `<div class="card w-12"><div class="empty">All sections are hidden. <br><button class="btn" data-config="general">Customize</button></div></div>`;
 
-  $("#jump").innerHTML = on.map((s) => `<a href="#sec-${s.id}" data-sec="${s.id}">${ic(SECTION_META[s.id].icon)} ${SECTION_META[s.id].title}</a>`).join("");
+  $("#jump").innerHTML = `<button class="jump-btn" data-collapse-all="1" title="Collapse all sections">${ic("chevron-down", "rot")} Collapse all</button><button class="jump-btn" data-collapse-all="0" title="Expand all sections">${ic("chevron-down")} Expand all</button>` + on.map((s) => `<a href="#sec-${s.id}" data-sec="${s.id}">${ic(SECTION_META[s.id].icon)} ${SECTION_META[s.id].title}</a>`).join("");
   $("#ticker").hidden = !cfg.ticker.on;
 }
 
@@ -557,9 +558,9 @@ function renderSports() {
       .filter((x) => x && !seenUp.has(x.e.id) && seenUp.add(x.e.id))
       .sort((a, b) => new Date(a.e.date) - new Date(b.e.date));
     if (ups.length)
-      upnext = `<div class="upnext"><div class="upnext-h">${ic("calendar")} Coming up for your teams</div>${ups
+      upnext = `<div class="upnext ${cfg.sports.upCollapsed ? "collapsed" : ""}"><button class="upnext-h" data-up-toggle aria-expanded="${!cfg.sports.upCollapsed}">${ic("chevron-down", "chev")}${ic("calendar")} Coming up for your teams <small>${ups.length}</small></button><div class="upnext-body">${ups
         .map(({ e, L }) => `<div class="up-row ${sameDay(new Date(e.date), new Date()) ? "today" : ""}"><span class="up-when">${esc(when(e.date))}</span><span class="up-ico">${leagueBadge(L.key, "lg-logo sm")}</span><span class="up-name">${esc(matchup(e))}</span><span class="up-tv">${esc((e.broadcasts || []).slice(0, 2).join(", "))}</span></div>`)
-        .join("")}</div>`;
+        .join("")}</div></div>`;
   }
 
   const tiles = data.sports
@@ -897,7 +898,7 @@ function renderMarkets() {
   if (!cfg.markets.groups.length) { body.innerHTML = emptyState("No watchlists yet.", "markets"); return; }
   const viewSeg = `<div class="seg mk-view">${[["tiles", "layout-grid", "Tiles"], ["list", "list", "List"]].map(([v, i, l]) => `<button data-mkview="${v}" class="${cfg.markets.view === v ? "on" : ""}">${ic(i)} ${l}</button>`).join("")}</div>`;
   if (cfg.markets.view === "list") {
-    body.innerHTML = viewSeg + cfg.markets.groups.map((g) => `<div class="mk-group"><h3>${esc(g.name)}</h3><div class="mk-list">${g.symbols.map((s) => {
+    body.innerHTML = viewSeg + cfg.markets.groups.map((g) => `<div class="mk-group ${cfg.markets.collapsed?.[g.name] ? "collapsed" : ""}"><h3><button data-grp-toggle="${esc(g.name)}">${ic("chevron-down", "chev")}${esc(g.name)} <small>${g.symbols.length}</small></button></h3><div class="mk-list">${g.symbols.map((s) => {
       const q = data.quotes[s];
       if (!q || q.error) return `<div class="mk-row"><span class="sym">${esc(label(s))}</span><span class="nm">${q ? "No data" : "Loading…"}</span><span></span><span></span><span></span></div>`;
       return `<a class="mk-row" href="https://finance.yahoo.com/quote/${encodeURIComponent(s)}" target="_blank" rel="noopener">
@@ -911,7 +912,7 @@ function renderMarkets() {
   body.innerHTML = viewSeg +
     cfg.markets.groups
       .map(
-        (g) => `<div class="mk-group"><h3>${esc(g.name)}</h3><div class="mk-grid">${g.symbols
+        (g) => `<div class="mk-group ${cfg.markets.collapsed?.[g.name] ? "collapsed" : ""}"><h3><button data-grp-toggle="${esc(g.name)}">${ic("chevron-down", "chev")}${esc(g.name)} <small>${g.symbols.length}</small></button></h3><div class="mk-grid">${g.symbols
           .map((s) => {
             const q = data.quotes[s];
             if (!q) return `<div class="q"><div class="q-top"><span class="sym">${esc(label(s))}</span></div>${skeleton(2)}</div>`;
@@ -1050,6 +1051,15 @@ function schedule() {
   });
 }
 
+function toggleFlag(obj, key, id, box, btn) {
+  const next = !obj[key]?.[id];
+  obj[key] = { ...(obj[key] || {}) };
+  if (next) obj[key][id] = true; else delete obj[key][id];
+  save();
+  box.classList.toggle("collapsed", next);
+  btn.setAttribute("aria-expanded", String(!next));
+}
+
 // ============================================================ main page events
 document.addEventListener("click", (e) => {
   const t = e.target;
@@ -1059,6 +1069,20 @@ document.addEventListener("click", (e) => {
   if (vl && matchMedia("(max-width: 680px)").matches) { e.preventDefault(); setView(vl.dataset.viewLink); return; }
   const tabBtn = t.closest("#tabbar [data-view]");
   if (tabBtn) { setView(tabBtn.dataset.view); return; }
+  const stg = t.closest("[data-sec-toggle]");
+  if (stg) { toggleFlag(cfg, "collapsed", stg.dataset.secToggle, stg.closest(".card"), stg); return; }
+  const ut = t.closest("[data-up-toggle]");
+  if (ut) { cfg.sports.upCollapsed = !cfg.sports.upCollapsed; save(); ut.closest(".upnext").classList.toggle("collapsed", cfg.sports.upCollapsed); ut.setAttribute("aria-expanded", String(!cfg.sports.upCollapsed)); return; }
+  const gt = t.closest("[data-grp-toggle]");
+  if (gt) { toggleFlag(cfg.markets, "collapsed", gt.dataset.grpToggle, gt.closest(".mk-group"), gt); return; }
+  const ca = t.closest("[data-collapse-all]");
+  if (ca) {
+    const close = ca.dataset.collapseAll === "1";
+    cfg.collapsed = close ? Object.fromEntries(cfg.sections.map((x) => [x.id, true])) : {};
+    save();
+    $$(".grid > .card").forEach((c) => { c.classList.toggle("collapsed", close); c.querySelector("[data-sec-toggle]")?.setAttribute("aria-expanded", String(!close)); });
+    return;
+  }
   const lt = t.closest("[data-league-toggle]");
   if (lt) {
     const k = lt.dataset.leagueToggle;

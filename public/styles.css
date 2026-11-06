@@ -502,3 +502,26 @@ html[data-text="large"] body { zoom: 1.13; }
 .app-ico.plus .ic { width: 18px; height: 18px; position: static; }
 .app-tile .app-ico.plus .ic { width: 22px; height: 22px; }
 @media (max-width: 680px) { .wx-stats { justify-content: flex-start; } }
+
+/* ---------- collapsible sections & groups ---------- */
+.sec-toggle { display: flex; align-items: center; gap: 8px; border: 0; background: none; padding: 0; color: inherit; font: inherit; cursor: pointer; text-align: left; }
+.sec-toggle .chev, .upnext-h .chev, .mk-group h3 .chev { width: 16px; height: 16px; color: var(--muted); transition: transform 0.15s; }
+.card.collapsed .sec-toggle .chev, .upnext.collapsed .chev, .mk-group.collapsed h3 .chev { transform: rotate(-90deg); }
+.card.collapsed .card-head { margin-bottom: 0; border-bottom: 0; }
+.card.collapsed .card-body { display: none; }
+.upnext-h { display: flex; align-items: center; gap: 6px; width: 100%; border: 0; border-bottom: 1px solid var(--line); color: inherit; font: inherit; font-weight: 700; font-size: 13px; cursor: pointer; text-align: left; }
+.upnext-h small, .mk-group h3 small { color: var(--muted); font-weight: 600; margin-left: 2px; }
+.upnext.collapsed .upnext-h { border-bottom: 0; }
+.upnext.collapsed .upnext-body { display: none; }
+.mk-group h3 button { display: inline-flex; align-items: center; gap: 6px; border: 0; background: none; padding: 0; color: inherit; font: inherit; letter-spacing: inherit; text-transform: inherit; cursor: pointer; }
+.mk-group.collapsed .mk-grid, .mk-group.collapsed .mk-list { display: none; }
+.mk-group.collapsed { margin-bottom: 10px; }
+.jump-btn { padding: 6px 12px; border-radius: 999px; border: 1px dashed var(--line); background: transparent; font-size: 13px; white-space: nowrap; color: var(--muted); display: inline-flex; align-items: center; gap: 4px; }
+.jump-btn:hover { color: var(--text); border-color: var(--accent); }
+.jump-btn .ic.rot { transform: rotate(180deg); }
+.jump-btn .ic { width: 14px; height: 14px; }
+@media (max-width: 680px) {
+  /* a single-section tab always shows its content, even if collapsed on Home */
+  body:not([data-view="home"]) .card.collapsed .card-body { display: block; }
+  body:not([data-view="home"]) .card.collapsed .card-head { margin-bottom: 14px; border-bottom: 1px solid var(--line); }
+}
