@@ -24,7 +24,7 @@ async function fred(key: string) {
   try {
     const r = await fetch(`https://fred.stlouisfed.org/graph/fredgraph.csv?id=${s.id}&cosd=${daysAgo(120)}`, {
       headers: { "user-agent": UA, accept: "text/csv" },
-      signal: AbortSignal.timeout(8000),
+      signal: AbortSignal.timeout(5000),
     });
     if (!r.ok) { console.log("FRED", s.id, r.status); return null; }
     const rows = (await r.text())
@@ -66,12 +66,63 @@ async function boc() {
   }
 }
 
+// Freddie Mac's own weekly survey file (primary for US mortgage rates)
+async function freddie() {
+  try {
+    const r = await fetch("https://www.freddiemac.com/pmms/docs/PMMS_history.csv", {
+      headers: { "user-agent": UA, accept: "text/csv" },
+      signal: AbortSignal.timeout(6000),
+    });
+    if (!r.ok) { console.log("Freddie", r.status); return {}; }
+    const lines = (await r.text()).trim().split(/\r?\n/);
+    const head = lines[0].toLowerCase().split(",");
+    const iD = head.findIndex((h) => h.includes("date")), i30 = head.indexOf("pmms30"), i15 = head.indexOf("pmms15");
+    const rows = lines.slice(1).map((l) => l.split(",")).filter((c) => c[i30] && !isNaN(Number(c[i30])));
+    if (!rows.length || i30 < 0) return {};
+    const iso = (d: string) => { const m = d.match(/(\d+)\/(\d+)\/(\d{4})/); return m ? `${m[3]}-${m[1].padStart(2, "0")}-${m[2].padStart(2, "0")}` : d; };
+    const last = rows.at(-1)!, prev = rows.at(-2);
+    const out: Record<string, any> = {
+      us_30y: { label: "30-yr fixed mortgage", source: "Freddie Mac PMMS", value: Number(last[i30]), prev: prev ? Number(prev[i30]) : null, date: iso(last[iD]) },
+    };
+    if (i15 >= 0 && last[i15]) out.us_15y = { label: "15-yr fixed mortgage", source: "Freddie Mac PMMS", value: Number(last[i15]), prev: prev ? Number(prev[i15]) : null, date: iso(last[iD]) };
+    return out;
+  } catch (e: any) {
+    console.log("Freddie", e?.message);
+    return {};
+  }
+}
+// New York Fed effective fed funds rate
+async function nyfed() {
+  try {
+    const r = await fetch("https://markets.newyorkfed.org/api/rates/unsecured/effr/last/2.json", {
+      headers: { "user-agent": UA, accept: "application/json" },
+      signal: AbortSignal.timeout(6000),
+    });
+    if (!r.ok) { console.log("NYFed", r.status); return null; }
+    const d = await r.json();
+    const rows = (d.refRates || []).filter((x: any) => x.percentRate != null).sort((a: any, b: any) => String(a.effectiveDate).localeCompare(String(b.effectiveDate)));
+    if (!rows.length) return null;
+    const last = rows.at(-1), prev = rows.at(-2);
+    return { label: "Fed funds (effective)", source: "Federal Reserve Bank of New York", value: Number(last.percentRate), prev: prev ? Number(prev.percentRate) : null, date: last.effectiveDate };
+  } catch (e: any) {
+    console.log("NYFed", e?.message);
+    return null;
+  }
+}
+
 export default async () => {
-  const [us30, us15, ff, ca] = await Promise.all([fred("us_30y"), fred("us_15y"), fred("us_fedfunds"), boc()]);
-  const series: Record<string, any> = { ...ca };
-  if (us30) series.us_30y = us30;
-  if (us15) series.us_15y = us15;
-  if (ff) series.us_fedfunds = ff;
+  const [fm, ny, ca] = await Promise.all([freddie(), nyfed(), boc()]);
+  // FRED only as a backup for anything still missing
+  const [us30, us15, ff] = await Promise.all([
+    fm.us_30y ? null : fred("us_30y"),
+    fm.us_15y ? null : fred("us_15y"),
+    ny ? null : fred("us_fedfunds"),
+  ]);
+  const series: Record<string, any> = { ...ca, ...fm };
+  if (ny) series.us_fedfunds = ny;
+  if (!series.us_30y && us30) series.us_30y = us30;
+  if (!series.us_15y && us15) series.us_15y = us15;
+  if (!series.us_fedfunds && ff) series.us_fedfunds = ff;
   if (!Object.keys(series).length) return json({ error: "Rates unavailable" }, 502);
   return json({ series }, 200, 6 * 3600);
 };

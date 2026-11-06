@@ -1895,7 +1895,7 @@ function mortgageHTML(forceCountry) {
       <label>Taxes, insurance, fees / mo<input data-mort="extra" type="number" inputmode="numeric" value="${m.extra}"></label>
     </div>
     <div data-mort-out>${mortgageOutHTML(m, c)}</div>
-    <p class="mort-note">Estimates only${m.country === "CA" ? " · Canadian rates compound semi-annually; CMHC premium is added to the mortgage under 20% down" : ""}. Rates: ${m.country === "CA" ? "Bank of Canada" : "Freddie Mac via FRED"}.</p>
+    <p class="mort-note">Estimates only${m.country === "CA" ? " · Canadian rates compound semi-annually; CMHC premium is added to the mortgage under 20% down" : ""}. Rates: ${m.country === "CA" ? "Bank of Canada" : "Freddie Mac"}.</p>
   </div>`;
 }
 function realEstateMarketsHTML() {
