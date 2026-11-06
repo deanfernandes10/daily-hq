@@ -684,3 +684,49 @@ body.modal-open { overflow: hidden; }
 .mort-warn { margin-top: 10px; padding: 8px 10px; border-radius: 9px; font-size: 12.5px; background: color-mix(in srgb, var(--warn) 14%, transparent); border: 1px solid color-mix(in srgb, var(--warn) 45%, transparent); }
 .mort-note { color: var(--muted); font-size: 11.5px; margin: 8px 0 0; }
 @media (max-width: 680px) { .mort-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } .mort-h .seg { margin-left: 0; } }
+
+/* ---------- real estate briefing ---------- */
+.re-areas { border: 1px solid var(--line); border-radius: 14px; background: var(--panel-2); padding: 12px; margin-bottom: 6px; }
+.re-areas-h { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
+.re-area-btn { border: 0; background: none; font-weight: 700; font-size: 15px; color: var(--text); padding: 2px 0; }
+.re-area-btn.on { color: var(--sec); }
+.re-add { border: 0; background: none; color: var(--accent); font-weight: 600; font-size: 13px; display: inline-flex; align-items: center; gap: 4px; }
+.re-area { display: inline-flex; align-items: center; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); }
+.re-area.on { border-color: var(--sec); background: color-mix(in srgb, var(--sec) 14%, var(--panel)); }
+.re-area button { border: 0; background: none; padding: 7px 10px; font-weight: 600; font-size: 13.5px; color: var(--text); display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; }
+.re-area button.x { padding: 7px 8px 7px 2px; color: var(--muted); }
+.re-area button.x:hover { color: var(--down); }
+.re-chips.wrap { flex-wrap: wrap; overflow: visible; }
+.re-picker { margin-top: 8px; }
+.re-areas .hint { color: var(--muted); font-size: 12px; margin-top: 6px; }
+.re-h { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.re-h .ic { width: 14px; height: 14px; color: var(--sec); }
+.re-h small { text-transform: none; letter-spacing: 0; font-weight: 500; }
+.re-h.local { color: var(--text); font-size: 13px; }
+.re-tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 10px; }
+.re-tile { border: 1px solid var(--line); border-radius: 12px; background: var(--panel-2); padding: 10px 12px; display: grid; gap: 2px; }
+.re-tile small { color: var(--muted); font-size: 12px; }
+.re-tile b { font-size: 21px; font-weight: 750; letter-spacing: -0.3px; }
+.re-tile span { color: var(--muted); font-size: 12px; }
+.re-src { color: var(--muted); font-size: 11.5px; margin: 8px 0 4px; }
+.re-noloc { display: flex; gap: 10px; align-items: flex-start; padding: 10px 12px; border: 1px dashed var(--line); border-radius: 12px; margin: 12px 0 4px; font-size: 13px; }
+.re-noloc .ic { color: var(--sec); margin-top: 2px; }
+.re-callout { border-left: 4px solid var(--sec); background: color-mix(in srgb, var(--sec) 8%, var(--panel-2)); border-radius: 12px; padding: 12px 14px; margin: 14px 0; }
+.re-callout h4 { margin: 0 0 6px; font-size: 15px; }
+.re-callout h4 small { color: var(--muted); font-weight: 500; }
+.re-callout p { margin: 0 0 8px; line-height: 1.5; }
+.re-det { margin: 8px 0; }
+.re-det summary { cursor: pointer; font-weight: 700; font-size: 13.5px; padding: 6px 0; }
+.re-det-b { padding: 4px 0 6px; font-size: 13px; line-height: 1.5; }
+.re-det-b ul { margin: 4px 0; padding-left: 18px; }
+.re-two { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+.re-desk { border: 1px solid var(--line); border-radius: 14px; padding: 4px 14px 10px; margin: 14px 0; background: var(--panel-2); }
+.re-desk .hint { color: var(--muted); font-size: 12px; margin: 0 0 6px; }
+.re-for { font-size: 13px; line-height: 1.5; }
+.rate-chip em { grid-column: 1 / -1; font-style: normal; color: var(--muted); font-size: 10.5px; }
+.re-tag { color: var(--accent); }
+.mort-shock { display: flex; flex-wrap: wrap; gap: 6px 14px; align-items: center; margin-top: 10px; font-size: 12.5px; }
+.mort-shock span { font-family: var(--mono); }
+.mort-shock i { font-style: normal; }
+.mort-shock .q { color: var(--warn); }
+@media (max-width: 680px) { .re-two { grid-template-columns: 1fr; } .re-tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); } .re-tile b { font-size: 18px; } }

@@ -122,8 +122,8 @@ const RIDE_APPS = [
 const feedsFrom = (cat, n) => SUGGESTED_FEEDS[cat].slice(0, n).map(([name, url]) => ({ name, url, on: true }));
 
 const DEFAULTS = {
-  version: 7,
-  realestate: { country: "CA", CA: { region: "Ontario", city: "Mississauga" }, US: { region: "New Jersey", city: "Monmouth County" } },
+  version: 8,
+  realestate: { country: "CA", areas: { CA: ["Ontario", "Mississauga"], US: ["New Jersey", "Monmouth County"] }, area: { CA: "", US: "" } },
   name: "Dean",
   theme: "dark",
   units: "F",
@@ -235,7 +235,7 @@ function freshDefaults(name = "") {
     if (c.id === "local") c.feeds = [];
     if (c.id === "industry" || c.id === "leadership") c.on = false;
   }
-  d.realestate = { country: "US", CA: { region: "Ontario", city: "" }, US: { region: "", city: "" } };
+  d.realestate = { country: "US", areas: { CA: [], US: [] }, area: { CA: "", US: "" } };
   d.needsSetup = true;
   return d;
 }
@@ -280,7 +280,14 @@ function migrate(c) {
     if (profileId === "main") for (const a of RIDE_APPS) if (!c.apps.some((x) => x.url === a.url)) c.apps.push({ ...a });
     c.version = 6;
   }
-  if (c.version < 7) { c.markets.realestate ??= true; c.realestate ??= clone(DEFAULTS.realestate); c.version = 7; }
+  if (c.version < 7) { c.markets.realestate ??= true; c.version = 7; }
+  if (c.version < 8) {
+    // v8: real estate areas (from the earlier region/city picks)
+    const o = c.realestate || {}, d = clone(DEFAULTS.realestate);
+    const areasFrom = (x, fb) => (x?.region ? [x.region, x.city].filter(Boolean) : fb);
+    c.realestate = { country: o.country || d.country, areas: { CA: areasFrom(o.CA, d.areas.CA), US: areasFrom(o.US, d.areas.US) }, area: { CA: "", US: "" } };
+    c.version = 8;
+  }
   c.calendars ??= []; c.saved ??= []; c.collapsed ??= {};
   c.alerts = { ...clone(DEFAULTS.alerts), ...(c.alerts || {}) };
   return c;
@@ -852,6 +859,7 @@ async function loadCategory(cat) {
 }
 
 function renderNews() {
+  if (activeNews === "realestate" && document.activeElement?.closest?.(".re [data-mort-box], #reNewArea")) return;
   const body = $("#news-body");
   if (!body) return;
   const cats = cfg.news.categories.filter((c) => c.on);
@@ -1062,7 +1070,7 @@ function spark(arr, prev, up) {
 }
 
 function renderMarkets(force = false) {
-  if (!force && document.activeElement?.closest?.("#mortCalc")) { renderMarkets.pending = true; return; }
+  if (!force && document.activeElement?.closest?.("[data-mort-box]")) { renderMarkets.pending = true; return; }
   const status = $("#markets-extra");
   if (status) {
     const open = marketOpen();
@@ -1562,67 +1570,150 @@ async function welcomeAction(a) {
   }
 }
 
-// ============================================================ real estate (news tab + markets)
+// ============================================================ real estate (agent briefing + markets)
+// Official monthly snapshot — update after each release (CREA mid-month, NAR around the 2nd week).
+const RE_SNAPSHOT = {
+  CA: {
+    period: "September 2026", currency: "CAD", released: "2026-10-16", next: "2026-11-17",
+    source: ["CREA", "https://creastats.crea.ca/en-CA/"],
+    tiles: [
+      ["Average sold price", "$666,538", "−1.6% year over year"],
+      ["Sales activity", "−2.3%", "month over month · seasonally adjusted"],
+      ["HPI benchmark price", "−3.4%", "year over year (−0.4% vs August)"],
+      ["Months of inventory", "4.9", "national resale market · long-term average"],
+      ["Sales / new listings", "48.8%", "national ratio · 45–65% = balanced"],
+      ["Active listings", "200,000+", "+1.8% year over year"],
+    ],
+    snlr: 48.8, moi: 4.9, priceYoY: -1.6, salesChg: -2.3,
+  },
+  US: {
+    period: "September 2026", currency: "USD", released: "2026-10-13", next: "2026-11-12",
+    source: ["NAR", "https://www.nar.realtor/newsroom/existing-home-sales-increased-1-5-in-september-according-to-nar-report"],
+    tiles: [
+      ["Median sold price", "$417,500", "+1.3% year over year"],
+      ["Existing-home sales", "3.99M", "annual rate · +1.5% m/m, −2.2% y/y"],
+      ["Months' supply", "4.8", "4.5–6 months = balanced"],
+      ["Homes for sale", "1.60M", "+4.6% year over year"],
+      ["Single-family median", "$422,700", "+1.2% year over year"],
+      ["Condo / co-op median", "$363,700", "+1.2% year over year"],
+    ],
+    moi: 4.8, priceYoY: 1.3, salesChg: -2.2,
+  },
+};
+// Local association figures (agents need local, not just national). Update monthly.
+const RE_LOCAL = {
+  GTA: {
+    name: "Greater Toronto Area", assoc: "TRREB", period: "September 2026", released: "2026-10-06",
+    source: "https://trreb.ca/hlfiles/pdf/mw_september_2026_564895214753249.pdf",
+    tiles: [
+      ["Average sold price", "$1,006,409", "−5.1% year over year"],
+      ["Median price", "$860,000", "all home types"],
+      ["Sales", "5,040", "−9.0% year over year"],
+      ["New listings", "16,500", "−14.4% year over year"],
+      ["Active listings", "26,131", "−9.3% year over year"],
+      ["Days on market", "34", "average listing DOM · 51 property DOM"],
+    ],
+    summary: "GTA sales are down 9% and new listings down 14% from a year ago, so supply is tightening while prices sit about 5% lower. Buyers can still negotiate; well-priced listings are selling in about a month.",
+    buyer: ["Prices are about 5% below last year — use recent comparables to anchor offers.", "Fewer new listings means good homes get attention; be pre-approved before showings.", "Condos remain the softest segment for negotiating."],
+    seller: ["Price to today's comparables; last year's prices are not the benchmark.", "With new listings down 14%, a well-presented home stands out.", "Plan for about 30–50 days on market and build that into timing."],
+  },
+  Mississauga: {
+    name: "Mississauga", assoc: "TRREB", period: "September 2026", released: "2026-10-07",
+    source: "https://www.insauga.com/five-most-expensive-homes-sold-for-under-asking-in-mississauga-2/", board: "https://trreb.ca/",
+    tiles: [
+      ["Average sold price", "$929,600", "−4.1% y/y · +3.5% vs August"],
+      ["Detached", "$1,285,467", "−6.9% year over year"],
+      ["Semi-detached", "$870,161", "average price"],
+      ["Townhouse", "$980,037", "average price"],
+      ["Condo apartment", "$500,192", "−11.2% year over year"],
+    ],
+    summary: "Mississauga prices are below last year across home types, with condo apartments (−11%) softer than detached homes (−7%). Prices ticked up from August, so the slide may be levelling off.",
+    buyer: ["Condo buyers have the most leverage — about 11% below last year.", "Detached prices are about 7% lower; target homes that have sat beyond 30 days.", "Lock in a rate hold now; the monthly bump suggests prices may be stabilizing."],
+    seller: ["Condo sellers must price sharply against new competing listings.", "Detached and semi homes still draw interest when priced near recent sales.", "Top-end homes are selling under asking — set expectations with clients early."],
+    parent: "GTA",
+  },
+  "Monmouth County": {
+    name: "Monmouth County, NJ", assoc: "New Jersey REALTORS® · MLS", period: "August 2026", released: "2026-09-17",
+    source: "https://www.newjerseyrealestatenetwork.com/blog/monmouth-county-real-estate-market-update/", board: "https://www.njrealtor.com/",
+    tiles: [
+      ["Single-family median", "$815,000", "+3.7% year over year"],
+      ["Closed sales", "536", "+6.8% year over year"],
+      ["Days on market", "28", "unchanged year over year"],
+      ["New listings", "633", "−6.9% year over year"],
+      ["Year-to-date median", "$806,000", "+5.9% · 102.0% of list price"],
+      ["Townhouse-condo median", "$547,250", "+0.4% year over year"],
+    ],
+    summary: "Monmouth County is still a seller's market: single-family prices are up about 4%, homes sell in about 4 weeks, and buyers are paying about 102% of list price on average this year.",
+    buyer: ["Expect competition on well-priced single-family homes; come in strong and pre-approved.", "Townhouse-condo prices are flat — a value angle for first-time buyers.", "Use escalation clauses carefully and set a firm ceiling."],
+    seller: ["Prices are still rising; price at market, not above it, to draw multiple offers.", "Homes sell in about 28 days — prep and staging should be done before listing.", "New listings are down 7%, so supply works in sellers' favour."],
+  },
+};
+const RE_ALIAS = { Toronto: "GTA", Brampton: "GTA", "Greater Toronto Area": "GTA", Manalapan: "Monmouth County" };
+const RE_BOARDS = {
+  GTA: ["TRREB", "https://trreb.ca/"], Toronto: ["TRREB", "https://trreb.ca/"], Brampton: ["TRREB", "https://trreb.ca/"], Mississauga: ["TRREB", "https://trreb.ca/"],
+  Ontario: ["CREA board statistics", "https://creastats.crea.ca/en-CA/"], Ottawa: ["Ottawa Real Estate Board", "https://www.oreb.ca/"],
+  Vancouver: ["Greater Vancouver Realtors", "https://www.gvrealtors.ca/"], Calgary: ["CREB", "https://www.creb.com/"],
+  "New Jersey": ["New Jersey REALTORS®", "https://www.njrealtor.com/"], "Monmouth County": ["New Jersey REALTORS®", "https://www.njrealtor.com/"], Manalapan: ["New Jersey REALTORS®", "https://www.njrealtor.com/"],
+  "Middlesex County": ["New Jersey REALTORS®", "https://www.njrealtor.com/"], Hoboken: ["New Jersey REALTORS®", "https://www.njrealtor.com/"], "Jersey City": ["New Jersey REALTORS®", "https://www.njrealtor.com/"], Princeton: ["New Jersey REALTORS®", "https://www.njrealtor.com/"],
+  "New York City": ["REBNY", "https://www.rebny.com/"], Florida: ["Florida Realtors", "https://www.floridarealtors.org/"], Miami: ["MIAMI REALTORS", "https://www.miamirealtors.com/"],
+  Texas: ["Texas REALTORS", "https://www.texasrealtors.com/"], California: ["California Association of REALTORS", "https://www.car.org/"],
+};
+const reLocal = (area) => RE_LOCAL[area] || RE_LOCAL[RE_ALIAS[area]] || null;
 const RE_MARKETS = {
   CA: {
     label: "Canada", flag: "🇨🇦",
-    national: [["Canada housing", gnews("Canada housing market")], ["CREA home sales", gnews("CREA home sales")], ["Rates & mortgages", gnews("Bank of Canada mortgage rates")]],
-    regions: {
-      Ontario: ["Toronto", "Mississauga", "Oakville", "Brampton", "Milton", "Hamilton", "Ottawa"],
-      "British Columbia": ["Vancouver", "Victoria", "Kelowna"],
-      Alberta: ["Calgary", "Edmonton"],
-      Quebec: ["Montreal", "Quebec City"],
-      "Nova Scotia": ["Halifax"],
-      Manitoba: ["Winnipeg"],
-    },
+    news: [["Canadian Mortgage Trends", "https://www.canadianmortgagetrends.com/feed/"], ["Canada housing", gnews("Canada housing market")], ["CREA & CMHC", gnews("CREA OR CMHC housing")]],
+    suggest: { Ontario: ["GTA", "Toronto", "Mississauga", "Oakville", "Brampton", "Milton", "Hamilton", "Ottawa"], "British Columbia": ["Vancouver", "Victoria"], Alberta: ["Calgary", "Edmonton"], Quebec: ["Montreal"], "Nova Scotia": ["Halifax"] },
+    board: { Toronto: "https://trreb.ca/market-data/", Mississauga: "https://trreb.ca/market-data/", Brampton: "https://trreb.ca/market-data/", Ontario: "https://trreb.ca/market-data/" },
   },
   US: {
     label: "U.S.", flag: "🇺🇸",
-    national: [["US housing", gnews("US housing market")], ["Home sales (NAR)", gnews("existing home sales NAR")], ["Mortgage rates", gnews("mortgage rates Freddie Mac")]],
-    regions: {
-      "New Jersey": ["Monmouth County", "Manalapan", "Middlesex County", "Hoboken", "Jersey City", "Princeton"],
-      "New York": ["New York City", "Long Island", "Westchester"],
-      Florida: ["Miami", "Fort Lauderdale", "Tampa", "Orlando", "Naples"],
-      "North Carolina": ["Charlotte", "Raleigh"],
-      Georgia: ["Atlanta"],
-      Texas: ["Austin", "Dallas", "Houston"],
-      California: ["Los Angeles", "San Francisco", "San Diego"],
-      Pennsylvania: ["Philadelphia", "Pittsburgh"],
-    },
+    news: [["HousingWire", "https://www.housingwire.com/feed/"], ["US housing", gnews("US housing market")], ["Mortgage rates", gnews("mortgage rates Freddie Mac")]],
+    suggest: { "New Jersey": ["Monmouth County", "Manalapan", "Middlesex County", "Hoboken", "Jersey City", "Princeton"], "New York": ["New York City", "Long Island", "Westchester"], Florida: ["Miami", "Tampa", "Orlando", "Naples"], "North Carolina": ["Charlotte", "Raleigh"], Texas: ["Austin", "Dallas"], California: ["Los Angeles", "San Francisco"] },
+    board: {},
   },
 };
-const reDefaults = () => (cfg.realestate ||= { country: "CA", CA: { region: "Ontario", city: "Mississauga" }, US: { region: "New Jersey", city: "Monmouth County" } });
-let reView = null; // what's on screen now (starts from the saved default)
-const reCur = () => (reView ||= JSON.parse(JSON.stringify(reDefaults())));
+const HOUSING_WORDS = /hous|home|mortgage|real estate|realtor|condo|rent|listing|propert|apartment|cmhc|crea|trreb|nar\b|zoning|develop|builder|construction|afford|price/i;
+const reDefaults = () => {
+  const r = (cfg.realestate ||= {});
+  r.country ||= "CA";
+  r.areas ||= { CA: ["Ontario", "Mississauga"], US: ["New Jersey", "Monmouth County"] };
+  r.area ||= { CA: "", US: "" };
+  return r;
+};
+let reView = null; // what's on screen; starts at the saved default
+const reCur = () => (reView ||= { country: reDefaults().country, area: { ...reDefaults().area } });
+let rePicker = false;
 data.reSub = {};
+const reOpen = new Set(["notes"]);
 
-async function fetchFeedItems(feeds) {
+async function fetchFeedItems(feeds, onlyHousing = true) {
   const res = await Promise.all(feeds.map(async ([name, url]) => {
     try { return parseFeed(await api(`/api/feed?url=${encodeURIComponent(url)}`, true), { name }); } catch { return []; }
   }));
   const seen = new Set();
   return res.flat().filter((i) => i.title && i.link)
+    .filter((i) => !onlyHousing || HOUSING_WORDS.test(i.title + " " + (i.desc || "")))
     .filter((i) => { const k = i.title.toLowerCase().replace(/[^a-z0-9]/g, "").slice(0, 60); return !seen.has(k) && seen.add(k); })
     .filter((i) => !i.ts || i.ts > Date.now() - 10 * 86400e3)
     .sort((a, b) => b.ts - a.ts);
 }
 async function loadRE() {
   const v = reCur();
-  const nat = RE_MARKETS[v.country].national;
-  const items = await fetchFeedItems(nat);
+  const items = await fetchFeedItems(RE_MARKETS[v.country].news);
   const prev = data.news.realestate;
-  data.news.realestate = items.length || !prev ? { items, errors: items.length ? [] : ["Real estate news didn't load — will retry"], empty: false, country: v.country } : { ...prev, stale: true };
+  data.news.realestate = items.length || !prev || prev.country !== v.country ? { items, errors: [], empty: false, country: v.country } : { ...prev, stale: true };
   loadRESub();
 }
 async function loadRESub() {
-  const v = reCur(), sel = v[v.country];
-  if (!sel?.region) return;
-  const key = `${v.country}|${sel.region}|${sel.city || ""}`;
+  const v = reCur(), area = v.area[v.country];
+  if (!area) return;
+  const key = `${v.country}|${area}`;
   if (data.reSub[key]?.t > Date.now() - 10 * 60e3) return;
-  const q = sel.city ? [[`${sel.city} real estate`, gnews(`${sel.city} real estate market`)], [`${sel.city} housing`, gnews(`${sel.city} home prices`)]] : [[`${sel.region} housing`, gnews(`${sel.region} housing market`)]];
   data.reSub[key] = { loading: true, items: data.reSub[key]?.items || [] };
   if (activeNews === "realestate") renderNews();
-  data.reSub[key] = { items: await fetchFeedItems(q), t: Date.now() };
+  const items = await fetchFeedItems([[`${area} real estate`, gnews(`${area} real estate`)], [`${area} housing`, gnews(`${area} housing market`)]]);
+  data.reSub[key] = { items, t: Date.now() };
   if (activeNews === "realestate") renderNews();
 }
 const RATE_ROWS = { CA: ["ca_overnight", "ca_prime", "ca_5y_posted", "ca_5y_bond"], US: ["us_30y", "us_15y", "us_fedfunds"] };
@@ -1630,40 +1721,105 @@ function rateChip(k) {
   const r = data.rates?.series?.[k];
   if (!r) return "";
   const bp = r.prev != null ? Math.round((r.value - r.prev) * 100) : 0;
-  return `<span class="rate-chip" title="${esc(r.source)} · as of ${esc(r.date)}"><small>${esc(r.label)}</small><b>${r.value.toFixed(2)}%</b>${bp ? `<i class="${bp > 0 ? "down" : "up"}">${bp > 0 ? "▲" : "▼"}${Math.abs(bp)}bp</i>` : ""}</span>`;
+  return `<span class="rate-chip" title="${esc(r.source)} · as of ${esc(r.date)}"><small>${esc(r.label)}</small><b>${r.value.toFixed(2)}%</b>${bp ? `<i class="${bp > 0 ? "down" : "up"}">${bp > 0 ? "▲" : "▼"}${Math.abs(bp)}bp</i>` : ""}<em>${esc(r.date)}</em></span>`;
 }
-function newsItemHTML(i, saveBtn) {
+function newsItemHTML(i, saveBtn, tag = "") {
   return `<div class="item ${i.img ? "" : "noimg"}"><div><a class="t" href="${esc(i.link)}" target="_blank" rel="noopener">${esc(i.title)}</a>
-    <div class="meta">${i.ts > prevVisit ? `<span class="new"></span>` : ""}${esc(i.source)}${i.ts ? ` · ${ago(i.ts)}` : ""}${saveBtn(i)}</div></div>
+    <div class="meta">${i.ts > prevVisit ? `<span class="new"></span>` : ""}${esc(i.source)}${i.ts ? ` · ${ago(i.ts)}` : ""}${tag ? ` · <span class="re-tag">${esc(tag)}</span>` : ""}${saveBtn(i)}</div></div>
     ${i.img ? `<img src="${esc(i.img)}" alt="" loading="lazy" onerror="this.parentNode.classList.add('noimg');this.remove()">` : ""}</div>`;
 }
+function reRead(c) {
+  const s = RE_SNAPSHOT[c];
+  const bal = c === "CA" ? (s.snlr < 45 ? "buyer-leaning" : s.snlr > 65 ? "seller-leaning" : "broadly balanced") : (s.moi < 4.5 ? "seller-leaning" : s.moi > 6 ? "buyer-leaning" : "broadly balanced");
+  const price = s.priceYoY < -0.5 ? "softer prices" : s.priceYoY > 0.5 ? "prices still edging up" : "flat prices";
+  const sales = s.salesChg < 0 ? "slower sales" : "firmer sales";
+  const summary = `National conditions are ${bal}, with ${sales} and ${price}. Use local comparables before setting a pricing or offer strategy.`;
+  const buyer = c === "CA"
+    ? [`Benchmark prices are ${Math.abs(-3.4)}% lower than a year ago, so there is room to negotiate on homes that have sat.`, "Get pre-approved at the stress-test rate (contract rate + 2% or 5.25%, whichever is higher).", "In a balanced market, financing and inspection conditions are more likely to be accepted."]
+    : [`Months' supply of ${s.moi} is the highest in years, so buyers have more choice and negotiating room.`, "Lock in a rate quote and compare at least three lenders; small rate gaps add up.", "Ask about seller credits toward closing costs or a rate buydown."];
+  const seller = c === "CA"
+    ? ["Price to today's local benchmark, not last year's peak.", `With about ${s.moi} months of inventory, presentation and pricing decide days on market.`, "Expect buyers to include conditions; plan the timeline around them."]
+    : ["Prices are still up slightly year over year, but well-priced homes sell first.", "Homes now take about a month to sell nationally; plan for showings and price checks.", "Consider offering credits instead of cutting the list price."];
+  return { summary, buyer, seller };
+}
+function det(key, title, body) {
+  return `<details class="re-det" data-re-det="${key}" ${reOpen.has(key) ? "open" : ""}><summary>${title}</summary><div class="re-det-b">${body}</div></details>`;
+}
+function qualGuide(c) {
+  return c === "CA"
+    ? `<ul>
+        <li><b>Minimum down:</b> 5% of the first $500,000, 10% of the portion from $500,000 to $1.5M; 20% at $1.5M and above.</li>
+        <li><b>Under 20% down:</b> mortgage default insurance (CMHC or private): 4.00% of the loan at 5–9.99% down, 3.10% at 10–14.99%, 2.80% at 15–19.99%.</li>
+        <li><b>Stress test:</b> qualify at the higher of 5.25% or your contract rate + 2% (<a href="https://www.osfi-bsif.gc.ca/en/supervision/financial-institutions/banks/minimum-qualifying-rate-uninsured-mortgages" target="_blank" rel="noopener">OSFI</a>).</li>
+        <li><b>Debt ratios:</b> housing costs (GDS) up to about 39% of gross income; all debts (TDS) up to about 44%.</li>
+        <li><b>Amortization:</b> up to 25 years with insurance; 30 years for first-time buyers and new builds.</li>
+      </ul>`
+    : `<ul>
+        <li><b>Minimum down:</b> conventional loans from 3% (first-time buyers) or 5%; FHA 3.5%; VA and USDA can be 0% for eligible buyers.</li>
+        <li><b>Under 20% down:</b> conventional loans usually add private mortgage insurance (PMI) until you reach 20% equity.</li>
+        <li><b>Debt-to-income:</b> lenders often look for total debts around 43% of gross income or less; some programs allow up to 50%.</li>
+        <li><b>Rate shopping:</b> compare the APR, points and lender credits, not just the headline rate.</li>
+      </ul>`;
+}
 function renderREHTML(saveBtn) {
-  const v = reCur(), M = RE_MARKETS[v.country], sel = v[v.country] || {};
-  const def = reDefaults();
-  const isDef = def.country === v.country && def[v.country]?.region === sel.region && (def[v.country]?.city || "") === (sel.city || "");
-  const nat = data.news.realestate;
+  const v = reCur(), c = v.country, M = RE_MARKETS[c], area = v.area[c] || "", def = reDefaults();
+  const isDef = def.country === c && (def.area[c] || "") === area;
+  const snap = RE_SNAPSHOT[c];
+  const local = area ? reLocal(area) : null;
+  const read = local ? { summary: local.summary, buyer: local.buyer, seller: local.seller } : reRead(c);
+  const tiles = (arr) => `<div class="re-tiles">${arr.map(([l, val, s]) => `<div class="re-tile"><small>${esc(l)}</small><b>${esc(val)}</b><span>${esc(s)}</span></div>`).join("")}</div>`;
+  const nationalTiles = tiles(snap.tiles) + `<p class="re-src">Official ${esc(snap.source[0])} release ${esc(snap.released)} · next update ${esc(snap.next)} · <a href="${esc(snap.source[1])}" target="_blank" rel="noopener">${esc(snap.source[0])} ${ic("external-link", "xs")}</a></p>`;
+  const board = area ? RE_BOARDS[area] : null;
+  const parent = local?.parent ? RE_LOCAL[local.parent] : null;
+  const localBlock = !area ? "" : local
+    ? `<h4 class="re-h local">${ic("map-pin")} ${esc(local.name)} at a glance <small>${esc(local.assoc)} · ${esc(local.period)}${RE_ALIAS[area] ? ` · covers ${esc(area)}` : ""}</small></h4>${tiles(local.tiles)}
+       <p class="re-src">Local association data released ${esc(local.released)} · <a href="${esc(local.source)}" target="_blank" rel="noopener">Source ${ic("external-link", "xs")}</a>${local.board ? ` · <a href="${esc(local.board)}" target="_blank" rel="noopener">${esc(local.assoc.split(" · ")[0])} ${ic("external-link", "xs")}</a>` : ""}</p>
+       ${parent ? det("parent", `${esc(parent.name)} (${esc(parent.assoc)}) · ${esc(parent.period)}`, tiles(parent.tiles) + `<p class="re-src"><a href="${esc(parent.source)}" target="_blank" rel="noopener">${esc(parent.assoc)} Market Watch ${ic("external-link", "xs")}</a></p>`) : ""}`
+    : `<div class="re-noloc">${ic("map-pin")} <div><b>${esc(area)}</b>: local figures aren't loaded yet.${board ? ` See the latest from <a href="${esc(board[1])}" target="_blank" rel="noopener">${esc(board[0])} ${ic("external-link", "xs")}</a>.` : ""} Local headlines are below.</div></div>`;
   const q = newsFilter.toLowerCase();
   const filt = (arr) => (q ? arr.filter((i) => (i.title + " " + i.source).toLowerCase().includes(q)) : arr);
-  const key = `${v.country}|${sel.region}|${sel.city || ""}`;
-  const sub = data.reSub[key];
-  const natItems = nat && nat.country === v.country ? filt(nat.items) : null;
+  const nat = data.news.realestate && data.news.realestate.country === c ? data.news.realestate : null;
+  const sub = area ? data.reSub[`${c}|${area}`] : null;
+  const areas = def.areas[c] || [];
+  const allSuggest = Object.entries(M.suggest).flatMap(([r, cs]) => [r, ...cs]).filter((x) => !areas.includes(x));
+  const rates = c === "CA"
+    ? [rateChip("ca_overnight"), `<span class="rate-chip" title="OSFI minimum qualifying rate"><small>Stress-test floor</small><b>5.25%</b><em>or contract + 2%, whichever is higher</em></span>`, rateChip("ca_5y_posted"), rateChip("ca_prime"), rateChip("ca_5y_bond")]
+    : [rateChip("us_30y"), rateChip("us_15y"), rateChip("us_fedfunds")];
   return `<div class="re">
     <div class="re-top">
-      <div class="seg re-country">${["CA", "US"].map((c) => `<button data-re-country="${c}" class="${v.country === c ? "on" : ""}">${RE_MARKETS[c].flag} ${RE_MARKETS[c].label}</button>`).join("")}</div>
+      <div class="seg re-country">${["CA", "US"].map((k) => `<button data-re-country="${k}" class="${c === k ? "on" : ""}">${RE_MARKETS[k].flag} ${RE_MARKETS[k].label}</button>`).join("")}</div>
       <button class="mini-btn re-def ${isDef ? "on" : ""}" data-re-default title="Open Real Estate here every time">${isDef ? "★ Your default" : "☆ Make this my default"}</button>
     </div>
-    <div class="re-rates">${RATE_ROWS[v.country].map(rateChip).join("")}<button class="mini-btn" data-goto-calc>Mortgage calculator →</button></div>
-    <h4 class="re-h">${M.flag} ${M.label} briefing</h4>
-    <div class="news-wrap">${natItems ? natItems.slice(0, 6).map((i) => newsItemHTML(i, saveBtn)).join("") || `<div class="empty">No national headlines right now.</div>` : skeleton(4)}</div>
-    <h4 class="re-h">Local markets</h4>
-    <div class="re-chips">${Object.keys(M.regions).map((r) => `<button data-re-region="${esc(r)}" class="${sel.region === r ? "on" : ""}">${esc(r)}</button>`).join("")}</div>
-    ${sel.region ? `<div class="re-chips sub"><button data-re-city="" class="${!sel.city ? "on" : ""}">All of ${esc(sel.region)}</button>${(M.regions[sel.region] || []).map((c) => `<button data-re-city="${esc(c)}" class="${sel.city === c ? "on" : ""}">${esc(c)}</button>`).join("")}</div>
-      <h4 class="re-h sm">${esc(sel.city || sel.region)}</h4>
-      <div class="news-wrap">${!sub || (sub.loading && !sub.items.length) ? skeleton(4) : filt(sub.items).slice(0, 10).map((i) => newsItemHTML(i, saveBtn)).join("") || `<div class="empty">No recent local headlines for ${esc(sel.city || sel.region)}.</div>`}</div>` : ""}
+    <div class="re-areas">
+      <div class="re-areas-h"><button class="re-area-btn ${!area ? "on" : ""}" data-re-area="">${M.flag} ${M.label} overview</button><button class="re-add" data-re-add>${ic("plus", "xs")} Add area</button></div>
+      <div class="re-chips">${areas.map((a) => `<span class="re-area ${area === a ? "on" : ""}"><button data-re-area="${esc(a)}">${ic(Object.keys(M.suggest).includes(a) ? "map-pin" : "house", "xs")} ${esc(a)}</button><button class="x" data-re-remove="${esc(a)}" aria-label="Remove ${esc(a)}">${ic("x", "xs")}</button></span>`).join("")}</div>
+      ${rePicker ? `<div class="re-picker"><div class="inline"><input id="reNewArea" placeholder="Type any city, county, province or state"><button class="btn sm primary" data-re-addtyped>Add</button></div>
+        <div class="re-chips wrap">${allSuggest.map((a) => `<button data-re-pick="${esc(a)}">+ ${esc(a)}</button>`).join("")}</div></div>` : `<div class="hint">Tap an area to switch the briefing.</div>`}
+    </div>
+
+    ${localBlock}
+    ${local ? det("national", `${M.flag} National market at a glance · ${esc(snap.period)}`, nationalTiles) : `<h4 class="re-h">${ic("trending-up")} Market at a glance <small>${esc(snap.period)} · ${snap.currency} · national</small></h4>${nationalTiles}`}
+
+    <div class="re-callout"><h4>What this means for clients${local ? ` <small>· ${esc(local.name)}</small>` : ""}</h4><p>${esc(read.summary)}</p>
+      ${det("talk", "Buyer &amp; seller talking points", `<div class="re-two"><div><b>Buyers</b><ul>${read.buyer.map((x) => `<li>${esc(x)}</li>`).join("")}</ul></div><div><b>Sellers</b><ul>${read.seller.map((x) => `<li>${esc(x)}</li>`).join("")}</ul></div></div><p class="hint">${local ? `Based on ${esc(local.assoc)} figures for ${esc(local.name)} — confirm with your own comparables.` : "General guidance from national figures — confirm with local data."}</p>`)}
+    </div>
+
+    <div class="re-desk"><h4 class="re-h">${ic("briefcase")} Mortgage desk · ${M.label}</h4>
+      <p class="hint">National benchmarks, not lender offers.</p>
+      <div class="re-rates">${rates.join("") || `<span class="hint">Rates loading…</span>`}</div>
+      <p class="re-for"><b>For clients:</b> ${c === "CA" ? "ask the lender about the rate hold, fixed vs variable, prepayment penalties and renewal options. Confirm qualification again before removing financing conditions." : "compare APRs from at least three lenders, ask about points and lender credits, and lock the rate once under contract."}</p>
+      ${det("guide", "Down payment &amp; qualification guide", qualGuide(c))}
+      ${det("planner", "Payment &amp; rate-change planner", mortgageHTML(c))}
+    </div>
+
+    <h4 class="re-h">${ic("newspaper")} News agents need to know <small>${area ? esc(area) : `${M.label} housing, mortgages and development`}</small></h4>
+    <div class="news-wrap">${area
+      ? (!sub || (sub.loading && !sub.items.length) ? skeleton(4) : filt(sub.items).slice(0, 10).map((i) => newsItemHTML(i, saveBtn, area)).join("") || `<div class="empty">No recent housing headlines for ${esc(area)}.</div>`)
+      : (nat ? filt(nat.items).slice(0, 10).map((i) => newsItemHTML(i, saveBtn, `${M.label} coverage`)).join("") || `<div class="empty">No national housing headlines right now.</div>` : skeleton(4))}</div>
   </div>`;
 }
 
-// ---------- mortgage calculator (Markets)
+// ---------- mortgage calculator (Real Estate planner + Markets)
 const ON_LTT = [[55000, 0.005], [250000, 0.01], [400000, 0.015], [2000000, 0.02], [Infinity, 0.025]];
 function ontarioLTT(price) {
   let tax = 0, lo = 0;
@@ -1676,60 +1832,70 @@ function mortgageDefaults() {
   const c = reDefaults().country;
   return (cfg.mortgage ||= { country: c, price: c === "CA" ? 1000000 : 650000, downPct: 20, rate: "", years: c === "CA" ? 25 : 30, freq: "monthly", extra: 0, ontario: true });
 }
+function payFor(principal, rate, years, freq, country) {
+  const perYear = freq === "monthly" ? 12 : 26;
+  if (freq === "accel") {
+    const rm = country === "CA" ? Math.pow(1 + rate / 200, 1 / 6) - 1 : rate / 1200, nm = years * 12;
+    return { pay: (rm ? principal * rm / (1 - Math.pow(1 + rm, -nm)) : principal / nm) / 2, perYear };
+  }
+  const n = years * perYear, r = country === "CA" ? Math.pow(1 + rate / 200, 2 / perYear) - 1 : rate / 100 / perYear;
+  return { pay: r ? principal * r / (1 - Math.pow(1 + r, -n)) : principal / n, perYear };
+}
 function calcMortgage(m) {
   const price = +m.price || 0, down = price * (+m.downPct || 0) / 100;
   const rateDefault = m.country === "CA" ? data.rates?.series?.ca_5y_posted?.value : data.rates?.series?.us_30y?.value;
   const rate = m.rate === "" || m.rate == null ? rateDefault ?? 5 : +m.rate;
-  let principal = price - down, insurance = 0, warn = [];
+  const years = +m.years || 25;
+  let principal = price - down, insurance = 0;
+  const warn = [];
   if (m.country === "CA") {
     const cr = cmhcRate(+m.downPct);
-    if (cr === null) warn.push(`Canada requires at least ${fmtNum(caMinDown(price) / price * 100, 1)}% down on this price.`);
-    else if (cr > 0) {
-      if (price >= 1500000) warn.push("Homes $1.5M+ need 20% down in Canada.");
-      else { insurance = principal * cr; principal += insurance; }
-    }
-    if (down < caMinDown(price) && cr !== null) warn.push(`Minimum down payment here is about $${fmtNum(caMinDown(price), 0)}.`);
+    if (price >= 1500000 && +m.downPct < 20) warn.push("Homes $1.5M+ need 20% down in Canada.");
+    else if (cr === null || down < caMinDown(price) - 1) warn.push(`Minimum down payment on this price is about $${fmtNum(caMinDown(price), 0)} (${fmtNum(caMinDown(price) / price * 100, 1)}%).`);
+    else if (cr > 0) { insurance = principal * cr; principal += insurance; }
   } else if (+m.downPct < 20) warn.push("Under 20% down usually adds private mortgage insurance (PMI).");
-  // periodic rate: Canada compounds semi-annually, US monthly
-  const perYear = m.freq === "monthly" ? 12 : 26;
-  const n = (+m.years || 25) * perYear;
+  const { pay, perYear } = payFor(principal, rate, years, m.freq, m.country);
   const r = m.country === "CA" ? Math.pow(1 + rate / 200, 2 / perYear) - 1 : rate / 100 / perYear;
-  let pay;
-  if (m.freq === "accel") {
-    const rm = m.country === "CA" ? Math.pow(1 + rate / 200, 1 / 6) - 1 : rate / 1200;
-    const nm = (+m.years || 25) * 12;
-    pay = (rm ? principal * rm / (1 - Math.pow(1 + rm, -nm)) : principal / nm) / 2;
-  } else pay = r ? principal * r / (1 - Math.pow(1 + r, -n)) : principal / n;
-  // simulate to get total interest and payoff time (accelerated pays off early)
   let bal = principal, interest = 0, k = 0;
-  while (bal > 0.01 && k < 1200 * 2) { const i = bal * r; interest += i; bal = bal + i - pay; k++; }
-  const monthlyEq = pay * perYear / 12 + (+m.extra || 0);
-  return { price, down, rate, principal, insurance, pay, monthlyEq, interest, years: k / perYear, ltt: m.country === "CA" && m.ontario ? ontarioLTT(price) : 0, warn, rateDefault };
+  while (bal > 0.01 && k < 2400) { const i = bal * r; interest += i; bal = bal + i - pay; k++; }
+  const monthly = (p) => p * perYear / 12;
+  const shock = [1, 2, -1].map((d) => ({ d, pay: payFor(principal, Math.max(0, rate + d), years, m.freq, m.country).pay }));
+  const qualRate = m.country === "CA" ? Math.max(rate + 2, 5.25) : null;
+  const qualPay = qualRate ? payFor(principal, qualRate, years, "monthly", "CA").pay : null;
+  return { price, down, rate, principal, insurance, pay, monthlyEq: monthly(pay) + (+m.extra || 0), interest, years: k / perYear, ltt: m.country === "CA" && m.ontario ? ontarioLTT(price) : 0, warn, rateDefault, shock, qualRate, qualPay };
 }
-function mortgageHTML() {
-  const m = mortgageDefaults(), c = calcMortgage(m);
+function mortgageOutHTML(m, c) {
   const money = (v) => `$${fmtNum(v, 0)}`;
-  const freqs = m.country === "CA" ? [["monthly", "Monthly"], ["biweekly", "Bi-weekly"], ["accel", "Accelerated bi-weekly"]] : [["monthly", "Monthly"], ["biweekly", "Bi-weekly"]];
-  return `<div class="mort" id="mortCalc">
-    <div class="mort-h">${ic("house")}<b>Mortgage calculator</b>
-      <span class="seg">${["CA", "US"].map((k) => `<button data-mort-country="${k}" class="${m.country === k ? "on" : ""}">${RE_MARKETS[k].flag} ${k === "CA" ? "Canada" : "U.S."}</button>`).join("")}</span></div>
-    <div class="mort-grid">
-      <label>Home price<input data-mort="price" type="number" inputmode="numeric" value="${m.price}"></label>
-      <label>Down payment %<input data-mort="downPct" type="number" inputmode="decimal" step="0.5" value="${m.downPct}"><small>${money(c.down)}</small></label>
-      <label>Interest rate %<input data-mort="rate" type="number" inputmode="decimal" step="0.01" value="${m.rate}" placeholder="${c.rateDefault != null ? c.rateDefault.toFixed(2) : "5.00"}"><small>${m.rate === "" ? (m.country === "CA" ? "Posted 5-yr rate; most buyers get lower" : "Freddie Mac 30-yr average") : "Your rate"}</small></label>
-      <label>Amortization<select data-mort="years">${(m.country === "CA" ? [15, 20, 25, 30] : [10, 15, 20, 25, 30]).map((y) => `<option ${+m.years === y ? "selected" : ""}>${y}</option>`).join("")}</select><small>years</small></label>
-      <label>Payments<select data-mort="freq">${freqs.map(([v, l]) => `<option value="${v}" ${m.freq === v ? "selected" : ""}>${l}</option>`).join("")}</select></label>
-      <label>Taxes, insurance, fees / mo<input data-mort="extra" type="number" inputmode="numeric" value="${m.extra}"></label>
-    </div>
-    <div class="mort-out">
-      <div><small>${m.freq === "monthly" ? "Monthly" : m.freq === "accel" ? "Accelerated bi-weekly" : "Bi-weekly"} payment</small><b>${money(c.pay)}</b></div>
+  const per = m.freq === "monthly" ? "Monthly" : m.freq === "accel" ? "Accelerated bi-weekly" : "Bi-weekly";
+  return `<div class="mort-out">
+      <div><small>${per} payment</small><b>${money(c.pay)}</b><small>at ${c.rate.toFixed(2)}%</small></div>
       <div><small>About per month, all-in</small><b>${money(c.monthlyEq)}</b></div>
       <div><small>Mortgage amount</small><b>${money(c.principal)}</b>${c.insurance ? `<small>incl. CMHC ${money(c.insurance)}</small>` : ""}</div>
       <div><small>Total interest</small><b>${money(c.interest)}</b><small>paid off in ${fmtNum(c.years, 1)} yrs</small></div>
       ${m.country === "CA" ? `<div><small><label class="inl"><input type="checkbox" data-mort="ontario" ${m.ontario ? "checked" : ""}> Ontario land transfer tax</label></small><b>${m.ontario ? money(c.ltt) : "—"}</b>${m.ontario ? `<small>Toronto adds a municipal tax</small>` : ""}</div>` : ""}
     </div>
-    ${c.warn.length ? `<div class="mort-warn">${c.warn.map(esc).join(" ")}</div>` : ""}
-    <p class="mort-note">Estimates only${m.country === "CA" ? " · Canadian rates compound semi-annually; CMHC premium added to the mortgage when under 20% down" : ""}. Rates: ${m.country === "CA" ? "Bank of Canada" : "Freddie Mac via FRED"}.</p>
+    <div class="mort-shock"><b>If rates change</b>${c.shock.map((s) => `<span>${s.d > 0 ? "+" : ""}${s.d}% → ${money(s.pay)} <i class="${s.pay > c.pay ? "down" : "up"}">${s.pay > c.pay ? "+" : "−"}${money(Math.abs(s.pay - c.pay))}</i></span>`).join("")}
+      ${c.qualRate ? `<span class="q">Stress test: qualify at ${c.qualRate.toFixed(2)}% → ${money(c.qualPay)}/mo</span>` : ""}</div>
+    ${c.warn.length ? `<div class="mort-warn">${c.warn.map(esc).join(" ")}</div>` : ""}`;
+}
+function mortgageHTML(forceCountry) {
+  const m = mortgageDefaults();
+  if (forceCountry && m.country !== forceCountry) { m.country = forceCountry; m.rate = ""; m.years = forceCountry === "CA" ? 25 : 30; if (forceCountry === "US" && m.freq === "accel") m.freq = "monthly"; }
+  const c = calcMortgage(m);
+  const freqs = m.country === "CA" ? [["monthly", "Monthly"], ["biweekly", "Bi-weekly"], ["accel", "Accelerated bi-weekly"]] : [["monthly", "Monthly"], ["biweekly", "Bi-weekly"]];
+  return `<div class="mort" data-mort-box>
+    <div class="mort-h">${ic("house")}<b>Mortgage calculator</b>
+      <span class="seg">${["CA", "US"].map((k) => `<button data-mort-country="${k}" class="${m.country === k ? "on" : ""}">${RE_MARKETS[k].flag} ${k === "CA" ? "Canada" : "U.S."}</button>`).join("")}</span></div>
+    <div class="mort-grid">
+      <label>Home price<input data-mort="price" type="number" inputmode="numeric" value="${m.price}"></label>
+      <label>Down payment %<input data-mort="downPct" type="number" inputmode="decimal" step="0.5" value="${m.downPct}"><small data-mort-hint="down">$${fmtNum(c.down, 0)}</small></label>
+      <label>Interest rate %<input data-mort="rate" type="number" inputmode="decimal" step="0.01" value="${m.rate}" placeholder="${c.rateDefault != null ? c.rateDefault.toFixed(2) : "5.00"}"><small>${m.rate === "" ? (m.country === "CA" ? "Posted 5-yr rate; most buyers get lower" : "Freddie Mac 30-yr average") : "Your rate"}</small></label>
+      <label>Amortization<select data-mort="years">${(m.country === "CA" ? [15, 20, 25, 30] : [10, 15, 20, 25, 30]).map((y) => `<option ${+m.years === y ? "selected" : ""}>${y}</option>`).join("")}</select><small>years</small></label>
+      <label>Payments<select data-mort="freq">${freqs.map(([v, l]) => `<option value="${v}" ${m.freq === v ? "selected" : ""}>${l}</option>`).join("")}</select></label>
+      <label>Taxes, insurance, fees / mo<input data-mort="extra" type="number" inputmode="numeric" value="${m.extra}"></label>
+    </div>
+    <div data-mort-out>${mortgageOutHTML(m, c)}</div>
+    <p class="mort-note">Estimates only${m.country === "CA" ? " · Canadian rates compound semi-annually; CMHC premium is added to the mortgage under 20% down" : ""}. Rates: ${m.country === "CA" ? "Bank of Canada" : "Freddie Mac via FRED"}.</p>
   </div>`;
 }
 function realEstateMarketsHTML() {
@@ -1929,23 +2095,36 @@ document.addEventListener("click", async (e) => {
     return;
   }
   const rc = t.closest("[data-re-country]");
-  if (rc) { const v = reCur(); v.country = rc.dataset.reCountry; delete data.news.realestate; renderNews(); loadRE().then(renderNews); return; }
-  const rr = t.closest("[data-re-region]");
-  if (rr) { const v = reCur(); v[v.country] = { region: rr.dataset.reRegion, city: "" }; renderNews(); loadRESub(); return; }
-  const rcity = t.closest("[data-re-city]");
-  if (rcity) { const v = reCur(); v[v.country].city = rcity.dataset.reCity; renderNews(); loadRESub(); return; }
-  if (t.closest("[data-re-default]")) { const v = reCur(); cfg.realestate = JSON.parse(JSON.stringify(v)); save(); renderNews(); toast(`Real Estate will open on ${v[v.country].city || v[v.country].region || RE_MARKETS[v.country].label}`); return; }
-  if (t.closest("[data-goto-calc]")) {
-    const m = mortgageDefaults(), k = reCur().country;
-    if (m.country !== k) { m.country = k; m.rate = ""; m.years = k === "CA" ? 25 : 30; if (k === "US" && m.freq === "accel") m.freq = "monthly"; }
-    save();
-    if (matchMedia("(max-width: 680px)").matches) setView("markets");
-    if (cfg.markets.collapsed?.["Real estate & rates"]) { delete cfg.markets.collapsed["Real estate & rates"]; save(); }
-    if (!cfg.markets.realestate) { cfg.markets.realestate = true; save(); }
-    renderMarkets(true); setTimeout(() => $("#mortCalc")?.scrollIntoView({ behavior: "smooth", block: "center" }), 50); return;
+  if (rc) { const v = reCur(); v.country = rc.dataset.reCountry; rePicker = false; delete data.news.realestate; renderNews(); loadRE().then(renderNews); return; }
+  const ra = t.closest("[data-re-area]");
+  if (ra) { const v = reCur(); v.area[v.country] = ra.dataset.reArea; renderNews(); loadRESub(); return; }
+  if (t.closest("[data-re-add]")) { rePicker = !rePicker; renderNews(); if (rePicker) setTimeout(() => $("#reNewArea")?.focus(), 0); return; }
+  const rpick = t.closest("[data-re-pick]") || (t.closest("[data-re-addtyped]") && { dataset: { rePick: ($("#reNewArea")?.value || "").trim() } });
+  if (rpick) {
+    const a = rpick.dataset.rePick; if (!a) { toast("Type an area first"); return; }
+    const v = reCur(), d = reDefaults();
+    if (!d.areas[v.country].includes(a)) d.areas[v.country].push(a);
+    v.area[v.country] = a; rePicker = false; save(); renderNews(); loadRESub(); return;
   }
+  const rrm = t.closest("[data-re-remove]");
+  if (rrm) {
+    const a = rrm.dataset.reRemove, v = reCur(), d = reDefaults();
+    d.areas[v.country] = d.areas[v.country].filter((x) => x !== a);
+    if (v.area[v.country] === a) v.area[v.country] = "";
+    if (d.area[v.country] === a) d.area[v.country] = "";
+    save(); renderNews(); return;
+  }
+  if (t.closest("[data-re-default]")) { const v = reCur(), d = reDefaults(); d.country = v.country; d.area = { ...d.area, [v.country]: v.area[v.country] || "" }; save(); renderNews(); toast(`Real Estate will open on ${v.area[v.country] || RE_MARKETS[v.country].label + " overview"}`); return; }
+  if (t.closest("[data-goto-calc]")) { reOpen.add("planner"); renderNews(); return; }
   const mc = t.closest("[data-mort-country]");
-  if (mc) { const m = mortgageDefaults(), k = mc.dataset.mortCountry; if (m.country !== k) { m.country = k; m.rate = ""; m.years = k === "CA" ? 25 : 30; if (k === "US" && m.freq === "accel") m.freq = "monthly"; save(); renderMarkets(true); } return; }
+  if (mc) {
+    const m = mortgageDefaults(), k = mc.dataset.mortCountry;
+    if (m.country !== k) { m.country = k; m.rate = ""; m.years = k === "CA" ? 25 : 30; if (k === "US" && m.freq === "accel") m.freq = "monthly"; save(); }
+    const inRE = !!mc.closest(".re");
+    if (inRE) { const v = reCur(); if (v.country !== k) { v.country = k; delete data.news.realestate; renderNews(); loadRE().then(renderNews); } else renderNews(); }
+    renderMarkets(true); if (!inRE) renderNews();
+    return;
+  }
   const sp = t.closest("[data-spmode]");
   if (sp) { cfg.sports.mode = sp.dataset.spmode; save(); renderSports(); return; }
   const src = t.closest("[data-src]");
@@ -1984,15 +2163,19 @@ document.addEventListener("click", async (e) => {
   if (wx) { wx.classList.toggle("open"); return; }
 });
 function updateMortgageOut() {
-  const box = $("#mortCalc"); if (!box) return;
-  const tmp = document.createElement("div"); tmp.innerHTML = mortgageHTML();
-  box.querySelector(".mort-out").replaceWith(tmp.querySelector(".mort-out"));
-  const w = tmp.querySelector(".mort-warn"), ow = box.querySelector(".mort-warn");
-  if (ow) ow.remove(); if (w) box.querySelector(".mort-out").after(w);
-  box.querySelectorAll("label small").forEach((s, i) => { const n = tmp.querySelectorAll("label small")[i]; if (n) s.textContent = n.textContent; });
+  const m = mortgageDefaults(), c = calcMortgage(m);
+  $$("[data-mort-box]").forEach((box) => {
+    box.querySelector("[data-mort-out]").innerHTML = mortgageOutHTML(m, c);
+    const h = box.querySelector('[data-mort-hint="down"]'); if (h) h.textContent = `$${fmtNum(c.down, 0)}`;
+    box.querySelectorAll("[data-mort]").forEach((inp) => { if (inp !== document.activeElement && inp.type !== "checkbox" && inp.value !== String(m[inp.dataset.mort])) inp.value = m[inp.dataset.mort]; });
+  });
 }
+document.addEventListener("toggle", (e) => {
+  const k = e.target.dataset?.reDet; if (!k) return;
+  if (e.target.open) reOpen.add(k); else reOpen.delete(k);
+}, true);
 document.addEventListener("focusout", (e) => {
-  if (e.target.closest?.("#mortCalc") && renderMarkets.pending) setTimeout(() => { if (!document.activeElement?.closest?.("#mortCalc")) { renderMarkets.pending = false; renderMarkets(); } }, 50);
+  if (e.target.closest?.("[data-mort-box]") && renderMarkets.pending) setTimeout(() => { if (!document.activeElement?.closest?.("[data-mort-box]")) { renderMarkets.pending = false; renderMarkets(); } }, 50);
 });
 document.addEventListener("change", (e) => {
   const f = e.target.dataset?.mort; if (!f) return;
@@ -2015,6 +2198,7 @@ $("#openSettings").onclick = () => openSettings();
 $("#footSettings").onclick = (e) => { e.preventDefault(); openSettings("general"); };
 
 document.addEventListener("keydown", (e) => {
+  if (e.key === "Enter" && e.target.id === "reNewArea") { $("[data-re-addtyped]")?.click(); return; }
   if (e.key === "Escape" && !$("#modal").hidden) { closeModal(); return; }
   if (e.key === "Escape" && !$("#bellPop").hidden) { $("#bellPop").hidden = true; return; }
   if ((e.key === "Enter" || e.key === " ") && e.target.matches?.("[data-game]")) { e.preventDefault(); e.target.click(); return; }
