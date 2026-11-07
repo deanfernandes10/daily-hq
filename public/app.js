@@ -16,7 +16,13 @@ const LEAGUES = {
   seriea: { name: "Serie A", path: "soccer/ita.1", icon: "⚽" },
   bundesliga: { name: "Bundesliga", path: "soccer/ger.1", icon: "⚽" },
   ligue1: { name: "Ligue 1", path: "soccer/fra.1", icon: "⚽" },
+  pga: { name: "PGA Tour", path: "golf/pga", icon: "⛳", kind: "golf" },
+  lpga: { name: "LPGA Tour", path: "golf/lpga", icon: "⛳", kind: "golf" },
+  cricket: { name: "Cricket", path: "cricket/scorepanel", icon: "🏏", kind: "cricket" },
 };
+// Cricket: ESPN lists every match worldwide; keep internationals, major leagues and anything with a team you follow.
+const CRICKET_MAJOR = /world cup|champions trophy|premier league|big bash|super league|the hundred|sa20|caribbean|major league cricket|ilt20|test championship|asia cup/i;
+const CRICKET_TEAMS = [["IND", "India"], ["AUS", "Australia"], ["ENG", "England"], ["PAK", "Pakistan"], ["NZ", "New Zealand"], ["SA", "South Africa"], ["SL", "Sri Lanka"], ["BAN", "Bangladesh"], ["AFG", "Afghanistan"], ["WI", "West Indies"], ["IRE", "Ireland"], ["ZIM", "Zimbabwe"], ["CAN", "Canada"], ["USA", "United States"], ["NED", "Netherlands"]];
 
 const gnews = (q) => `https://news.google.com/rss/search?q=${encodeURIComponent(q)}&hl=en-US&gl=US&ceid=US:en`;
 const SUGGESTED_FEEDS = {
@@ -122,7 +128,7 @@ const RIDE_APPS = [
 const feedsFrom = (cat, n) => SUGGESTED_FEEDS[cat].slice(0, n).map(([name, url]) => ({ name, url, on: true }));
 
 const DEFAULTS = {
-  version: 9,
+  version: 10,
   realestate: { country: "CA", areas: { CA: ["Ontario", "GTA", "Mississauga", "Brampton", "Oakville", "Hamilton", "Ottawa", "Kitchener-Waterloo"], US: ["New Jersey", "Monmouth County"] }, area: { CA: "", US: "" } },
   name: "Dean",
   theme: "dark",
@@ -149,6 +155,9 @@ const DEFAULTS = {
       { key: "nfl", teams: ["NYG", "NYJ"], showAll: false },
       { key: "nba", teams: ["NY", "TOR"], showAll: false },
       { key: "mlb", teams: ["NYY", "TOR"], showAll: false },
+      { key: "mls", teams: ["TOR", "NY"], showAll: false },
+      { key: "pga", teams: [], showAll: true },
+      { key: "cricket", teams: [], showAll: true },
     ],
   },
   news: {
@@ -296,6 +305,14 @@ function migrate(c) {
     if (!ca.includes("Ontario")) ca.unshift("Ontario");
     ["GTA", "Mississauga", "Brampton", "Oakville", "Hamilton", "Ottawa", "Kitchener-Waterloo"].forEach((a) => { if (!ca.includes(a)) ca.push(a); });
     c.version = 9;
+  }
+  if (c.version < 10) {
+    // v10: more sports — MLB, MLS, PGA Tour golf and cricket (original profile only)
+    if (profileId === "main") {
+      const have = new Set(c.sports.leagues.map((l) => l.key));
+      [["mlb", ["NYY", "TOR"]], ["mls", ["TOR", "NY"]], ["pga", []], ["cricket", []]].forEach(([key, teams]) => { if (!have.has(key)) c.sports.leagues.push({ key, teams, showAll: !teams.length }); });
+    }
+    c.version = 10;
   }
   c.calendars ??= []; c.saved ??= []; c.collapsed ??= {};
   c.alerts = { ...clone(DEFAULTS.alerts), ...(c.alerts || {}) };
@@ -628,7 +645,73 @@ async function fetchScoreboard(path, dates) {
   }
   throw lastErr || new Error("Scores unavailable");
 }
+async function fetchRaw(path) {
+  try { return await espnJSON(`${ESPN}${path}${path.startsWith("golf/") ? "/scoreboard" : ""}`); }
+  catch { return api(`/api/sports?path=${path}&kind=raw`); }
+}
+const toPar = (v) => (v == null || v === "" ? "–" : String(v));
+async function fetchGolf(path) {
+  const d = await fetchRaw(path);
+  captureLeague(path, d.leagues?.[0]?.logos);
+  return (d.events || []).map((e) => {
+    const c = e.competitions?.[0] || {};
+    const st = c.status || e.status || {};
+    const nets = new Set();
+    for (const b of c.broadcasts || []) for (const n of b.names || []) nets.add(n);
+    const round = st.period || 1;
+    const comps = (c.competitors || []).slice().sort((a, b) => (a.order || 999) - (b.order || 999));
+    const leaders = comps.slice(0, 60).map((p, i) => {
+      const sc = p.score?.displayValue ?? p.score;
+      const ls = (p.linescores || []).find((l) => l.period === round);
+      return { name: p.athlete?.displayName || p.athlete?.shortName, flag: p.athlete?.flag?.href, score: sc, today: ls?.displayValue, order: p.order || i + 1 };
+    });
+    leaders.forEach((l, i) => {
+      const tied = leaders.filter((x) => x.score === l.score);
+      const first = leaders.findIndex((x) => x.score === l.score);
+      l.pos = `${tied.length > 1 ? "T" : ""}${first + 1}`;
+    });
+    return {
+      id: e.id, date: e.date, endDate: e.endDate, name: e.name, golf: true, teams: [],
+      state: st.type?.state, detail: st.type?.shortDetail || st.type?.detail || "", completed: !!st.type?.completed,
+      broadcasts: [...nets], leaders, field: comps.length,
+      link: e.links?.find((l) => (l.rel || []).includes("summary"))?.href || e.links?.[0]?.href || `https://www.espn.com/golf/leaderboard`,
+    };
+  });
+}
+async function fetchCricket(L) {
+  const d = await fetchRaw("cricket/scorepanel");
+  const mine = new Set(L.teams || []);
+  const out = [];
+  for (const blk of d.scores || []) {
+    const lg = blk.leagues?.[0] || {};
+    for (const e of blk.events || []) {
+      const c = e.competitions?.[0] || {};
+      const st = c.status || e.status || {};
+      const teams = (c.competitors || []).map((t) => ({
+        abbr: t.team?.abbreviation, name: t.team?.shortDisplayName || t.team?.displayName, logo: t.team?.logo,
+        score: t.score || "", homeAway: t.homeAway, winner: t.winner === true || t.winner === "true",
+      }));
+      const intl = c.class && c.class.internationalClassId && c.class.internationalClassId !== "0";
+      if (!(intl || CRICKET_MAJOR.test(lg.name || "") || teams.some((t) => mine.has(t.abbr)))) continue;
+      const nets = new Set();
+      for (const b of c.broadcasts || []) for (const n of b.names || []) nets.add(n);
+      out.push({
+        id: e.id, date: e.date, name: e.shortName || e.name, cricket: true, series: lg.name,
+        state: st.type?.state, detail: st.type?.state === "post" ? "Result" : st.type?.shortDetail || st.type?.detail || "",
+        completed: st.type?.state === "post", note: [lg.name, c.description].filter(Boolean).join(" · "), summary: st.summary || c.notes?.[0]?.text || "",
+        venue: c.venue?.fullName, broadcasts: [...nets], teams,
+        link: e.links?.find((l) => (l.rel || []).includes("summary"))?.href || e.links?.[0]?.href,
+      });
+    }
+  }
+  return out;
+}
 async function fetchTeams(path) {
+  if (path === "cricket/scorepanel") {
+    const seen = new Map(CRICKET_TEAMS.map(([abbr, name]) => [abbr, { id: abbr, abbr, name, short: name }]));
+    for (const r of data.sports || []) for (const e of r.events || []) if (e.cricket) for (const t of e.teams) if (t.abbr && !seen.has(t.abbr)) seen.set(t.abbr, { id: t.abbr, abbr: t.abbr, name: t.name, short: t.name, logo: t.logo });
+    return [...seen.values()].sort((a, b) => a.name.localeCompare(b.name));
+  }
   try {
     const d = await espnJSON(`${ESPN}${path}/teams`);
     return (d?.sports?.[0]?.leagues?.[0]?.teams || []).map((x) => x.team).filter(Boolean)
@@ -648,7 +731,9 @@ async function loadSports() {
   data.sports = await Promise.all(
     leagues.map(async (L) => {
       try {
-        return { L, events: await fetchScoreboard(LEAGUES[L.key].path, range) };
+        const m = LEAGUES[L.key];
+        const events = m.kind === "golf" ? await fetchGolf(m.path) : m.kind === "cricket" ? await fetchCricket(L) : await fetchScoreboard(m.path, range);
+        return { L, events };
       } catch (e) {
         const p = prev[L.key];
         return p?.events ? { L, events: p.events, stale: true } : { L, error: e.message };
@@ -709,6 +794,28 @@ function gameHTML(e, watched) {
   return `<div class="game ${e.state === "in" ? "is-live" : e.state === "post" ? "is-final" : ""}" data-game="${esc(e.id)}" data-path="${esc(gameHTML.path || "")}" role="button" tabindex="0" title="Tap for game details"><div class="g-status">${pill}</div>${rows}${meta.length ? `<div class="g-meta">${meta.join("<span>·</span>")}</div>` : ""}</div>`;
 }
 
+function golfHTML(e) {
+  const k = `golf-${e.id}`;
+  const full = !!cfg.sports.golfFull?.[e.id];
+  const rows = e.leaders.slice(0, full ? 60 : 10);
+  const pill = e.state === "in" ? `<span class="pill live">LIVE</span> ${esc(e.detail)}` : e.state === "post" ? `<span class="pill final">Final</span>` : `<span class="pill">${esc(new Date(e.date).toLocaleDateString([], { month: "short", day: "numeric" }))} – ${esc(new Date(e.endDate || e.date).toLocaleDateString([], { month: "short", day: "numeric" }))}</span>`;
+  return `<div class="golf" data-k="${k}"><div class="golf-h"><b>${esc(e.name)}</b><div class="g-status">${pill}</div></div>
+    ${rows.length ? `<div class="golf-lb"><div class="golf-r head"><span>Pos</span><span>Player</span><span>Total</span><span>Rd</span></div>${rows
+      .map((p) => `<div class="golf-r ${p.order === 1 ? "lead" : ""}"><span class="pos">${esc(p.pos)}</span><span class="pl">${p.flag ? `<img src="${esc(p.flag)}" alt="" loading="lazy">` : ""}${esc(p.name || "")}</span><span class="tp ${String(p.score).startsWith("-") ? "up" : ""}">${esc(toPar(p.score))}</span><span class="rd">${esc(toPar(p.today))}</span></div>`)
+      .join("")}</div>` : `<div class="empty">Tee times not posted yet.</div>`}
+    <div class="g-meta">${e.leaders.length > 10 ? `<button class="linkish" data-golf-full="${esc(e.id)}">${full ? "Top 10 only" : `Show all ${Math.min(e.leaders.length, 60)}`}</button><span>·</span>` : ""}${e.broadcasts.length ? `<span class="tv">${ic("tv")}${esc(e.broadcasts.slice(0, 3).join(", "))}</span><span>·</span>` : ""}<a href="${esc(e.link)}" target="_blank" rel="noopener">Full leaderboard ${ic("external-link", "xs")}</a></div></div>`;
+}
+function cricketHTML(e, watched) {
+  const pill = e.state === "in" ? `<span class="pill live">LIVE</span> ${/^live$/i.test(e.detail) ? "" : esc(e.detail)}` : e.state === "post" ? `<span class="pill final">Result</span> ${esc(dayLabel(e.date))}` : `<span class="pill">${esc(when(e.date))}</span>`;
+  const rows = e.teams.map((t) => `<div class="g-team ${e.state === "post" && e.teams.some((o) => o.winner) && !t.winner ? "lose" : ""} ${watched.includes(t.abbr) ? "mine" : ""}">
+      ${t.logo ? `<img src="${esc(t.logo)}" alt="" loading="lazy">` : "<span></span>"}<span class="nm">${esc(t.name)}</span><span class="sc ck">${e.state !== "pre" ? esc(t.score) : ""}</span></div>`).join("");
+  const meta = [];
+  if (e.summary) meta.push(`<b>${esc(e.summary)}</b>`);
+  if (e.note) meta.push(esc(e.note));
+  if (e.broadcasts?.length) meta.push(`<span class="tv">${ic("tv")}${esc(e.broadcasts.slice(0, 3).join(", "))}</span>`);
+  if (e.link) meta.push(`<a href="${esc(e.link)}" target="_blank" rel="noopener">Scorecard ${ic("external-link", "xs")}</a>`);
+  return `<div class="game cricket ${e.state === "in" ? "is-live" : e.state === "post" ? "is-final" : ""}"><div class="g-status">${pill}</div>${rows}<div class="g-meta">${meta.join("<span>·</span>")}</div></div>`;
+}
 const SP_MODES = [["mine", "My teams"], ["-1", "Yesterday"], ["0", "Today"], ["1", "Tomorrow"]];
 const isMine = (L, e) => (L.teams || []).some((ab) => e.teams.some((t) => t.abbr === ab));
 const matchup = (e) => {
@@ -747,7 +854,16 @@ function renderSports() {
       if (!meta) return "";
       let inner;
       if (error) inner = `<div class="err">Couldn't load ${meta.name} right now — will retry.</div>`;
-      else {
+      else if (meta.kind === "golf") inner = events.length ? events.map(golfHTML).join("") : `<div class="empty">No ${meta.name} event this week.</div>`;
+      else if (meta.kind === "cricket") {
+        let games;
+        const rank = { in: 0, post: 1, pre: 2 };
+        if (mode === "mine") {
+          games = (L.teams || []).length ? pickGames(L, events) : [];
+          if (!games.length) games = [...events].sort((a, b) => rank[a.state] - rank[b.state] || (a.state === "post" ? new Date(b.date) - new Date(a.date) : new Date(a.date) - new Date(b.date))).slice(0, 8);
+        } else games = events.filter((e) => sameDay(new Date(e.date), addDays(+mode))).sort((a, b) => rank[a.state] - rank[b.state]);
+        inner = games.length ? games.map((g) => cricketHTML(g, L.teams || [])).join("") : `<div class="empty">No international or major-league matches ${mode === "mine" ? "right now" : mode === "0" ? "today" : mode === "1" ? "tomorrow" : "yesterday"}.</div>`;
+      } else {
         let games, none;
         if (mode === "mine") {
           games = pickGames({ ...L, compact: true }, events);
@@ -762,7 +878,7 @@ function renderSports() {
         inner = (games.length ? games.map((g) => gameHTML(g, L.teams || [])).join("") : `<div class="empty">${none}</div>`) +
           `<button class="lg-more" data-standings="${L.key}">${ic("list-ordered")} Standings</button>`;
       }
-      const tl = mode === "mine" ? `${(L.teams || []).join(" · ") || "All games"} · Live & latest` : SP_MODES.find((m) => m[0] === mode)[1];
+      const tl = meta.kind === "golf" ? "Leaderboard" : mode === "mine" ? `${(L.teams || []).join(" · ") || (meta.kind === "cricket" ? "Internationals & major leagues" : "All games")} · Live & latest` : SP_MODES.find((m) => m[0] === mode)[1];
       const collapsed = !!cfg.sports.collapsed?.[L.key];
       const liveN = (events || []).filter((e) => e.state === "in" && (mode !== "mine" || isMine(L, e))).length;
       return `<div class="league ${collapsed ? "collapsed" : ""}">
@@ -1848,7 +1964,7 @@ function notify(c) {
 
 // ============================================================ onboarding (first run / new person)
 function showWelcome() {
-  const leagues = ["nhl", "nfl", "nba", "mlb", "mls", "epl"];
+  const leagues = ["nhl", "nfl", "nba", "mlb", "mls", "epl", "pga", "cricket"];
   openModal(`${ic("sparkles")} Welcome to Daily HQ`, `
     <p class="hint">Scores, news, weather, markets and your calendar on one screen. Set the basics now, then fine-tune any time from Customize.</p>
     <label class="fld">Your first name<input id="wName" value="${esc(cfg.name || "")}" placeholder="e.g. Alex" autocomplete="given-name"></label>
@@ -2467,6 +2583,8 @@ document.addEventListener("click", async (e) => {
   const gto = t.closest("[data-goto]");
   if (gto) { goToSection(gto.dataset.goto); return; }
   if (t.closest("[data-brief-cal]")) { calUI.sel = sod(new Date()); calUI.month = new Date(calUI.sel.getFullYear(), calUI.sel.getMonth(), 1); renderCalendar(); goToSection("calendar"); return; }
+  const gf = t.closest("[data-golf-full]");
+  if (gf) { cfg.sports.golfFull = { [gf.dataset.golfFull]: !cfg.sports.golfFull?.[gf.dataset.golfFull] }; save(); renderSports(); return; }
   if (t.closest("[data-back-pill]")) { goBack(); return; }
   if (t.closest("[data-back-home]")) { setView("home"); return; }
   if (t.closest("[data-cal-scores]")) { closeModal(); if (matchMedia("(max-width: 680px)").matches) setView("sports"); else $("#sec-sports")?.scrollIntoView({ behavior: "smooth" }); return; }
@@ -2834,11 +2952,11 @@ function setSports() {
           : "";
       return `<div class="box"><div class="box-h">${ord("league-move", i, cfg.sports.leagues.length)}<b class="grow lg-set" style="flex:1">${leagueBadge(L.key)} ${m.name}</b>
           <button class="btn sm danger" data-act="league-del" data-i="${i}">Remove</button></div>
-        <div class="row"><span class="grow">All of today's games</span>${sw("league-all", L.showAll, `data-i="${i}"`)}</div>
+        ${m.kind === "golf" ? `<p class="hint">Shows this week's tournament leaderboard — no teams to pick.</p>` : `${m.kind === "cricket" ? `<p class="hint">Shows internationals and major leagues (IPL, Big Bash, The Hundred…). Add teams to always see their matches.</p>` : `<div class="row"><span class="grow">All of today's games</span>${sw("league-all", L.showAll, `data-i="${i}"`)}</div>`}
         <div class="chips">${(L.teams || [])
           .map((ab) => `<span class="chip">${byAbbr[ab]?.logo ? `<img src="${esc(byAbbr[ab].logo)}" alt="">` : ""}${esc(byAbbr[ab]?.short || ab)}<button data-act="team-del" data-i="${i}" data-v="${esc(ab)}" aria-label="Remove">${ic("x", "xs")}</button></span>`)
           .join("")}<span class="chip add" data-act="team-pick" data-i="${i}">${openPicker === L.key ? "Done" : "+ Teams"}</span></div>
-        ${picker}</div>`;
+        ${picker}`}</div>`;
     })
     .join("")}
   </div>

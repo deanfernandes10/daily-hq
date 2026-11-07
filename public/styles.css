@@ -890,3 +890,28 @@ body.modal-open { overflow: hidden; }
 .more-grp > summary .ic { width: 18px; height: 18px; color: var(--muted); transition: transform .2s; }
 .more-grp:not([open]) > summary .ic { transform: rotate(-90deg); }
 @media (min-width: 681px) { .more-back { display: none; } }
+
+/* Golf leaderboard */
+.golf { border: 1px solid var(--line); border-radius: 12px; background: var(--panel-2); padding: 10px 12px; margin-bottom: 8px; }
+.golf-h { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; margin-bottom: 6px; }
+.golf-h b { font-size: 15.5px; }
+.golf-lb { display: grid; }
+.golf-r { display: grid; grid-template-columns: 40px 1fr 52px 40px; gap: 6px; align-items: center; padding: 5px 0; border-bottom: 1px solid var(--line); font-size: 14.5px; }
+.golf-r:last-child { border-bottom: 0; }
+.golf-r.head { font-size: 12px; text-transform: uppercase; letter-spacing: .6px; color: var(--muted); font-weight: 700; }
+.golf-r .pos { color: var(--muted); font-weight: 650; }
+.golf-r .pl { display: flex; align-items: center; gap: 6px; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.golf-r .pl img { width: 18px; height: 12px; object-fit: cover; border-radius: 2px; flex: none; }
+.golf-r .tp, .golf-r .rd { text-align: right; font-variant-numeric: tabular-nums; font-weight: 700; }
+.golf-r .rd { color: var(--muted); font-weight: 500; }
+.golf-r .tp.up { color: #e5484d; }
+.golf-r.lead .pl { font-weight: 750; }
+.golf .g-meta { margin-top: 6px; }
+/* Cricket scores are longer: "185/6 (20 ov)" */
+.game.cricket .sc.ck { font-size: 14px; white-space: normal; text-align: right; max-width: 55%; }
+.game.cricket .g-team { grid-template-columns: 24px 1fr auto; }
+.golf-r { grid-template-columns: 34px minmax(0, 1fr) 46px 36px; }
+.golf { overflow: hidden; }
+.game.cricket .g-team { grid-template-columns: 24px minmax(0, 1fr) auto; }
+.game.cricket .nm { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.game.cricket .sc.ck { font-family: var(--font); font-size: 13.5px; font-weight: 700; white-space: nowrap; max-width: none; }

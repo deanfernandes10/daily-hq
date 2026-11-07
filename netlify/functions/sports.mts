@@ -18,15 +18,18 @@ export default async (req: Request) => {
 
   const event = p.get("event") || "";
   if (kind === "summary" && !/^\d{1,12}$/.test(event)) return json({ error: "Bad event" }, 400);
-  if (kind === "summary" || kind === "standings") {
+  if (kind === "raw" && !/^(golf\/(pga|lpga|eur|liv)|cricket\/scorepanel)$/.test(path)) return json({ error: "Unknown feed" }, 400);
+  if (kind === "summary" || kind === "standings" || kind === "raw") {
     const url =
-      kind === "summary"
+      kind === "raw"
+        ? `https://site.api.espn.com/apis/site/v2/sports/${path}${path.startsWith("golf/") ? "/scoreboard" : ""}`
+        : kind === "summary"
         ? `https://site.api.espn.com/apis/site/v2/sports/${path}/summary?event=${event}`
         : `https://site.api.espn.com/apis/v2/sports/${path}/standings`;
     try {
       const r = await fetch(url, { headers: { "user-agent": UA, accept: "application/json" }, signal: AbortSignal.timeout(8000) });
       if (!r.ok) { console.log(`ESPN ${kind} ${path} -> ${r.status}`); return json({ error: `ESPN ${r.status}` }, 502); }
-      return json(await r.json(), 200, kind === "summary" ? 20 : 900);
+      return json(await r.json(), 200, kind === "summary" || kind === "raw" ? 30 : 900);
     } catch (e: any) {
       return json({ error: "ESPN unavailable" }, 502);
     }
