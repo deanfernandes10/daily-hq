@@ -766,7 +766,7 @@ function pickGames(L, events) {
   const seen = new Set();
   out = out.filter((e) => e && !seen.has(e.id) && seen.add(e.id));
   const rank = { in: 0, post: 1, pre: 2 };
-  return out.sort((a, b) => rank[a.state] - rank[b.state] || new Date(a.date) - new Date(b.date));
+  return out.sort((a, b) => rank[a.state] - rank[b.state] || (a.state === "post" ? new Date(b.date) - new Date(a.date) : new Date(a.date) - new Date(b.date)));
 }
 
 function gameHTML(e, watched) {
@@ -830,24 +830,7 @@ function renderSports() {
   const mode = cfg.sports.mode || "mine";
   const seg = `<div class="sp-bar"><div class="seg" role="tablist">${SP_MODES.map(([v, l]) => `<button data-spmode="${v}" class="${mode === v ? "on" : ""}">${l}</button>`).join("")}</div></div>`;
 
-  let upnext = "";
-  if (mode === "mine") {
-    const seenUp = new Set();
-    const ups = data.sports
-      .flatMap(({ L, events }) =>
-        (L.teams || []).map((ab) => {
-          const e = (events || []).filter((x) => x.state === "pre" && x.teams.some((t) => t.abbr === ab)).sort((a, b) => new Date(a.date) - new Date(b.date))[0];
-          return e && { e, L };
-        })
-      )
-      .filter((x) => x && !seenUp.has(x.e.id) && seenUp.add(x.e.id))
-      .sort((a, b) => new Date(a.e.date) - new Date(b.e.date));
-    if (ups.length)
-      upnext = `<div class="upnext ${cfg.sports.upCollapsed ? "collapsed" : ""}"><button class="upnext-h" data-up-toggle aria-expanded="${!cfg.sports.upCollapsed}">${ic("chevron-down", "chev")}${ic("calendar")} Coming up for your teams <small>${ups.length}</small></button><div class="upnext-body">${ups
-        .map(({ e, L }) => `<div class="up-row ${sameDay(new Date(e.date), new Date()) ? "today" : ""}"><span class="up-when">${esc(when(e.date))}</span><span class="up-ico">${leagueBadge(L.key, "lg-logo sm")}</span><span class="up-name">${esc(matchup(e))}</span><span class="up-tv">${esc((e.broadcasts || []).slice(0, 2).join(", "))}</span></div>`)
-        .join("")}</div></div>`;
-  }
-
+  const upnext = "";
   const tiles = data.sports
     .map(({ L, events, error, stale }) => {
       const meta = LEAGUES[L.key];
@@ -866,8 +849,8 @@ function renderSports() {
       } else {
         let games, none;
         if (mode === "mine") {
-          games = pickGames({ ...L, compact: true }, events);
-          none = events.length ? "No recent results — next games are listed above." : "No games this week — likely off-season.";
+          games = pickGames(L, events);
+          none = (L.teams || []).length ? (events.length ? "No games for your teams in the past or next week." : "No games this week — likely off-season.") : "Pick teams in Customize → Sports to see their games here.";
         } else {
           const day = addDays(+mode);
           const rank = { in: 0, pre: 1, post: 2 };
@@ -878,7 +861,7 @@ function renderSports() {
         inner = (games.length ? games.map((g) => gameHTML(g, L.teams || [])).join("") : `<div class="empty">${none}</div>`) +
           `<button class="lg-more" data-standings="${L.key}">${ic("list-ordered")} Standings</button>`;
       }
-      const tl = meta.kind === "golf" ? "Leaderboard" : mode === "mine" ? `${(L.teams || []).join(" · ") || (meta.kind === "cricket" ? "Internationals & major leagues" : "All games")} · Live & latest` : SP_MODES.find((m) => m[0] === mode)[1];
+      const tl = meta.kind === "golf" ? "Leaderboard" : mode === "mine" ? `${(L.teams || []).join(" · ") || (meta.kind === "cricket" ? "Internationals & major leagues" : "All games")} · Live, last & next` : SP_MODES.find((m) => m[0] === mode)[1];
       const collapsed = !!cfg.sports.collapsed?.[L.key];
       const liveN = (events || []).filter((e) => e.state === "in" && (mode !== "mine" || isMine(L, e))).length;
       return `<div class="league ${collapsed ? "collapsed" : ""}">
