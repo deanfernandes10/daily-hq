@@ -21,7 +21,7 @@ const LEAGUES = {
   cricket: { name: "Cricket", path: "cricket/scorepanel", icon: "🏏", kind: "cricket" },
 };
 // Cricket: ESPN lists every match worldwide; keep internationals, major leagues and anything with a team you follow.
-const CRICKET_MAJOR = /world cup|champions trophy|premier league|big bash|super league|the hundred|sa20|caribbean|major league cricket|ilt20|test championship|asia cup/i;
+const CRICKET_MAJOR = /world cup|champions trophy|indian premier league|caribbean premier|bangladesh premier|lanka premier|big bash|pakistan super league|the hundred|sa20|major league cricket|ilt20|test championship|asia cup/i;
 const CRICKET_TEAMS = [["IND", "India"], ["AUS", "Australia"], ["ENG", "England"], ["PAK", "Pakistan"], ["NZ", "New Zealand"], ["SA", "South Africa"], ["SL", "Sri Lanka"], ["BAN", "Bangladesh"], ["AFG", "Afghanistan"], ["WI", "West Indies"], ["IRE", "Ireland"], ["ZIM", "Zimbabwe"], ["CAN", "Canada"], ["USA", "United States"], ["NED", "Netherlands"]];
 
 const gnews = (q) => `https://news.google.com/rss/search?q=${encodeURIComponent(q)}&hl=en-US&gl=US&ceid=US:en`;
@@ -688,7 +688,7 @@ async function fetchCricket(L) {
       const c = e.competitions?.[0] || {};
       const st = c.status || e.status || {};
       const teams = (c.competitors || []).map((t) => ({
-        abbr: t.team?.abbreviation, name: t.team?.shortDisplayName || t.team?.displayName, logo: t.team?.logo,
+        abbr: t.team?.abbreviation, name: t.team?.displayName || t.team?.shortDisplayName, logo: t.team?.logo,
         score: t.score || "", homeAway: t.homeAway, winner: t.winner === true || t.winner === "true",
       }));
       const intl = c.class && c.class.internationalClassId && c.class.internationalClassId !== "0";
@@ -698,7 +698,7 @@ async function fetchCricket(L) {
       out.push({
         id: e.id, date: e.date, name: e.shortName || e.name, cricket: true, series: lg.name,
         state: st.type?.state, detail: st.type?.state === "post" ? "Result" : st.type?.shortDetail || st.type?.detail || "",
-        completed: st.type?.state === "post", note: [lg.name, c.description].filter(Boolean).join(" · "), summary: st.summary || c.notes?.[0]?.text || "",
+        completed: st.type?.state === "post", note: [lg.name, c.description].filter(Boolean).join(" · "), summary: st.type?.state === "pre" ? "" : st.summary || c.notes?.[0]?.text || "",
         venue: c.venue?.fullName, broadcasts: [...nets], teams,
         link: e.links?.find((l) => (l.rel || []).includes("summary"))?.href || e.links?.[0]?.href,
       });
@@ -861,7 +861,7 @@ function renderSports() {
         if (mode === "mine") {
           games = (L.teams || []).length ? pickGames(L, events) : [];
           if (!games.length) games = [...events].sort((a, b) => rank[a.state] - rank[b.state] || (a.state === "post" ? new Date(b.date) - new Date(a.date) : new Date(a.date) - new Date(b.date))).slice(0, 8);
-        } else games = events.filter((e) => sameDay(new Date(e.date), addDays(+mode))).sort((a, b) => rank[a.state] - rank[b.state]);
+        } else games = events.filter((e) => sameDay(new Date(e.date), addDays(+mode)) || (mode === "0" && e.state === "in")).sort((a, b) => rank[a.state] - rank[b.state]);
         inner = games.length ? games.map((g) => cricketHTML(g, L.teams || [])).join("") : `<div class="empty">No international or major-league matches ${mode === "mine" ? "right now" : mode === "0" ? "today" : mode === "1" ? "tomorrow" : "yesterday"}.</div>`;
       } else {
         let games, none;
