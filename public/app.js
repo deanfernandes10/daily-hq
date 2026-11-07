@@ -1752,7 +1752,7 @@ function renderBrief() {
     const aq = w.aqi != null ? ` Air quality ${aqiLabel(w.aqi).toLowerCase()}.` : "";
     rows.push(`<div class="br-row">${icon}<div><button class="br-link" data-goto="weather"><b>${Math.round(cur.temperature_2m)}° and ${esc(desc.toLowerCase())}</b> in ${esc(w.c.name.split(",")[0])} ${ic("chevron-right", "xs")}</button> High ${Math.round(dl.temperature_2m_max[0])}°, low ${Math.round(dl.temperature_2m_min[0])}°.${rain}${aq}</div></div>`);
     for (const a of data.weather.flatMap((x) => (x.alerts || []).map((al) => ({ al, city: x.c.name.split(",")[0] }))).slice(0, 2))
-      rows.push(`<div class="br-row warn">${ic("triangle-alert")}<div><b>${esc(a.al.event)}</b> for ${esc(a.city)}${a.al.ends ? ` until ${esc(when(a.al.ends))}` : ""}.</div></div>`);
+      rows.push(`<div class="br-row warn">${ic("triangle-alert")}<div><button class="br-link" data-goto="weather"><b>${esc(a.al.event)}</b> for ${esc(a.city)}${a.al.ends ? ` until ${esc(when(a.al.ends))}` : ""}. ${ic("chevron-right", "xs")}</button></div></div>`);
   }
   // calendar: every event is tappable; the summary jumps to today in the calendar
   if (data.calendar) {
@@ -1775,7 +1775,7 @@ function renderBrief() {
   const sport = [];
   for (const { e, L } of [...live, ...recent, ...tonight]) {
     if (seenG.has(e.id)) continue; seenG.add(e.id);
-    const gl = (txt) => `<button class="br-link" data-game="${esc(e.id)}" data-path="${esc(L.path)}">${txt}</button>`;
+    const gl = (txt) => `<button class="br-link" data-game="${esc(e.id)}" data-path="${esc(LEAGUES[L.key]?.path || "")}">${txt} ${ic("chevron-right", "xs")}</button>`;
     const [a, b] = [e.teams.find((t) => t.homeAway === "away"), e.teams.find((t) => t.homeAway === "home")];
     if (!a || !b) continue;
     if (e.state === "in") sport.push(gl(`<b>Live:</b> ${esc(a.name)} ${esc(a.score)}, ${esc(b.name)} ${esc(b.score)} (${esc(e.detail)})`));
