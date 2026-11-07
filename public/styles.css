@@ -521,9 +521,8 @@ html[data-text="large"] body { zoom: 1.13; }
 .jump-btn .ic.rot { transform: rotate(180deg); }
 .jump-btn .ic { width: 14px; height: 14px; }
 @media (max-width: 680px) {
-  /* a single-section tab always shows its content, even if collapsed on Home */
-  body:not([data-view="home"]) .card.collapsed .card-body { display: block; }
-  body:not([data-view="home"]) .card.collapsed .card-head { margin-bottom: 14px; border-bottom: 1px solid var(--line); }
+  /* single-section tabs get a Home button; collapse works the same as on Home */
+  body:not([data-view="home"]) .back-home { display: inline-flex; }
 }
 
 /* ---------- brief ---------- */
@@ -870,3 +869,24 @@ body.modal-open { overflow: hidden; }
 .br-ev.more { color: var(--muted); }
 .card.flash { animation: flash 1.2s ease; }
 @keyframes flash { 0%, 40% { box-shadow: 0 0 0 3px var(--sec); } 100% { box-shadow: 0 0 0 0 transparent; } }
+
+/* Back controls */
+.back-home { display: none; align-items: center; gap: 2px; padding: 6px 10px 6px 6px; flex: none; }
+.back-home .ic { width: 16px; height: 16px; }
+.more-back { display: inline-flex; margin-bottom: 8px; }
+.back-pill { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(18px + env(safe-area-inset-bottom)); z-index: 60; display: inline-flex; align-items: center; gap: 6px; padding: 10px 16px 10px 12px; border-radius: 999px; border: 1px solid var(--line); background: var(--panel); color: var(--text); font: inherit; font-size: 15px; font-weight: 650; box-shadow: 0 8px 28px rgba(0,0,0,.35); cursor: pointer; }
+.back-pill[hidden] { display: none; }
+.back-pill .ic { width: 18px; height: 18px; }
+@media (max-width: 680px) { .back-pill { bottom: calc(78px + env(safe-area-inset-bottom)); } }
+/* Weather cards show they expand */
+.wx-top { position: relative; padding-right: 26px; }
+.wx-chev { position: absolute; top: 2px; right: 0; color: var(--muted); }
+.wx-chev .ic { width: 20px; height: 20px; transition: transform .2s; }
+.wx.open .wx-chev .ic { transform: rotate(180deg); }
+/* More: collapsible groups */
+.more-grp { border-bottom: 1px solid var(--line); padding: 4px 0 10px; }
+.more-grp > summary { list-style: none; display: flex; align-items: center; gap: 8px; cursor: pointer; padding: 10px 0 6px; font-size: 16px; font-weight: 750; }
+.more-grp > summary::-webkit-details-marker { display: none; }
+.more-grp > summary .ic { width: 18px; height: 18px; color: var(--muted); transition: transform .2s; }
+.more-grp:not([open]) > summary .ic { transform: rotate(-90deg); }
+@media (min-width: 681px) { .more-back { display: none; } }

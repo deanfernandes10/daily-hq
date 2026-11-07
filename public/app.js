@@ -536,6 +536,7 @@ function buildShell() {
       const col = !!cfg.collapsed?.[s.id];
       return `<section class="card w-${s.w || 12} ${col ? "collapsed" : ""}" id="sec-${s.id}" data-sec="${s.id}">
         <div class="card-head">
+          <button class="mini-btn back-home" data-back-home aria-label="Back to Home">${ic("chevron-left")} Home</button>
           <button class="sec-toggle" data-sec-toggle="${s.id}" aria-expanded="${!col}" title="Collapse / expand">${ic("chevron-down", "chev")}<h2><span class="ico">${ic(m.icon)}</span>${m.title}</h2></button><span class="sub" id="${s.id}-sub"></span>
           <span class="spacer"></span>
           <span id="${s.id}-extra"></span>
@@ -1017,9 +1018,10 @@ function renderWeather() {
         .slice(0, 2)
         .map((a) => `<a class="wx-alert ${sev(a)}" href="${esc(a.url)}" target="_blank" rel="noopener" title="${esc(a.headline || a.event)} — ${esc(a.source)}">${ic("triangle-alert")} <b>${esc(a.event)}</b>${a.ends ? ` · until ${esc(when(a.ends))}` : ""}</a>`)
         .join("");
-      return `<div class="wx ${alerts?.length ? "has-alert" : ""}" data-wx="${idx}">
+      return `<div class="wx ${alerts?.length ? "has-alert" : ""} ${cfg.wxOpen?.[c.name] ? "open" : ""}" data-wx="${idx}" data-wx-name="${esc(c.name)}" role="button" aria-expanded="${!!cfg.wxOpen?.[c.name]}">
         ${alertHTML}
         <div class="wx-top"><div class="wx-ico">${ico}</div>
+          <span class="wx-chev" aria-hidden="true">${ic("chevron-down")}</span>
           <div><div class="wx-city">${esc(c.name)}</div><div class="wx-temp">${Math.round(cur.temperature_2m)}°</div></div>
           <div class="wx-right"><div><b>${esc(desc)}</b></div>
             <div>H ${Math.round(dl.temperature_2m_max[0])}° · L ${Math.round(dl.temperature_2m_min[0])}° · Feels ${Math.round(cur.apparent_temperature)}°</div>
@@ -1030,7 +1032,7 @@ function renderWeather() {
         <div class="wx-days">${days.join("")}<div class="meta">${ic("sunrise")} ${sun(dl.sunrise[0])} · ${ic("sunset")} ${sun(dl.sunset[0])}</div></div>
       </div>`;
     })
-    .join("")}</div><div class="meta" style="justify-content:center;margin-top:8px">Tap a city for the 7-day forecast · Alerts: NWS (US) & Environment Canada</div>`;
+    .join("")}</div><div class="meta" style="justify-content:center;margin-top:8px">Tap a city to expand or collapse its 7-day forecast · Alerts: NWS (US) & Environment Canada</div>`;
   updateBadges();
 }
 
@@ -1588,16 +1590,34 @@ function showEvent(e, justSaved = false) {
 
 // ============================================================ brief
 let briefEvents = [];
-function goToSection(id) {
+let backSpot = null;
+function showBackPill(label) {
+  let b = $("#backPill");
+  if (!b) { b = document.createElement("button"); b.id = "backPill"; b.className = "back-pill"; b.dataset.backPill = ""; document.body.append(b); }
+  b.innerHTML = `${ic("chevron-left")} Back to ${esc(label)}`;
+  b.hidden = false;
+}
+function hideBackPill() { const b = $("#backPill"); if (b) b.hidden = true; backSpot = null; }
+function goBack() {
+  const spot = backSpot;
+  hideBackPill();
+  if (!spot) return;
+  if (spot.view && document.body.dataset.view !== spot.view) setView(spot.view);
+  requestAnimationFrame(() => scrollTo({ top: spot.y, behavior: "smooth" }));
+}
+function goToSection(id, from = "Your brief") {
+  const spot = { view: document.body.dataset.view || "home", y: scrollY };
   if (cfg.collapsed?.[id]) { delete cfg.collapsed[id]; save(); $(`#sec-${id}`)?.classList.remove("collapsed"); }
   const el = $(`#sec-${id}`);
   if (!el) return;
   if (matchMedia("(max-width: 680px)").matches) {
-    if (["sports", "weather", "news", "markets"].includes(id)) { setView(id); return; }
+    if (["sports", "weather", "news", "markets"].includes(id)) { setView(id); backSpot = spot; showBackPill(from); return; }
     if (document.body.dataset.view && document.body.dataset.view !== "home") setView("home");
   }
   el.scrollIntoView({ behavior: "smooth", block: "start" });
   el.classList.remove("flash"); void el.offsetWidth; el.classList.add("flash");
+  backSpot = spot;
+  showBackPill(from);
 }
 function renderBrief() {
   const body = $("#brief-body");
@@ -2331,6 +2351,22 @@ function renderMore() {
     <button class="btn primary wide" data-config="general">Customize layout, teams, feeds & cities</button>
     <button class="btn wide" data-quick="refresh">${ic("refresh-cw")} Refresh everything</button>
     <p class="more-foot">Scores: ESPN · Weather: Open-Meteo · Alerts: NWS & Environment Canada · Quotes: Yahoo Finance (may be delayed) · News: publisher RSS feeds.</p>`;
+  // every group in More collapses / expands (remembered)
+  const more = $("#more");
+  more.querySelectorAll(":scope > h3").forEach((h) => {
+    const name = h.textContent.trim();
+    const d = document.createElement("details");
+    d.className = "more-grp";
+    d.dataset.moreGrp = name;
+    d.open = !cfg.moreClosed?.[name];
+    const sum = document.createElement("summary");
+    sum.innerHTML = `${ic("chevron-down", "chev")}<span>${esc(name)}</span>`;
+    d.append(sum);
+    let n = h.nextSibling;
+    while (n && !(n.nodeType === 1 && n.tagName === "H3")) { const nx = n.nextSibling; d.append(n); n = nx; }
+    h.replaceWith(d);
+  });
+  more.insertAdjacentHTML("afterbegin", `<button class="mini-btn back-home more-back" data-back-home>${ic("chevron-left")} Home</button>`);
 }
 
 function renderAppsPop() {
@@ -2357,6 +2393,12 @@ function profilesHTML() {
 }
 
 function setView(v) {
+  if (v !== "home" && cfg.collapsed?.[v]) {
+    delete cfg.collapsed[v]; save();
+    const el = $(`#sec-${v}`);
+    if (el) { el.classList.remove("collapsed"); el.querySelector("[data-sec-toggle]")?.setAttribute("aria-expanded", "true"); }
+  }
+  if (v === "home") hideBackPill();
   document.body.dataset.view = v;
   $$("#tabbar button").forEach((b) => b.classList.toggle("on", b.dataset.view === v));
   scrollTo({ top: 0 });
@@ -2425,6 +2467,8 @@ document.addEventListener("click", async (e) => {
   const gto = t.closest("[data-goto]");
   if (gto) { goToSection(gto.dataset.goto); return; }
   if (t.closest("[data-brief-cal]")) { calUI.sel = sod(new Date()); calUI.month = new Date(calUI.sel.getFullYear(), calUI.sel.getMonth(), 1); renderCalendar(); goToSection("calendar"); return; }
+  if (t.closest("[data-back-pill]")) { goBack(); return; }
+  if (t.closest("[data-back-home]")) { setView("home"); return; }
   if (t.closest("[data-cal-scores]")) { closeModal(); if (matchMedia("(max-width: 680px)").matches) setView("sports"); else $("#sec-sports")?.scrollIntoView({ behavior: "smooth" }); return; }
   const cd = t.closest("[data-cal-day]");
   if (cd) {
@@ -2487,7 +2531,7 @@ document.addEventListener("click", async (e) => {
   const vl = t.closest("[data-view-link]");
   if (vl && matchMedia("(max-width: 680px)").matches) { e.preventDefault(); setView(vl.dataset.viewLink); return; }
   const tabBtn = t.closest("#tabbar [data-view]");
-  if (tabBtn) { setView(tabBtn.dataset.view); return; }
+  if (tabBtn) { hideBackPill(); setView(tabBtn.dataset.view); return; }
   const stg = t.closest("[data-sec-toggle]");
   if (stg) { toggleFlag(cfg, "collapsed", stg.dataset.secToggle, stg.closest(".card"), stg); return; }
   const ut = t.closest("[data-up-toggle]");
@@ -2589,7 +2633,13 @@ document.addEventListener("click", async (e) => {
   if (nt) { activeNews = nt.dataset.news; renderNews(); return; }
   if (t.closest("[data-more]")) { newsLimit[activeNews] = (newsLimit[activeNews] || cfg.news.perCategory) + 24; renderNews(); return; }
   const wx = t.closest("[data-wx]");
-  if (wx) { wx.classList.toggle("open"); return; }
+  if (wx && !t.closest("a")) {
+    const open = wx.classList.toggle("open");
+    wx.setAttribute("aria-expanded", open);
+    cfg.wxOpen = { ...(cfg.wxOpen || {}) };
+    if (open) cfg.wxOpen[wx.dataset.wxName] = true; else delete cfg.wxOpen[wx.dataset.wxName];
+    save(); return;
+  }
 });
 function updateMortgageOut() {
   const m = mortgageDefaults(), c = calcMortgage(m);
@@ -2606,6 +2656,13 @@ document.addEventListener("toggle", (e) => {
 document.addEventListener("focusout", (e) => {
   if (e.target.closest?.("[data-mort-box]") && renderMarkets.pending) setTimeout(() => { if (!document.activeElement?.closest?.("[data-mort-box]")) { renderMarkets.pending = false; renderMarkets(); } }, 50);
 });
+document.addEventListener("toggle", (e) => {
+  const d = e.target;
+  if (!d.dataset?.moreGrp) return;
+  cfg.moreClosed = { ...(cfg.moreClosed || {}) };
+  if (d.open) delete cfg.moreClosed[d.dataset.moreGrp]; else cfg.moreClosed[d.dataset.moreGrp] = true;
+  save();
+}, true);
 document.addEventListener("submit", (e) => {
   const q = e.target.closest("[data-cal-quick]");
   if (q) {
