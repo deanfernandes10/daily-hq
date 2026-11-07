@@ -2800,9 +2800,9 @@ function setGeneral() {
   </div>
   <div class="set"><h4>${ic("refresh-cw")} Sync across your devices</h4>
     ${cfg.sync?.code
-      ? `<p class="hint">Sync is on. Enter this code on your phone or another computer (Customize → General) to share these settings. Changes on any device update the others.</p>
+      ? `<p class="hint">Sync is on. Open the restore link on a new phone or computer — or enter this code in Customize → General — to bring over all your settings. Changes on any device update the others. Keep the code private.</p>
          <div class="sync-code">${fmtCode(cfg.sync.code)}</div>
-         <div class="inline"><button class="btn" data-act="sync-copy">${ic("copy")} Copy code</button><button class="btn danger" data-act="sync-off">Turn off on this device</button></div>`
+         <div class="inline"><button class="btn" data-act="sync-copy">${ic("copy")} Copy code</button><button class="btn" data-act="sync-link">${ic("link")} Copy restore link</button><button class="btn danger" data-act="sync-off">Turn off on this device</button></div>`
       : `<p class="hint">Keep your phone and computers in step. Your settings are stored privately under a random code that only you know.</p>
          <div class="inline"><button class="btn primary" data-act="sync-on">Turn on sync</button></div>
          <div class="inline"><input id="syncCode" placeholder="Have a code? XXXX-XXXX-XXXX"><button class="btn" data-act="sync-join">Use code</button></div>`}
@@ -3019,6 +3019,11 @@ $("#drawerBody").addEventListener("click", async (e) => {
       break;
     }
     case "sync-copy": try { await navigator.clipboard.writeText(fmtCode(cfg.sync.code)); toast("Code copied"); } catch { toast(fmtCode(cfg.sync.code)); } break;
+    case "sync-link": {
+      const link = `${location.origin}/?restore=${fmtCode(cfg.sync.code)}`;
+      try { if (navigator.share) await navigator.share({ title: "Restore Daily HQ", url: link }); else { await navigator.clipboard.writeText(link); toast("Restore link copied — open it on your new device"); } } catch { toast(link); }
+      break;
+    }
     case "sync-off": delete cfg.sync; store.set(KEY, JSON.stringify(cfg)); renderSettings(); toast("Sync turned off on this device"); break;
     case "cal-add": {
       const url = $("#calUrl").value.trim();
@@ -3233,7 +3238,13 @@ if (loadSnapshot()) { refreshFromCache(); updateGlance(); stampSnapshot(); }
 renderTicker();
 refresh();
 schedule();
-if (cfg.needsSetup) showWelcome();
+const restoreCode = cleanCode(new URLSearchParams(location.search).get("restore"));
+if (restoreCode) {
+  history.replaceState(null, "", "/");
+  syncPull(restoreCode, true)
+    .then(() => { closeModal(); afterConfigReplaced(); toast("Welcome back — your settings are restored"); })
+    .catch((e) => { toast(`${e.message}. Check the link or enter your code in Customize → General.`); if (cfg.needsSetup) showWelcome(); });
+} else if (cfg.needsSetup) showWelcome();
 setUnread(unreadCount());
 if (location.search.includes("alerts")) { history.replaceState(null, "", "/"); setTimeout(() => toggleBell(true), 300); }
 syncPull().then((changed) => { if (changed) { afterConfigReplaced(); toast("Synced your latest settings"); } }).catch(() => {});
