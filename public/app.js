@@ -1587,6 +1587,18 @@ function showEvent(e, justSaved = false) {
 }
 
 // ============================================================ brief
+let briefEvents = [];
+function goToSection(id) {
+  if (cfg.collapsed?.[id]) { delete cfg.collapsed[id]; save(); $(`#sec-${id}`)?.classList.remove("collapsed"); }
+  const el = $(`#sec-${id}`);
+  if (!el) return;
+  if (matchMedia("(max-width: 680px)").matches) {
+    if (["sports", "weather", "news", "markets"].includes(id)) { setView(id); return; }
+    if (document.body.dataset.view && document.body.dataset.view !== "home") setView("home");
+  }
+  el.scrollIntoView({ behavior: "smooth", block: "start" });
+  el.classList.remove("flash"); void el.offsetWidth; el.classList.add("flash");
+}
 function renderBrief() {
   const body = $("#brief-body");
   if (!body) return;
@@ -1602,16 +1614,21 @@ function renderBrief() {
     for (let j = nowIdx; j < hr.time.length && hr.time[j].startsWith(today); j++)
       if (hr.precipitation_probability[j] >= 50) { const hh = +hr.time[j].slice(11, 13); rain = ` ${[51,53,55,56,57,61,63,65,66,67,80,81,82].includes(hr.weather_code[j]) || true ? "Rain" : "Precipitation"} likely around ${hh % 12 || 12} ${hh < 12 ? "AM" : "PM"}.`; break; }
     const aq = w.aqi != null ? ` Air quality ${aqiLabel(w.aqi).toLowerCase()}.` : "";
-    rows.push(`<div class="br-row">${icon}<div><b>${Math.round(cur.temperature_2m)}° and ${esc(desc.toLowerCase())}</b> in ${esc(w.c.name.split(",")[0])}. High ${Math.round(dl.temperature_2m_max[0])}°, low ${Math.round(dl.temperature_2m_min[0])}°.${rain}${aq}</div></div>`);
+    rows.push(`<div class="br-row">${icon}<div><button class="br-link" data-goto="weather"><b>${Math.round(cur.temperature_2m)}° and ${esc(desc.toLowerCase())}</b> in ${esc(w.c.name.split(",")[0])} ${ic("chevron-right", "xs")}</button> High ${Math.round(dl.temperature_2m_max[0])}°, low ${Math.round(dl.temperature_2m_min[0])}°.${rain}${aq}</div></div>`);
     for (const a of data.weather.flatMap((x) => (x.alerts || []).map((al) => ({ al, city: x.c.name.split(",")[0] }))).slice(0, 2))
       rows.push(`<div class="br-row warn">${ic("triangle-alert")}<div><b>${esc(a.al.event)}</b> for ${esc(a.city)}${a.al.ends ? ` until ${esc(when(a.al.ends))}` : ""}.</div></div>`);
   }
-  // calendar
-  if (((cfg.calendars || []).length || (cfg.events || []).length) && data.calendar) {
+  // calendar: every event is tappable; the summary jumps to today in the calendar
+  if (data.calendar) {
     const now = new Date(), end = new Date(); end.setHours(23, 59, 59);
-    const left = data.calendar.events.filter((e) => e.end > now && e.start <= end && !e.allDay);
-    const next = left.find((e) => e.start > now) || left[0];
-    rows.push(`<div class="br-row">${ic("calendar-days")}<div>${left.length ? `<b>${left.length} ${left.length === 1 ? "event" : "events"} left today.</b> Next: ${esc(next.title || "Busy")} at ${hm(next.start)}.` : "<b>No more meetings today.</b>"}</div></div>`);
+    const todays = data.calendar.events.filter((e) => e.end > now && e.start <= end);
+    const left = todays.filter((e) => !e.allDay);
+    const allDay = todays.filter((e) => e.allDay);
+    briefEvents = [...left, ...allDay];
+    const chips = briefEvents.slice(0, 6).map((e, i) => `<button class="br-ev" data-brief-ev="${i}"><i style="background:${esc(e.color || LOCAL_COLOR)}"></i><span class="br-ev-t">${e.allDay ? "All day" : e.start <= now ? "Now" : hm(e.start)}</span> ${esc(e.title || "Busy")}</button>`).join("");
+    const more = briefEvents.length > 6 ? `<button class="br-ev more" data-brief-cal>+${briefEvents.length - 6} more</button>` : "";
+    if ((cfg.calendars || []).length || (cfg.events || []).length || briefEvents.length)
+      rows.push(`<div class="br-row">${ic("calendar-days")}<div><button class="br-link" data-brief-cal>${left.length ? `<b>${left.length} ${left.length === 1 ? "event" : "events"} left today</b>` : "<b>No more meetings today</b>"}${allDay.length ? ` · ${allDay.length} all-day` : ""} ${ic("chevron-right", "xs")}</button>${chips || more ? `<div class="br-evs">${chips}${more}</div>` : ""}</div></div>`);
   }
   // sports
   const mine = data.sports.flatMap(({ L, events }) => (events || []).filter((e) => isMine(L, e)).map((e) => ({ e, L })));
@@ -1620,13 +1637,14 @@ function renderBrief() {
   const tonight = mine.filter((x) => x.e.state === "pre" && sameDay(new Date(x.e.date), new Date()));
   const seenG = new Set();
   const sport = [];
-  for (const { e } of [...live, ...recent, ...tonight]) {
+  for (const { e, L } of [...live, ...recent, ...tonight]) {
     if (seenG.has(e.id)) continue; seenG.add(e.id);
+    const gl = (txt) => `<button class="br-link" data-game="${esc(e.id)}" data-path="${esc(L.path)}">${txt}</button>`;
     const [a, b] = [e.teams.find((t) => t.homeAway === "away"), e.teams.find((t) => t.homeAway === "home")];
     if (!a || !b) continue;
-    if (e.state === "in") sport.push(`<b>Live:</b> ${esc(a.name)} ${esc(a.score)}, ${esc(b.name)} ${esc(b.score)} (${esc(e.detail)})`);
-    else if (e.state === "post") { const [W, Lo] = +a.score > +b.score ? [a, b] : [b, a]; sport.push(`${esc(W.name)} beat ${esc(Lo.name)} ${esc(W.score)}–${esc(Lo.score)}${/OT|SO/.test(e.detail) ? ` (${esc(e.detail.replace(/^Final\/?/, ""))})` : ""}`); }
-    else sport.push(`${esc(a.name)} @ ${esc(b.name)} at ${hm(e.date)}${e.broadcasts?.length ? ` on ${esc(e.broadcasts[0])}` : ""}`);
+    if (e.state === "in") sport.push(gl(`<b>Live:</b> ${esc(a.name)} ${esc(a.score)}, ${esc(b.name)} ${esc(b.score)} (${esc(e.detail)})`));
+    else if (e.state === "post") { const [W, Lo] = +a.score > +b.score ? [a, b] : [b, a]; sport.push(gl(`${esc(W.name)} beat ${esc(Lo.name)} ${esc(W.score)}–${esc(Lo.score)}${/OT|SO/.test(e.detail) ? ` (${esc(e.detail.replace(/^Final\/?/, ""))})` : ""}`)); }
+    else sport.push(gl(`${esc(a.name)} @ ${esc(b.name)} at ${hm(e.date)}${e.broadcasts?.length ? ` on ${esc(e.broadcasts[0])}` : ""}`));
   }
   if (sport.length) rows.push(`<div class="br-row">${ic("trophy")}<div>${sport.slice(0, 4).join(" · ")}</div></div>`);
   // markets
@@ -1634,7 +1652,7 @@ function renderBrief() {
   if (idx.length) {
     const movers = cfg.markets.groups.flatMap((g) => g.symbols).filter((s) => !/^\^|=X$|=F$/.test(s)).map((s) => data.quotes[s]).filter((q) => q && !q.error && q.pct != null).sort((a, b) => Math.abs(b.pct) - Math.abs(a.pct));
     const top = movers[0];
-    rows.push(`<div class="br-row">${ic("trending-up")}<div>${marketOpen() ? "" : "<b>Market closed.</b> "}${idx.map((q) => `${esc(label(q.symbol))} <span class="${cls(q.pct)}">${sign(q.pct)}${fmtNum(q.pct, 2)}%</span>`).join(" · ")}${top ? `. Top mover: <b>${esc(label(top.symbol))}</b> <span class="${cls(top.pct)}">${sign(top.pct)}${fmtNum(top.pct, 1)}%</span>` : ""}.</div></div>`);
+    rows.push(`<div class="br-row">${ic("trending-up")}<div><button class="br-link" data-goto="markets">${marketOpen() ? "" : "<b>Market closed.</b> "}${idx.map((q) => `${esc(label(q.symbol))} <span class="${cls(q.pct)}">${sign(q.pct)}${fmtNum(q.pct, 2)}%</span>`).join(" · ")}${top ? `. Top mover: <b>${esc(label(top.symbol))}</b> <span class="${cls(top.pct)}">${sign(top.pct)}${fmtNum(top.pct, 1)}%</span>` : ""}. ${ic("chevron-right", "xs")}</button></div></div>`);
   }
   // headlines
   const cat = cfg.news.categories.find((c) => c.on && data.news[c.id]?.items?.length);
@@ -2402,6 +2420,11 @@ function toggleFlag(obj, key, id, box, btn) {
 document.addEventListener("click", async (e) => {
   const t = e.target;
   if (t.closest("[data-modal-close]") || t.id === "modal") { closeModal(); return; }
+  const bev = t.closest("[data-brief-ev]");
+  if (bev) { const ev = briefEvents[+bev.dataset.briefEv]; if (ev) { calUI.sel = sod(new Date()); calUI.month = new Date(calUI.sel.getFullYear(), calUI.sel.getMonth(), 1); renderCalendar(); showEvent(ev); } return; }
+  const gto = t.closest("[data-goto]");
+  if (gto) { goToSection(gto.dataset.goto); return; }
+  if (t.closest("[data-brief-cal]")) { calUI.sel = sod(new Date()); calUI.month = new Date(calUI.sel.getFullYear(), calUI.sel.getMonth(), 1); renderCalendar(); goToSection("calendar"); return; }
   if (t.closest("[data-cal-scores]")) { closeModal(); if (matchMedia("(max-width: 680px)").matches) setView("sports"); else $("#sec-sports")?.scrollIntoView({ behavior: "smooth" }); return; }
   const cd = t.closest("[data-cal-day]");
   if (cd) {

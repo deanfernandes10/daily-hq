@@ -856,3 +856,17 @@ body.modal-open { overflow: hidden; }
 .cal-d { min-height: 66px; }
 .cal-grid.week .cal-d { min-height: 68px; }
 @media (max-width: 680px) { .cal-d { min-height: 62px; } }
+
+/* Brief: tappable rows and event chips */
+.br-link { all: unset; cursor: pointer; display: inline; line-height: 1.45; border-radius: 4px; }
+.br-link:hover b, .br-link:focus-visible { text-decoration: underline; text-underline-offset: 3px; }
+.br-link .ic.xs { width: 14px; height: 14px; color: var(--muted); vertical-align: -2px; }
+.br-row .br-link + .br-link::before { content: ""; }
+.br-evs { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.br-ev { display: inline-flex; align-items: center; gap: 6px; max-width: 100%; padding: 6px 11px; border-radius: 999px; border: 1px solid var(--line); background: var(--panel-2); color: var(--text); font: inherit; font-size: 14px; cursor: pointer; text-align: left; }
+.br-ev:hover { border-color: var(--sec); }
+.br-ev i { width: 8px; height: 8px; border-radius: 50%; flex: none; }
+.br-ev-t { color: var(--muted); font-weight: 600; flex: none; }
+.br-ev.more { color: var(--muted); }
+.card.flash { animation: flash 1.2s ease; }
+@keyframes flash { 0%, 40% { box-shadow: 0 0 0 3px var(--sec); } 100% { box-shadow: 0 0 0 0 transparent; } }
