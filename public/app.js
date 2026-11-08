@@ -921,6 +921,7 @@ function parseFeed(xml, feed) {
       link = l?.getAttribute("href") || "";
     }
     const src = get("source");
+    const srcUrl = n.getElementsByTagName("source")[0]?.getAttribute("url") || "";
     let title = strip(get("title"));
     if (src && title.endsWith(` - ${src}`)) title = title.slice(0, -(src.length + 3));
     const descRaw = get("description") || get("summary") || get("content");
@@ -937,6 +938,7 @@ function parseFeed(xml, feed) {
       title,
       link,
       source: src || feed.name,
+      site: (() => { try { return new URL(srcUrl || (/news\.google\./.test(link) ? "" : link)).hostname.replace(/^www\./, ""); } catch { return ""; } })(),
       feed: feed.name,
       ts: isNaN(ts) ? 0 : ts,
       img,
@@ -1024,21 +1026,21 @@ function renderNews() {
     if (q) items = items.filter((i) => (i.title + " " + i.source + " " + i.desc).toLowerCase().includes(q));
     const limit = newsLimit[activeNews] || cfg.news.perCategory;
     const shown = items.slice(0, limit);
-    const heroIdx = q ? -1 : shown.findIndex((i, idx) => idx < 4 && i.img);
+    const heroIdx = q ? -1 : shown.findIndex((i, idx) => idx < 4 && imgFor(i));
     const hero = heroIdx >= 0 ? shown.splice(heroIdx, 1)[0] : null;
     const newDot = (i) => (i.ts > prevVisit ? `<span class="new" title="New since last visit"></span>` : "");
     list =
       `<div class="news-wrap">` +
       (hero
-        ? `<a class="hero" href="${esc(hero.link)}" target="_blank" rel="noopener"><img src="${esc(hero.img)}" alt="" loading="lazy" onerror="this.remove()">
+        ? `<a class="hero" href="${esc(hero.link)}" target="_blank" rel="noopener"><img src="${esc(imgFor(hero))}" alt="" loading="lazy" onerror="this.remove()">
             <div><div class="meta">${newDot(hero)}${esc(hero.source)} · ${ago(hero.ts)}${saveBtn(hero)}</div><h3>${esc(hero.title)}</h3><p>${esc(hero.desc)}</p></div></a>`
         : "") +
       shown
         .map(
-          (i) => `<div class="item ${i.img ? "" : "noimg"}"><div>
+          (i) => `<div class="item"><div>
             <a class="t" href="${esc(i.link)}" target="_blank" rel="noopener">${esc(i.title)}</a>
             <div class="meta">${newDot(i)}${esc(i.source)}${i.ts ? ` · ${ago(i.ts)}` : ""}${saveBtn(i)}</div></div>
-            ${i.img ? `<img src="${esc(i.img)}" alt="" loading="lazy" onerror="this.parentNode.classList.add('noimg');this.remove()">` : ""}</div>`
+            ${thumbHTML(i)}</div>`
         )
         .join("") +
       `</div>` +
@@ -1057,6 +1059,7 @@ function renderNews() {
     ${srcChips}
     <div class="news-tools"><input id="newsFilter" type="search" placeholder="Filter headlines…  ( / )" value="${esc(newsFilter)}"></div>
     ${list}`;
+  setTimeout(fillArticleImages, 50);
   updateBadges();
   if (hadFocus) { const f = $("#newsFilter"); f.focus(); f.setSelectionRange(f.value.length, f.value.length); }
 }
@@ -2333,10 +2336,52 @@ function rateChip(k) {
   const bp = r.prev != null ? Math.round((r.value - r.prev) * 100) : 0;
   return `<span class="rate-chip" title="${esc(r.source)} · as of ${esc(r.date)}"><small>${esc(r.label)}</small><b>${r.value.toFixed(2)}%</b>${bp ? `<i class="${bp > 0 ? "down" : "up"}">${bp > 0 ? "▲" : "▼"}${Math.abs(bp)}bp</i>` : ""}<em>${esc(r.date)}</em></span>`;
 }
+// ---------- article pictures: from the feed, else the article's own share image, else the publisher's logo
+const OG_KEY = "dailyhq.ogImages";
+let ogCache = {};
+try { ogCache = JSON.parse(localStorage.getItem(OG_KEY)) || {}; } catch {}
+const imgFor = (i) => i.img || ogCache[i.link] || "";
+function thumbHTML(i) {
+  const img = imgFor(i);
+  if (img) return `<img class="thumb" src="${esc(img)}" alt="" loading="lazy" onerror="this.outerHTML=this.dataset.ph" data-ph="${esc(phHTML(i, true))}">`;
+  return phHTML(i, ogCache[i.link] === "");
+}
+function phHTML(i, done) {
+  const fav = i.site ? `https://www.google.com/s2/favicons?domain=${encodeURIComponent(i.site)}&sz=64` : "";
+  return `<span class="thumb ph" ${done ? "" : `data-og="${esc(i.link)}"`} title="${esc(i.source)}">${fav ? `<img src="${esc(fav)}" alt="" loading="lazy" onerror="this.remove()">` : ""}<small>${esc((i.source || "").slice(0, 14))}</small></span>`;
+}
+let ogBusy = false;
+async function fillArticleImages() {
+  if (ogBusy) return;
+  ogBusy = true;
+  try {
+    const els = [...document.querySelectorAll("[data-og]")].slice(0, 36);
+    const todo = [...new Set(els.map((e) => e.dataset.og))].filter((l) => !(l in ogCache));
+    let changed = false;
+    const run = async (link) => {
+      try {
+        const r = await fetch(`/api/ogimage?url=${encodeURIComponent(link)}`);
+        const j = await r.json();
+        ogCache[link] = j.img && /^https:/.test(j.img) ? j.img : "";
+      } catch { return; }
+      changed = true;
+      for (const el of document.querySelectorAll(`[data-og="${CSS.escape(link)}"]`)) {
+        if (ogCache[link]) { const im = new Image(); im.className = "thumb"; im.alt = ""; im.onload = () => el.replaceWith(im); im.src = ogCache[link]; }
+        else el.removeAttribute("data-og");
+      }
+    };
+    for (let k = 0; k < todo.length; k += 4) await Promise.all(todo.slice(k, k + 4).map(run));
+    if (changed) {
+      const keys = Object.keys(ogCache);
+      if (keys.length > 600) for (const k of keys.slice(0, keys.length - 600)) delete ogCache[k];
+      try { localStorage.setItem(OG_KEY, JSON.stringify(ogCache)); } catch {}
+    }
+  } finally { ogBusy = false; }
+}
 function newsItemHTML(i, saveBtn, tag = "") {
-  return `<div class="item ${i.img ? "" : "noimg"}"><div><a class="t" href="${esc(i.link)}" target="_blank" rel="noopener">${esc(i.title)}</a>
+  return `<div class="item"><div><a class="t" href="${esc(i.link)}" target="_blank" rel="noopener">${esc(i.title)}</a>
     <div class="meta">${i.ts > prevVisit ? `<span class="new"></span>` : ""}${esc(i.source)}${i.ts ? ` · ${ago(i.ts)}` : ""}${tag ? ` · <span class="re-tag">${esc(tag)}</span>` : ""}${saveBtn(i)}</div></div>
-    ${i.img ? `<img src="${esc(i.img)}" alt="" loading="lazy" onerror="this.parentNode.classList.add('noimg');this.remove()">` : ""}</div>`;
+    ${thumbHTML(i)}</div>`;
 }
 function reRead(c) {
   const s = RE_SNAPSHOT[c];
@@ -2727,7 +2772,7 @@ document.addEventListener("click", async (e) => {
       undoToast("Removed from Saved", () => { cfg.saved.splice(Math.min(i, cfg.saved.length), 0, gone); save(); renderNews(); });
     } else {
       const item = [...Object.values(data.news).filter(Boolean).flatMap((d) => d.items), ...Object.values(data.reSub).flatMap((d) => d.items || [])].find((x) => x.link === link);
-      if (item) cfg.saved.unshift({ title: item.title, link: item.link, source: item.source, ts: item.ts, img: item.img, desc: (item.desc || "").slice(0, 160), feed: item.feed });
+      if (item) cfg.saved.unshift({ title: item.title, link: item.link, source: item.source, site: item.site, ts: item.ts, img: imgFor(item), desc: (item.desc || "").slice(0, 160), feed: item.feed });
       cfg.saved = cfg.saved.slice(0, 100);
       toast("Saved for later");
     }
