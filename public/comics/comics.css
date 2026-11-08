@@ -55,7 +55,17 @@ textarea { width: 100%; min-height: 70px; resize: vertical; }
 .tile .sub { font-size: 12px; color: var(--muted); }
 
 /* section tiles */
-.sections { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 300px), 1fr)); gap: 14px; align-items: start; }
+.sections { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; align-items: stretch; }
+@media (max-width: 960px) { .sections { grid-template-columns: repeat(2, minmax(0, 1fr)); } .sections > .card:last-child { grid-column: 1 / -1; } }
+@media (max-width: 640px) { .sections { grid-template-columns: minmax(0, 1fr); } }
+.sections > #sec-browse { grid-column: 1 / -1; }
+.sections > .card:not(.open) { height: 270px; overflow: hidden; }
+.sections > #sec-browse:not(.open) { height: 250px; }
+.card:not(.open) .sec-tt h2 { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sum { flex: 1; min-height: 0; }
+.sum .big, .sum .line { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sum .strip { overflow: hidden; flex: none; }
+.sum .foot2 { margin-top: auto; }
 .sections > .card { display: flex; flex-direction: column; transition: border-color .15s; }
 .sections > .card:not(.open) { cursor: pointer; }
 .sections > .card:not(.open):hover { border-color: var(--accent); }
@@ -76,7 +86,7 @@ textarea { width: 100%; min-height: 70px; resize: vertical; }
 .sum .line b { color: var(--text); font-weight: 650; }
 .sum .strip { display: flex; gap: 6px; margin: 4px 0 2px; }
 .sum .strip img, .sum .strip .none { width: 46px; aspect-ratio: 2 / 3; object-fit: cover; border-radius: 5px; border: 1px solid var(--line); background: var(--panel-2); }
-.sum .foot2 { color: var(--muted); font-size: 12.5px; display: flex; justify-content: space-between; gap: 8px; margin-top: 2px; }
+.sum .foot2 { color: var(--muted); font-size: 12.5px; display: flex; justify-content: space-between; gap: 8px; margin-top: auto; padding-top: 4px; }
 .sum .foot2 .open-hint { color: var(--accent); white-space: nowrap; }
 @media (max-width: 640px) { .sum { padding-left: 14px; } }
 

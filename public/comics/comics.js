@@ -475,7 +475,7 @@
   }
 
   // ---------- tile summaries ----------
-  const strip = (list) => h('div', { class: 'strip' }, list.slice(0, 5).map((c) => coverOf(c) ? h('img', { alt: c.comic, loading: 'lazy', src: 'data:image/jpeg;base64,' + coverOf(c) }) : h('div', { class: 'none' })));
+  const strip = (list, n = 5) => h('div', { class: 'strip' }, list.slice(0, n).map((c) => coverOf(c) ? h('img', { alt: c.comic, loading: 'lazy', src: 'data:image/jpeg;base64,' + coverOf(c) }) : h('div', { class: 'none' })));
   const big = (...k) => h('div', { class: 'big' }, ...k);
   const line = (...k) => h('div', { class: 'line' }, ...k);
   const B = (x) => h('b', { class: 'num', text: x });
@@ -487,7 +487,7 @@
     const owned = ranked.filter((c) => status(c) !== 'sold');
     const total = owned.reduce((a, c) => a + (c.v ?? 0), 0), covr = owned.reduce((a, c) => a + (c.cp ?? 0), 0);
     const series = new Set(owned.map((c) => c.series)).size, boxes = group(owned, (c) => c.box).filter((g) => g.key);
-    sum('browse', fmt.format(owned.length), '', [big(B(money(total)), ' CLZ value'), line(fmt.format(series), ' series · ', fmt.format(boxes.length), ' boxes · ', B(money(covr)), ' CovrPrice'), strip(owned)],
+    sum('browse', fmt.format(owned.length), '', [big(B(money(total)), ' CLZ value'), line(fmt.format(series), ' series · ', fmt.format(boxes.length), ' boxes · ', B(money(covr)), ' CovrPrice'), strip(owned, 16)],
       `Covers or list · search, filter, sort`);
     const mine = comics.filter((c) => status(c)), prog = mine.filter((c) => !['sold', 'keep'].includes(status(c))), sold = mine.filter((c) => status(c) === 'sold');
     const net = sold.reduce((a, c) => a + (soldNet(item(c.key)) ?? 0), 0), listed = mine.filter((c) => status(c) === 'listed');
