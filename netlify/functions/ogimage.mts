@@ -39,9 +39,14 @@ async function decodeGoogle(u: URL): Promise<string | null> {
   } catch {}
   // Newer ids: read the signature from the article page, then ask Google for the link
   try {
-    const page = await (await get(`https://news.google.com/articles/${id}`, 6000)).text();
-    const sg = page.match(/data-n-a-sg="([^"]+)"/)?.[1];
-    const ts = page.match(/data-n-a-ts="([^"]+)"/)?.[1];
+    let page = "", sg: string | undefined, ts: string | undefined;
+    for (const pre of ["https://news.google.com/rss/articles/", "https://news.google.com/articles/"]) {
+      const r0 = await get(`${pre}${id}?hl=en-US&gl=US&ceid=US:en`, 5000);
+      page = await r0.text();
+      sg = page.match(/data-n-a-sg="([^"]+)"/)?.[1];
+      ts = page.match(/data-n-a-ts="([^"]+)"/)?.[1];
+      if (sg && ts) break;
+    }
     if (!sg || !ts) { why = "nosig " + page.length + " " + page.slice(0, 200).replace(/\s+/g, " "); return null; }
     const req = [[["Fbv4je", JSON.stringify(["garturlreq", [["X", "X", ["X", "X"], null, null, 1, 1, "US:en", null, 1, null, null, null, null, null, 0, 1], "X", "X", 1, [1, 1, 1], 1, 1, null, 0, 0, null, 0], id, Number(ts), sg]), null, "generic"]]];
     const r = await get("https://news.google.com/_/DotsSplashUi/data/batchexecute", 6000, {
