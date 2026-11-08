@@ -1987,9 +1987,41 @@ function setUnread(n) {
   // number on the home-screen icon (installed app; needs notification permission on iPhone)
   try { if (n && navigator.setAppBadge) navigator.setAppBadge(n); else if (navigator.clearAppBadge) navigator.clearAppBadge(); } catch {}
 }
+// Older game alerts were saved without team details — rebuild them from the loaded scores (or the title)
+function upgradeAlert(a) {
+  const m = /^(start|final)-(.+)$/.exec(a.id || "");
+  if (!m || (a.vis?.t === "game" && a.vis.a?.name)) return a;
+  const eid = m[2];
+  for (const { L, events } of data.sports || []) {
+    const e = (events || []).find((x) => x.id === eid);
+    if (!e) continue;
+    const A = e.teams.find((t) => t.homeAway === "away"), B = e.teams.find((t) => t.homeAway === "home");
+    if (!A || !B) break;
+    const tm = (t) => ({ abbr: t.abbr, logo: t.logo, name: t.name, score: t.score, record: t.record, winner: e.state === "post" ? t.winner : undefined, mine: (L.teams || []).includes(t.abbr) });
+    const fin = m[1] === "final";
+    return { ...a, title: a.title.includes(" · ") ? a.title : `${LEAGUES[L.key]?.name || ""} · ${a.title}`, vis: { t: "game", lg: L.key, a: tm(A), b: tm(B), path: LEAGUES[L.key]?.path, id: e.id, state: fin ? "post" : e.state === "in" ? "in" : "post", detail: fin ? e.detail : e.state === "in" ? e.detail : "Final", tv: (e.broadcasts || []).slice(0, 2).join(", "), icon: tm(A).mine ? A.logo : B.logo } };
+  }
+  // not in the loaded scores any more: rebuild from the title, logos found by team name
+  const t = a.title.replace(/^.*· /, "");
+  const allTeams = (data.sports || []).flatMap(({ L, events }) => (events || []).flatMap((e) => e.teams.map((x) => ({ ...x, lg: L.key, mine: (L.teams || []).includes(x.abbr) }))));
+  const find = (n) => allTeams.find((x) => x.name === n) || { name: n };
+  let mm = /^Final: (.+?) (\d+), (.+?) (\d+)$/.exec(t);
+  if (mm) {
+    const A = find(mm[1]), B = find(mm[3]);
+    return { ...a, vis: { t: "game", lg: A.lg || B.lg, a: { ...A, score: mm[2], winner: +mm[2] > +mm[4] }, b: { ...B, score: mm[4], winner: +mm[4] > +mm[2] }, state: "post", detail: a.body || "Final" } };
+  }
+  mm = /^Game on: (.+?) @ (.+)$/.exec(t);
+  if (mm) {
+    const A = find(mm[1]), B = find(mm[2]);
+    return { ...a, vis: { t: "game", lg: A.lg || B.lg, a: A, b: B, state: "pre", detail: "Game started", tv: (a.body || "").replace(/^Watch on /, "") } };
+  }
+  return a;
+}
 function renderBellPop() {
   let log = [];
   try { log = JSON.parse(store.get(LOG_KEY)) || []; } catch {}
+  const up = log.map(upgradeAlert);
+  if (JSON.stringify(up) !== JSON.stringify(log)) { log = up; if (data.sports?.length) store.set(LOG_KEY, JSON.stringify(log)); }
   const unread = unreadCount();
   const perm = "Notification" in window ? Notification.permission : "unsupported";
   $("#bellPop").innerHTML = `<div class="bell-h"><b>Alerts</b><span class="pop-acts"><button class="mini-btn" data-config="alerts">Settings</button><button class="pop-x" data-pop-close aria-label="Close">${ic("x")}</button></span></div>
