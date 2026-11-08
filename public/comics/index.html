@@ -1,0 +1,349 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>My Comics</title>
+<meta name="description" content="Dean's comic collection: covers, values, grading shortlist and storage boxes.">
+<link rel="manifest" href="/comics/manifest.webmanifest">
+<link rel="apple-touch-icon" href="/comics/apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="My Comics">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#0b0f17">
+<style>
+  :root {
+    --bg: #0b0f17; --panel: #131a26; --line: #243045; --fg: #e8edf5; --muted: #8d99ad;
+    --accent: #f0be3c; --blue: #4682c8; --red: #e5574a; --amber: #e8a33d; --green: #4cb782;
+    --r: 10px; --sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, sans-serif;
+    --serif: "New York", "Iowan Old Style", Georgia, serif;
+  }
+  @media (prefers-color-scheme: light) {
+    :root { --bg: #f5f6f8; --panel: #ffffff; --line: #e1e5ec; --fg: #151b26; --muted: #5d6879; }
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--bg); color: var(--fg); font-family: var(--sans); -webkit-text-size-adjust: 100%; }
+  body { padding: env(safe-area-inset-top) 0 calc(64px + env(safe-area-inset-bottom)); }
+  .wrap { max-width: 1200px; margin: 0 auto; padding: 16px; display: flex; flex-direction: column; gap: 16px; }
+  header h1 { font-family: var(--serif); font-weight: 400; font-size: 28px; margin: 8px 0 4px; }
+  .lede { margin: 0; color: var(--muted); font-size: 15px; line-height: 1.45; }
+  .lede b { color: var(--fg); font-weight: 600; }
+  .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: var(--r); padding: 16px; min-width: 0; }
+  .tile .lbl { font-size: 12px; color: var(--muted); }
+  .tile .num { font-family: var(--serif); font-size: 26px; margin-top: 4px; font-variant-numeric: tabular-nums; }
+  .tile .sub { font-size: 12px; color: var(--muted); margin-top: 4px; }
+  h2 { font-size: 17px; font-weight: 600; margin: 0; }
+  .note { font-size: 12.5px; color: var(--muted); margin: 4px 0 12px; line-height: 1.4; }
+  .grid2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 340px), 1fr)); gap: 16px; }
+  .bars { display: flex; flex-direction: column; gap: 8px; }
+  .bar-row { display: grid; grid-template-columns: minmax(84px, 34%) 1fr; gap: 8px; align-items: center; font-size: 12.5px; }
+  .bar-row .name { color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .bar-track { display: flex; align-items: center; gap: 8px; min-width: 0; }
+  .bar { height: 16px; border-radius: 4px; min-width: 2px; flex: none; }
+  .bar-val { white-space: nowrap; font-variant-numeric: tabular-nums; }
+  .bar-val span { color: var(--muted); }
+  .toolbar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 12px; }
+  input.search, select { font: inherit; font-size: 14px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--fg); min-width: 0; }
+  input.search { flex: 1 1 220px; }
+  .seg { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+  .seg button { font: inherit; font-size: 13px; padding: 7px 12px; background: transparent; color: var(--muted); border: 0; cursor: pointer; }
+  .seg button.on { background: var(--fg); color: var(--bg); }
+  .gallery { display: grid; grid-template-columns: repeat(auto-fill, minmax(104px, 1fr)); gap: 14px; }
+  .cover-card { display: flex; flex-direction: column; gap: 4px; min-width: 0; font-size: 12px; cursor: pointer; background: none; border: 0; padding: 0; color: inherit; text-align: left; font-family: inherit; }
+  .cover-img, .cover-none { width: 100%; aspect-ratio: 2 / 3; border-radius: 6px; border: 1px solid var(--line); display: block; }
+  .cover-img { object-fit: cover; background: var(--panel); }
+  .cover-none { border-style: dashed; display: flex; align-items: center; justify-content: center; color: var(--muted); }
+  .cover-name { overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; line-height: 1.3; }
+  .cover-meta { color: var(--muted); display: flex; justify-content: space-between; font-variant-numeric: tabular-nums; }
+  .more { font: inherit; font-size: 14px; margin-top: 14px; padding: 9px 16px; border: 1px solid var(--line); border-radius: 8px; background: transparent; color: var(--fg); cursor: pointer; }
+  .tbl-wrap { max-height: 32rem; overflow: auto; -webkit-overflow-scrolling: touch; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; font-variant-numeric: tabular-nums; }
+  th { position: sticky; top: 0; background: var(--panel); text-align: left; font-weight: 600; color: var(--muted); padding: 6px 8px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+  td { padding: 6px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  tr.click { cursor: pointer; }
+  .r { text-align: right; }
+  .pill { display: inline-block; padding: 0 7px; border-radius: 999px; font-size: 11px; border: 1px solid currentColor; }
+  .pill.major { color: var(--red); } .pill.minor { color: var(--amber); }
+  .muted { color: var(--muted); }
+  @media (max-width: 640px) { .hide-n { display: none; } }
+  details { font-size: 13px; color: var(--muted); }
+  details summary { cursor: pointer; color: var(--fg); }
+  details dt { color: var(--fg); margin-top: 10px; } details dd { margin: 0; }
+  .loading { color: var(--muted); font-size: 14px; padding: 24px 0; }
+  .tabbar { position: fixed; left: 0; right: 0; bottom: 0; background: color-mix(in srgb, var(--panel) 92%, transparent); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); border-top: 1px solid var(--line); display: flex; justify-content: space-around; padding: 6px 0 calc(6px + env(safe-area-inset-bottom)); z-index: 5; }
+  .tabbar a { color: var(--muted); text-decoration: none; font-size: 11px; display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 4px 10px; }
+  .tabbar a span { font-size: 18px; line-height: 1; }
+  section[id] { scroll-margin-top: 12px; }
+  .sheet { position: fixed; inset: 0; background: rgba(0,0,0,.6); display: flex; align-items: flex-end; justify-content: center; z-index: 10; }
+  .sheet[hidden] { display: none; }
+  .sheet-box { background: var(--panel); border: 1px solid var(--line); border-radius: 16px 16px 0 0; width: min(560px, 100%); max-height: 88vh; overflow: auto; padding: 16px 16px calc(16px + env(safe-area-inset-bottom)); display: grid; grid-template-columns: 120px 1fr; gap: 14px; }
+  @media (min-width: 700px) { .sheet { align-items: center; } .sheet-box { border-radius: 16px; } }
+  .sheet-box .cover-img, .sheet-box .cover-none { width: 120px; }
+  .sheet-box h3 { margin: 0 0 6px; font-size: 16px; }
+  .sheet-box dl { margin: 0; font-size: 13px; display: grid; grid-template-columns: auto 1fr; gap: 4px 10px; }
+  .sheet-box dt { color: var(--muted); } .sheet-box dd { margin: 0; }
+  .sheet-close { grid-column: 1 / -1; font: inherit; padding: 10px; border-radius: 8px; border: 1px solid var(--line); background: transparent; color: var(--fg); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header id="top">
+    <h1>My comic collection</h1>
+    <p class="lede" id="lede">Loading your collection…</p>
+  </header>
+
+  <section class="tiles">
+    <div class="card tile"><div class="lbl">Collection value</div><div class="num" id="t-value">—</div><div class="sub">CLZ value field</div></div>
+    <div class="card tile"><div class="lbl">Total comics</div><div class="num" id="t-count">—</div><div class="sub">In the CLZ export</div></div>
+    <div class="card tile"><div class="lbl">Top 100 value</div><div class="num" id="t-top100">—</div><div class="sub">Sum of the 100 most valuable</div></div>
+    <div class="card tile"><div class="lbl">Grading candidates</div><div class="num" id="t-cands">—</div><div class="sub">See the shortlist</div></div>
+    <div class="card tile"><div class="lbl">Without a value</div><div class="num" id="t-unvalued">—</div><div class="sub">No CLZ or CovrPrice value</div></div>
+  </section>
+
+  <section class="card" id="browse">
+    <h2>Browse the collection</h2>
+    <p class="note">Search by series, issue, story, character, writer, cover artist, publisher or year, or pick a box. Most valuable first. Tap a comic for details.</p>
+    <div class="toolbar">
+      <input class="search" id="q" type="search" placeholder="Search, e.g. Spider-Man 300 or Venom" aria-label="Search the collection">
+      <select id="keyF" aria-label="Key issues">
+        <option value="">All comics</option>
+        <option value="Major">Major keys</option>
+        <option value="Minor">Minor keys</option>
+        <option value="key">Any key</option>
+      </select>
+      <select id="boxF" aria-label="Storage box"><option value="__all">All boxes</option></select>
+      <div class="seg" role="group" aria-label="View">
+        <button type="button" data-view="covers" class="on" aria-pressed="true">Covers</button>
+        <button type="button" data-view="list" aria-pressed="false">List</button>
+      </div>
+    </div>
+    <div id="view-covers">
+      <div class="gallery" id="gallery"><div class="loading">Loading covers…</div></div>
+      <button type="button" class="more" id="more" hidden>Show more</button>
+    </div>
+    <div id="view-list" hidden>
+      <p class="note">Shows up to 200 matches.</p>
+      <div class="tbl-wrap"><table>
+        <thead><tr><th class="r">Rank</th><th>Comic</th><th class="hide-n">Story</th><th class="hide-n">Year</th><th>Key</th><th class="r">Value</th><th class="r">Box</th></tr></thead>
+        <tbody id="list"></tbody>
+      </table></div>
+    </div>
+  </section>
+
+  <section class="grid2">
+    <div class="card"><h2>Where the value sits</h2><p class="note">Collection value by price band, with the number of comics in each</p><div class="bars" id="bands"></div></div>
+    <div class="card"><h2>Value by publisher</h2><p class="note">Top publishers by total value, with the number of comics</p><div class="bars" id="pubs"></div></div>
+  </section>
+
+  <section class="card" id="valuable">
+    <h2>Most valuable comics</h2>
+    <p class="note">Ranked by CLZ value. Key shows CLZ's key-issue flag.</p>
+    <div class="toolbar"><div class="seg" role="group" aria-label="How many to show">
+      <button type="button" data-top="25">Top 25</button><button type="button" data-top="50">Top 50</button><button type="button" data-top="100" class="on">Top 100</button>
+    </div></div>
+    <div class="tbl-wrap"><table>
+      <thead><tr><th class="r">Rank</th><th>Comic</th><th class="hide-n">Year</th><th class="hide-n">Publisher</th><th>Key</th><th class="r">Value</th><th class="r hide-n">CovrPrice</th><th class="r">Box</th></tr></thead>
+      <tbody id="topbody"></tbody>
+    </table></div>
+  </section>
+
+  <section class="card" id="grading">
+    <h2>Grading shortlist</h2>
+    <p class="note">Comics worth $100 or more, plus major keys worth $50 or more. Break-even is the graded sale price needed just to cover an estimated $50 per book for grading, shipping and insurance, before selling fees. Check condition first: a raw 8.0 rarely gains enough from a slab.</p>
+    <div class="tbl-wrap"><table>
+      <thead><tr><th class="r">Rank</th><th>Comic</th><th class="hide-n">Year</th><th>Key</th><th class="r">Raw value</th><th class="r">Break-even graded</th><th class="r">Box</th></tr></thead>
+      <tbody id="cands"></tbody>
+    </table></div>
+  </section>
+
+  <section class="card" id="boxes">
+    <h2>Storage boxes</h2>
+    <p class="note">Value held in each box, with the number of comics. Tap a box to see its covers.</p>
+    <div class="bars" id="boxbars"></div>
+  </section>
+
+  <details>
+    <summary>About these numbers</summary>
+    <dl>
+      <dt>Values</dt><dd>The Value and CovrPrice columns in your CLZ Comics Web export of Nov 8, 2026. They won't change until the app is republished with a new export.</dd>
+      <dt>Grading cost estimate</dt><dd>CGC's Modern tier fee is $30 per book from January 2026; the $50 here adds an allowance for shipping and insurance. Older books and higher-value tiers cost more.</dd>
+      <dt>Covers</dt><dd>From your CLZ Print to PDF report of Nov 8, 2026, matched to the export row by row. Comics with no cover in that report show a placeholder.</dd>
+      <dt>Left out</dt><dd>Sold dates are empty in the export, so there is no sales tracking yet.</dd>
+    </dl>
+  </details>
+</div>
+
+<nav class="tabbar">
+  <a href="#browse"><span>▦</span>Covers</a>
+  <a href="#valuable"><span>★</span>Top</a>
+  <a href="#grading"><span>◎</span>Grading</a>
+  <a href="#boxes"><span>▤</span>Boxes</a>
+</nav>
+
+<div class="sheet" id="sheet" hidden>
+  <div class="sheet-box" role="dialog" aria-modal="true" aria-labelledby="s-title">
+    <div id="s-cover"></div>
+    <div>
+      <h3 id="s-title"></h3>
+      <dl id="s-dl"></dl>
+    </div>
+    <button type="button" class="sheet-close" id="s-close">Close</button>
+  </div>
+</div>
+
+<script>
+(() => {
+  const GRADE_COST = 50, CAND_MIN = 100, CAND_MAJOR_MIN = 50, PAGE = 60;
+  const $ = (id) => document.getElementById(id);
+  const fmt = new Intl.NumberFormat('en-US');
+  const money = (v) => v == null ? '—' : '$' + fmt.format(Math.round(v));
+  const num = (x) => (x === '' || x == null || isNaN(+x)) ? null : +x;
+  const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
+
+  let comics = [], covers = new Map(), byId = new Map();
+  let q = '', keyF = '', boxF = null, shown = PAGE, topN = 100, view = 'covers';
+
+  const isCand = (c) => (c.v ?? 0) >= CAND_MIN || (c.key === 'Major' && (c.v ?? 0) >= CAND_MAJOR_MIN);
+  const keyPill = (k) => (k === 'Major' || k === 'Minor') ? el('span', 'pill ' + k.toLowerCase(), k) : el('span', 'muted', '–');
+  const td = (x, cls) => { const c = el('td', cls); if (x instanceof Node) c.appendChild(x); else c.textContent = x; return c; };
+  const coverEl = (c) => {
+    const img = covers.get(c.id);
+    if (img) { const im = el('img', 'cover-img'); im.loading = 'lazy'; im.alt = c.comic; im.src = 'data:image/jpeg;base64,' + img; return im; }
+    return el('div', 'cover-none', covers.size ? 'No cover' : '');
+  };
+
+  function bars(target, rows, label, color, onClick) {
+    target.replaceChildren();
+    const max = Math.max(1, ...rows.map((r) => r.value));
+    for (const r of rows) {
+      const row = el('div', 'bar-row');
+      if (onClick) { row.style.cursor = 'pointer'; row.addEventListener('click', () => onClick(r)); }
+      const name = el('div', 'name', r[label]); name.title = r[label];
+      const track = el('div', 'bar-track');
+      const bar = el('div', 'bar'); bar.style.width = `calc((100% - 7.5rem) * ${r.value / max})`; bar.style.background = color;
+      const val = el('div', 'bar-val', money(r.value) + ' '); val.appendChild(el('span', null, '· ' + fmt.format(r.comics)));
+      track.append(bar, val); row.append(name, track); target.appendChild(row);
+    }
+  }
+
+  function group(keyFn, labelFn) {
+    const m = new Map();
+    for (const c of comics) {
+      const k = keyFn(c); const g = m.get(k) || { key: k, label: labelFn(k), comics: 0, value: 0 };
+      g.comics++; g.value += c.v ?? 0; m.set(k, g);
+    }
+    return [...m.values()];
+  }
+
+  function matches() {
+    const terms = q.split(/\s+/).filter(Boolean);
+    return comics.filter((c) => {
+      if (keyF === 'key' && c.key === 'No') return false;
+      if (keyF && keyF !== 'key' && c.key !== keyF) return false;
+      if (boxF !== null && c.box !== boxF) return false;
+      return !terms.length || terms.every((t) => c.hay.includes(t));
+    });
+  }
+
+  function drawGallery() {
+    const g = $('gallery'); g.replaceChildren();
+    const all = matches();
+    for (const c of all.slice(0, shown)) {
+      const card = el('button', 'cover-card'); card.type = 'button';
+      card.addEventListener('click', () => openSheet(c));
+      const meta = el('div', 'cover-meta'); meta.append(el('span', null, money(c.v)), el('span', null, c.box ? 'Box ' + c.box : ''));
+      card.append(coverEl(c), el('div', 'cover-name', c.comic), meta);
+      g.appendChild(card);
+    }
+    if (!all.length) g.appendChild(el('div', 'loading', 'No comics match.'));
+    $('more').hidden = all.length <= shown;
+  }
+
+  function rowsInto(tbody, list, cells) {
+    tbody.replaceChildren();
+    for (const c of list) { const tr = el('tr', 'click'); tr.append(...cells(c)); tr.addEventListener('click', () => openSheet(byId.get(c.id) || c)); tbody.appendChild(tr); }
+  }
+  const drawList = () => rowsInto($('list'), matches().slice(0, 200), (c) => [td(c.id, 'r'), td(c.comic), td(c.title, 'hide-n'), td(c.year, 'hide-n'), td(keyPill(c.key)), td(money(c.v), 'r'), td(c.box || '–', 'r')]);
+  const drawTop = () => rowsInto($('topbody'), comics.slice(0, topN), (c) => [td(c.id, 'r'), td(c.comic), td(c.year, 'hide-n'), td(c.publisher, 'hide-n'), td(keyPill(c.key)), td(money(c.v), 'r'), td(money(c.cp), 'r hide-n'), td(c.box || '–', 'r')]);
+  const redraw = () => { shown = PAGE; drawGallery(); drawList(); };
+
+  function openSheet(c) {
+    $('s-cover').replaceChildren(coverEl(c));
+    $('s-title').textContent = c.comic;
+    const dl = $('s-dl'); dl.replaceChildren();
+    const add = (k, v) => { if (v) { dl.append(el('dt', null, k), el('dd', null, v)); } };
+    add('Story', c.title); add('Year', c.year); add('Publisher', c.publisher); add('Key issue', c.key !== 'No' ? c.key : '');
+    add('CLZ value', c.v != null ? money(c.v) : ''); add('CovrPrice', c.cp != null ? money(c.cp) : '');
+    add('Grade', c.grade); add('Box', c.box); add('Writer', c.writer.replaceAll(' | ', ', ')); add('Cover artist', c.cover_artist.replaceAll(' | ', ', '));
+    add('Characters', c.characters.split(' | ').slice(0, 8).join(', '));
+    if (isCand(c)) add('Break-even graded', money(c.v + GRADE_COST));
+    $('sheet').hidden = false;
+  }
+  $('s-close').addEventListener('click', () => { $('sheet').hidden = true; });
+  $('sheet').addEventListener('click', (e) => { if (e.target.id === 'sheet') $('sheet').hidden = true; });
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape') $('sheet').hidden = true; });
+
+  $('q').addEventListener('input', (e) => { q = e.target.value.trim().toLowerCase(); redraw(); });
+  $('keyF').addEventListener('change', (e) => { keyF = e.target.value; redraw(); });
+  $('boxF').addEventListener('change', (e) => { boxF = e.target.value === '__all' ? null : e.target.value; redraw(); });
+  $('more').addEventListener('click', () => { shown += PAGE; drawGallery(); });
+  document.querySelectorAll('[data-view]').forEach((b) => b.addEventListener('click', () => {
+    view = b.dataset.view;
+    document.querySelectorAll('[data-view]').forEach((x) => { const on = x === b; x.classList.toggle('on', on); x.setAttribute('aria-pressed', on); });
+    $('view-covers').hidden = view !== 'covers'; $('view-list').hidden = view !== 'list';
+  }));
+  document.querySelectorAll('[data-top]').forEach((b) => b.addEventListener('click', () => {
+    topN = +b.dataset.top; document.querySelectorAll('[data-top]').forEach((x) => x.classList.toggle('on', x === b)); drawTop();
+  }));
+
+  async function load() {
+    const d = await (await fetch('/comics/data/comics.json')).json();
+    const ix = Object.fromEntries(d.cols.map((c, i) => [c, i]));
+    comics = d.rows.map((r) => {
+      const c = Object.fromEntries(d.cols.map((k) => [k, r[ix[k]]]));
+      c.v = num(c.value); c.cp = num(c.covrprice);
+      c.hay = `${c.comic} ${c.title} ${c.publisher} ${c.year} ${c.characters} ${c.writer} ${c.cover_artist}`.toLowerCase();
+      return c;
+    }).sort((a, b) => (b.v ?? -1) - (a.v ?? -1) || +a.id - +b.id);
+    comics.forEach((c) => byId.set(c.id, c));
+
+    const vals = comics.map((c) => c.v ?? 0);
+    const total = vals.reduce((a, b) => a + b, 0), top100 = vals.slice(0, 100).reduce((a, b) => a + b, 0);
+    const cands = comics.filter(isCand), unvalued = comics.filter((c) => c.v == null).length;
+    $('t-value').textContent = money(total); $('t-count').textContent = fmt.format(comics.length);
+    $('t-top100').textContent = money(top100); $('t-cands').textContent = fmt.format(cands.length); $('t-unvalued').textContent = fmt.format(unvalued);
+    const lede = $('lede'); lede.replaceChildren();
+    const b = (t) => el('b', null, t);
+    lede.append('The collection is worth ', b(money(total)), ' at CLZ values, and the top 100 comics hold ', b(Math.round(top100 / total * 100) + '%'), ' of it. ', b(fmt.format(cands.length)), ' comics clear the bar for a grading review.');
+
+    const bandDefs = [['$100 or more', 100, Infinity], ['$50 to $99', 50, 100], ['$25 to $49', 25, 50], ['$10 to $24', 10, 25], ['Under $10', 0, 10]];
+    const bandRows = bandDefs.map(([band, lo, hi]) => { const r = comics.filter((c) => c.v != null && c.v >= lo && c.v < hi); return { band, comics: r.length, value: r.reduce((a, c) => a + c.v, 0) }; });
+    bandRows.push({ band: 'No value', comics: unvalued, value: 0 });
+    bars($('bands'), bandRows, 'band', 'var(--accent)');
+    bars($('pubs'), group((c) => c.publisher, (k) => k).sort((a, b) => b.value - a.value).slice(0, 6), 'label', 'var(--blue)');
+
+    const boxRows = group((c) => c.box, (k) => k ? 'Box ' + k : 'No box');
+    bars($('boxbars'), boxRows.slice().sort((a, b) => b.value - a.value), 'label', 'var(--green)', (r) => {
+      boxF = r.key; $('boxF').value = r.key; $('q').value = ''; q = '';
+      document.querySelector('[data-view="covers"]').click(); redraw(); $('browse').scrollIntoView({ behavior: 'smooth' });
+    });
+    for (const r of boxRows.slice().sort((a, b) => (a.key === '') - (b.key === '') || (+a.key - +b.key))) $('boxF').append(new Option(r.label, r.key));
+
+    drawTop();
+    rowsInto($('cands'), cands, (c) => [td(c.id, 'r'), td(c.comic), td(c.year, 'hide-n'), td(keyPill(c.key)), td(money(c.v), 'r'), td(money(c.v + GRADE_COST), 'r'), td(c.box || '–', 'r')]);
+    redraw();
+
+    for (const f of ['/comics/data/covers1.json', '/comics/data/covers2.json']) {
+      const list = await (await fetch(f)).json();
+      for (const r of list) covers.set(String(r.id), r.img);
+      drawGallery();
+    }
+  }
+  load().catch(() => { $('lede').textContent = 'Couldn’t load the collection. Check your connection and reopen the app.'; });
+
+})();
+</script>
+</body>
+</html>
