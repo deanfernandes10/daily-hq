@@ -472,6 +472,7 @@ async function api(url, asText = false) {
 
 function toast(msg) {
   const t = $("#toast");
+  t.classList.remove("alert-toast");
   t.textContent = msg;
   t.hidden = false;
   clearTimeout(toast._t);
@@ -1904,20 +1905,23 @@ function checkAlerts(kind) {
     if (!isMine(L, e)) continue;
     const [a, b] = [e.teams.find((t) => t.homeAway === "away"), e.teams.find((t) => t.homeAway === "home")];
     if (!a || !b) continue;
-    if (A.gameStart && e.state === "in") cands.push({ id: `start-${e.id}`, title: `Game on: ${a.name} @ ${b.name}`, body: e.broadcasts?.length ? `Watch on ${e.broadcasts.slice(0, 2).join(", ")}` : e.detail });
-    if (A.finals && e.state === "post" && Date.now() - new Date(e.date) < 8 * 3600e3) cands.push({ id: `final-${e.id}`, title: `Final: ${a.name} ${a.score}, ${b.name} ${b.score}`, body: e.detail });
+    const lgName = LEAGUES[L.key]?.name || "";
+    const mineT = [a, b].find((t) => (L.teams || []).includes(t.abbr)) || a;
+    const vis = { t: "game", lg: L.key, a: { abbr: a.abbr, logo: a.logo }, b: { abbr: b.abbr, logo: b.logo }, path: LEAGUES[L.key]?.path, id: e.id, icon: mineT.logo };
+    if (A.gameStart && e.state === "in") cands.push({ id: `start-${e.id}`, title: `${lgName} · Game on: ${a.name} @ ${b.name}`, body: e.broadcasts?.length ? `Watch on ${e.broadcasts.slice(0, 2).join(", ")}` : e.detail, vis: { ...vis, live: true } });
+    if (A.finals && e.state === "post" && Date.now() - new Date(e.date) < 8 * 3600e3) cands.push({ id: `final-${e.id}`, title: `${lgName} · Final: ${a.name} ${a.score}, ${b.name} ${b.score}`, body: e.detail, vis });
   }
-  if (A.weather) for (const w of data.weather) for (const al of w.alerts || []) cands.push({ id: `wx-${w.c.name}-${al.event}-${al.ends}`, title: `${al.event}`, body: `${w.c.name}${al.ends ? ` until ${when(al.ends)}` : ""}` });
+  if (A.weather) for (const w of data.weather) for (const al of w.alerts || []) cands.push({ id: `wx-${w.c.name}-${al.event}-${al.ends}`, title: `${al.event}`, body: `${w.c.name}${al.ends ? ` until ${when(al.ends)}` : ""}`, vis: { t: "wx", ev: al.event } });
   if (+A.movePct) for (const s of new Set(cfg.markets.groups.flatMap((g) => g.symbols))) {
     const q = data.quotes[s];
     if (!q || q.error || q.pct == null || Math.abs(q.pct) < +A.movePct) continue;
-    cands.push({ id: `move-${s}-${etDay}-${Math.floor(Math.abs(q.pct) / +A.movePct)}-${q.pct > 0 ? "u" : "d"}`, title: `${label(s)} ${q.pct > 0 ? "up" : "down"} ${fmtNum(Math.abs(q.pct), 1)}% today`, body: `${fmtNum(q.price, priceDigits(q.price))} · ${q.name}` });
+    cands.push({ id: `move-${s}-${etDay}-${Math.floor(Math.abs(q.pct) / +A.movePct)}-${q.pct > 0 ? "u" : "d"}`, title: `${label(s)} ${q.pct > 0 ? "up" : "down"} ${fmtNum(Math.abs(q.pct), 1)}% today`, body: `${fmtNum(q.price, priceDigits(q.price))} · ${q.name}`, vis: { t: "mk", sym: s, up: q.pct > 0, icon: stockLogo(s) } });
   }
   for (const pt of A.prices || []) {
     const q = data.quotes[pt.symbol];
     if (!q || q.error) continue;
-    if (pt.above && q.price >= +pt.above) cands.push({ id: `px-${pt.symbol}-a${pt.above}-${etDay}`, title: `${label(pt.symbol)} above ${pt.above}`, body: `Now ${fmtNum(q.price, priceDigits(q.price))}` });
-    if (pt.below && q.price <= +pt.below) cands.push({ id: `px-${pt.symbol}-b${pt.below}-${etDay}`, title: `${label(pt.symbol)} below ${pt.below}`, body: `Now ${fmtNum(q.price, priceDigits(q.price))}` });
+    if (pt.above && q.price >= +pt.above) cands.push({ id: `px-${pt.symbol}-a${pt.above}-${etDay}`, title: `${label(pt.symbol)} above ${pt.above}`, body: `Now ${fmtNum(q.price, priceDigits(q.price))}`, vis: { t: "mk", sym: pt.symbol, up: true, icon: stockLogo(pt.symbol) } });
+    if (pt.below && q.price <= +pt.below) cands.push({ id: `px-${pt.symbol}-b${pt.below}-${etDay}`, title: `${label(pt.symbol)} below ${pt.below}`, body: `Now ${fmtNum(q.price, priceDigits(q.price))}`, vis: { t: "mk", sym: pt.symbol, up: false, icon: stockLogo(pt.symbol) } });
   }
   let seen;
   try { seen = JSON.parse(store.get(SEEN_KEY)); } catch {}
@@ -1931,6 +1935,35 @@ function checkAlerts(kind) {
     return;
   }
   for (const c of fresh.slice(0, 4)) notify(c);
+}
+// ---------- logos and icons for alerts
+const INDEX_ICON = { "^GSPC": "🇺🇸", "^DJI": "🇺🇸", "^IXIC": "🇺🇸", "^RUT": "🇺🇸", "^GSPTSE": "🇨🇦", "^VIX": "📈", "CAD=X": "💱", "EURUSD=X": "💱", "GC=F": "🥇", "CL=F": "🛢️", "BTC-USD": "₿", "ETH-USD": "Ξ" };
+function stockLogo(sym) {
+  if (!sym || /^\^|=|-USD$/.test(sym)) return "";
+  return `https://financialmodelingprep.com/image-stock/${encodeURIComponent(sym.toUpperCase())}.png`;
+}
+function wxAlertIcon(ev = "") {
+  const e = ev.toLowerCase();
+  const f = /tornado|thunder|severe storm/.test(e) ? "thunderstorms-rain" : /blizzard|snow|winter|ice|freez|frost|sleet/.test(e) ? (/sleet|ice|freezing rain/.test(e) ? "sleet" : "snow")
+    : /flood|rain|hurricane|tropical/.test(e) ? "rain" : /fog|smoke|air quality|dust/.test(e) ? "fog" : /heat/.test(e) ? "clear-day" : "";
+  return f ? `<img class="nv-wx" src="/wx/${f}.svg" alt="">` : `<span class="nv-ic warn">${ic(/wind|gale/.test(e) ? "wind" : "triangle-alert")}</span>`;
+}
+const imgOr = (src, fallback, cls = "") => src
+  ? `<img class="${cls}" src="${esc(src)}" alt="" loading="lazy" data-fb="${esc(fallback || "")}" onerror="const s=document.createElement('span');s.className='nv-fb ${cls}';s.textContent=this.dataset.fb;this.replaceWith(s)">`
+  : `<span class="nv-fb ${cls}">${esc(fallback || "")}</span>`;
+function alertVis(v) {
+  if (!v) return `<span class="nv nv-plain">${ic("bell")}</span>`;
+  if (v.t === "game") return `<span class="nv nv-game ${v.live ? "live" : ""}">${LEAGUES[v.lg] ? leagueBadge(v.lg, "nv-lg") : ""}<span class="nv-teams">${imgOr(v.a?.logo, v.a?.abbr, "nv-team")}${imgOr(v.b?.logo, v.b?.abbr, "nv-team")}</span></span>`;
+  if (v.t === "wx") return `<span class="nv nv-wxw">${wxAlertIcon(v.ev)}</span>`;
+  if (v.t === "mk") return `<span class="nv nv-mk">${v.icon ? imgOr(v.icon, label(v.sym).slice(0, 4), "nv-stock") : `<span class="nv-fb nv-stock">${esc(INDEX_ICON[v.sym] || label(v.sym).slice(0, 4))}</span>`}<span class="nv-dir ${v.up ? "up" : "down"}">${ic(v.up ? "trending-up" : "trending-down", "xs")}</span></span>`;
+  return `<span class="nv nv-plain">${ic("bell")}</span>`;
+}
+function alertTarget(v) {
+  if (!v) return "";
+  if (v.t === "game" && v.path && v.id) return `data-game="${esc(v.id)}" data-path="${esc(v.path)}"`;
+  if (v.t === "wx") return `data-goto="weather"`;
+  if (v.t === "mk") return `data-goto="markets"`;
+  return "";
 }
 const UNREAD_KEY = pkey("dailyhq.alertUnread");
 const unreadCount = () => Number(store.get(UNREAD_KEY)) || 0;
@@ -1948,7 +1981,7 @@ function renderBellPop() {
   const perm = "Notification" in window ? Notification.permission : "unsupported";
   $("#bellPop").innerHTML = `<div class="bell-h"><b>Alerts</b><span class="pop-acts"><button class="mini-btn" data-config="alerts">Settings</button><button class="pop-x" data-pop-close aria-label="Close">${ic("x")}</button></span></div>
     ${perm !== "granted" && perm !== "unsupported" ? `<button class="btn primary wide" data-quick="notif">${ic("bell-ring")} Also show alerts on this device</button>` : ""}
-    ${log.length ? log.slice(0, 15).map((a, i) => `<div class="bell-item ${i < unread ? "unread" : ""}">${ic("bell")}<div><b>${esc(a.title)}</b>${a.body ? `<span>${esc(a.body)}</span>` : ""}<small>${ago(a.t)}</small></div></div>`).join("")
+    ${log.length ? log.slice(0, 15).map((a, i) => { const tg = alertTarget(a.vis); return `<${tg ? "button" : "div"} class="bell-item ${i < unread ? "unread" : ""}" ${tg}>${alertVis(a.vis)}<div><b>${esc(a.title)}</b>${a.body ? `<span>${esc(a.body)}</span>` : ""}<small>${ago(a.t)}</small></div>${tg ? ic("chevron-right", "xs") : "<span></span>"}</${tg ? "button" : "div"}>`; }).join("")
       : `<div class="empty">No alerts yet. You'll see game starts, final scores, weather warnings and stock moves here.</div>`}`;
 }
 function toggleBell(force) {
@@ -1959,14 +1992,19 @@ function toggleBell(force) {
   if (open) setUnread(0);
 }
 function notify(c) {
-  toast(`${c.title}${c.body ? " — " + c.body : ""}`);
+  const t = $("#toast");
+  t.innerHTML = `${alertVis(c.vis)}<span class="toast-txt"><b>${esc(c.title)}</b>${c.body ? `<span>${esc(c.body)}</span>` : ""}</span>`;
+  t.classList.add("alert-toast"); t.hidden = false;
+  clearTimeout(toast._t);
+  toast._t = setTimeout(() => { t.hidden = true; t.classList.remove("alert-toast"); }, 5000);
   setUnread(unreadCount() + 1);
   let log = [];
   try { log = JSON.parse(store.get(LOG_KEY)) || []; } catch {}
   log.unshift({ ...c, t: Date.now() });
   store.set(LOG_KEY, JSON.stringify(log.slice(0, 15)));
   if ("Notification" in window && Notification.permission === "granted") {
-    const opts = { body: c.body || "", icon: "/icon-192.png", badge: "/icon-192.png", tag: c.id, data: { url: "/?alerts" } };
+    // icon = team / company logo where the device shows one (Android, Mac, Windows); iPhone always shows the app icon
+    const opts = { body: c.body || "", icon: c.vis?.icon || "/icon-192.png", badge: "/icon-192.png", tag: c.id, data: { url: "/?alerts" } };
     navigator.serviceWorker?.ready?.then((r) => r.showNotification(c.title, opts)).catch(() => { try { new Notification(c.title, opts); } catch {} });
   }
 }
@@ -2586,6 +2624,7 @@ function toggleFlag(obj, key, id, box, btn) {
 // ============================================================ main page events
 document.addEventListener("click", async (e) => {
   const t = e.target;
+  if (t.closest("#bellPop [data-game], #bellPop [data-goto]")) $("#bellPop").hidden = true;
   if (t.closest("[data-modal-close]") || t.id === "modal") { closeModal(); return; }
   const bev = t.closest("[data-brief-ev]");
   if (bev) { const ev = briefEvents[+bev.dataset.briefEv]; if (ev) { calUI.sel = sod(new Date()); calUI.month = new Date(calUI.sel.getFullYear(), calUI.sel.getMonth(), 1); renderCalendar(); showEvent(ev); } return; }

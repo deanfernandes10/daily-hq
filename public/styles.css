@@ -933,3 +933,38 @@ body.modal-open { overflow: hidden; }
 #toast { display: flex; align-items: center; gap: 12px; }
 #toast[hidden] { display: none; }
 .toast-undo { background: none; border: 0; color: #7fb0ff; font: inherit; font-weight: 750; padding: 2px 4px; cursor: pointer; }
+
+/* Alert visuals: league + team logos, weather icons, company logos */
+.bell-item { grid-template-columns: 44px 1fr 14px; align-items: center; width: 100%; text-align: left; background: none; border: 0; border-bottom: 1px solid var(--line); color: var(--text); font: inherit; font-size: 14px; cursor: default; }
+button.bell-item { cursor: pointer; border-radius: 8px; }
+button.bell-item:hover { background: color-mix(in srgb, var(--accent) 8%, transparent); }
+.bell-item > .ic.xs { color: var(--muted); width: 14px; height: 14px; }
+.nv { position: relative; width: 42px; height: 42px; display: grid; place-items: center; border-radius: 12px; background: var(--panel-2); border: 1px solid var(--line); flex: none; }
+.nv .ic { width: 20px; height: 20px; color: var(--muted); margin: 0; }
+.nv-game { place-items: start; }
+.nv-game .nv-lg { position: absolute; top: -5px; left: -5px; width: 20px; height: 20px; border-radius: 50%; background: var(--panel); padding: 2px; object-fit: contain; border: 1px solid var(--line); font-size: 11px; display: grid; place-items: center; z-index: 2; }
+.nv-teams { position: absolute; inset: 0; }
+.nv-team { position: absolute; width: 24px; height: 24px; object-fit: contain; }
+.nv-teams > :first-child { top: 4px; left: 4px; }
+.nv-teams > :last-child { bottom: 3px; right: 3px; }
+span.nv-team { font-size: 9px; font-weight: 800; display: grid; place-items: center; background: var(--panel); border-radius: 50%; }
+.nv-game.live { border-color: var(--live); box-shadow: 0 0 0 2px color-mix(in srgb, var(--live) 30%, transparent); }
+.nv-wx { width: 36px; height: 36px; }
+.nv-ic.warn .ic { color: #f5b041; }
+.nv-stock { width: 30px; height: 30px; object-fit: contain; border-radius: 6px; }
+span.nv-stock { display: grid; place-items: center; font-size: 11px; font-weight: 800; color: var(--text); }
+.nv-dir { position: absolute; right: -5px; bottom: -5px; width: 20px; height: 20px; border-radius: 50%; display: grid; place-items: center; border: 2px solid var(--panel); }
+.nv-dir .ic { width: 12px; height: 12px; color: #fff; }
+.nv-dir.up { background: #22c27a; }
+.nv-dir.down { background: #e5484d; }
+.toast.alert-toast, #toast.alert-toast { display: flex; align-items: center; gap: 12px; padding: 10px 14px; max-width: min(460px, calc(100vw - 24px)); text-align: left; }
+#toast.alert-toast .nv { background: color-mix(in srgb, var(--bg) 8%, transparent); }
+.toast-txt { display: grid; gap: 1px; min-width: 0; }
+.toast-txt b { font-size: 14.5px; }
+.toast-txt span { font-size: 13px; opacity: .8; }
+.nv-game .nv-lg { top: 3px; left: 50%; transform: translateX(-50%); width: 16px; height: 16px; padding: 0; border: 0; background: none; border-radius: 3px; font-size: 12px; }
+.nv-team { width: 19px; height: 19px; }
+.nv-teams > :first-child { top: auto; bottom: 3px; left: 2px; }
+.nv-teams > :last-child { bottom: 3px; right: 2px; }
+.nv-dir { right: -3px; bottom: -3px; width: 18px; height: 18px; }
+.nv-stock { width: 28px; height: 28px; }
