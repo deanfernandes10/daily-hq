@@ -2362,7 +2362,8 @@ async function fillArticleImages() {
       try {
         const r = await fetch(`/api/ogimage?url=${encodeURIComponent(link)}`);
         const j = await r.json();
-        ogCache[link] = j.img && /^https:/.test(j.img) ? j.img : "";
+        if (!j.img && j.reason === "google") { for (const el of document.querySelectorAll(`[data-og="${CSS.escape(link)}"]`)) el.removeAttribute("data-og"); return; } // try again next visit
+        ogCache[link] = j.img && /^https:/.test(j.img) ? j.img.replace(/&#0*38;/g, "&") : "";
       } catch { return; }
       changed = true;
       for (const el of document.querySelectorAll(`[data-og="${CSS.escape(link)}"]`)) {

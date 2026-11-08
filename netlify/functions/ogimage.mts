@@ -64,7 +64,7 @@ async function decodeGoogle(u: URL): Promise<string | null> {
   }
 }
 
-const decode = (s: string) => s.replace(/&amp;/g, "&").replace(/&#x2F;/gi, "/").replace(/&#47;/g, "/").replace(/&quot;/g, '"');
+const decode = (s: string) => s.replace(/&#0*38;/g, "&").replace(/&amp;/g, "&").replace(/&#x2F;/gi, "/").replace(/&#47;/g, "/").replace(/&quot;/g, '"');
 
 function findImage(html: string, base: string): string | null {
   const head = html.slice(0, 400_000);
