@@ -915,3 +915,21 @@ body.modal-open { overflow: hidden; }
 .game.cricket .g-team { grid-template-columns: 24px minmax(0, 1fr) auto; }
 .game.cricket .nm { min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .game.cricket .sc.ck { font-family: var(--font); font-size: 13.5px; font-weight: 700; white-space: nowrap; max-width: none; }
+
+/* Confirm dialog + Undo toast */
+.confirm-wrap { position: fixed; inset: 0; z-index: 200; display: grid; place-items: center; padding: 20px; background: rgba(0,0,0,.55); backdrop-filter: blur(3px); }
+.confirm-wrap[hidden] { display: none; }
+.confirm-card { width: min(380px, 100%); background: var(--panel); border: 1px solid var(--line); border-radius: 18px; padding: 20px; display: grid; gap: 8px; text-align: center; box-shadow: 0 20px 60px rgba(0,0,0,.45); animation: cfIn .14s ease-out; }
+@keyframes cfIn { from { transform: scale(.96); opacity: 0; } }
+.confirm-ic { width: 46px; height: 46px; border-radius: 50%; display: grid; place-items: center; margin: 0 auto 4px; background: color-mix(in srgb, #f5b041 18%, transparent); color: #f5b041; }
+.confirm-ic.danger { background: color-mix(in srgb, #ff5c6c 18%, transparent); color: #ff5c6c; }
+.confirm-ic .ic { width: 22px; height: 22px; }
+.confirm-card > b { font-size: 17px; line-height: 1.3; }
+.confirm-card p { margin: 0; color: var(--muted); font-size: 14.5px; line-height: 1.45; }
+.confirm-card p b { color: var(--text); }
+.confirm-btns { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 10px; }
+.confirm-btns .btn { padding: 11px; font-size: 15px; justify-content: center; }
+.btn.danger-solid { background: #e5484d; border-color: #e5484d; color: #fff; }
+#toast { display: flex; align-items: center; gap: 12px; }
+#toast[hidden] { display: none; }
+.toast-undo { background: none; border: 0; color: #7fb0ff; font: inherit; font-weight: 750; padding: 2px 4px; cursor: pointer; }

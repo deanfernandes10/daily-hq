@@ -478,6 +478,32 @@ function toast(msg) {
   toast._t = setTimeout(() => (t.hidden = true), 2200);
 }
 
+// ---------- confirm before anything that can't be undone, and Undo for small removals
+function askConfirm({ title, body = "", ok = "Delete", danger = true }) {
+  return new Promise((resolve) => {
+    let el = $("#confirmDlg");
+    if (!el) { el = document.createElement("div"); el.id = "confirmDlg"; el.className = "confirm-wrap"; document.body.append(el); }
+    el.innerHTML = `<div class="confirm-card" role="alertdialog" aria-modal="true" aria-labelledby="cfT" aria-describedby="cfB">
+      <div class="confirm-ic ${danger ? "danger" : ""}">${ic(danger ? "trash-2" : "triangle-alert")}</div>
+      <b id="cfT">${esc(title)}</b>${body ? `<p id="cfB">${body}</p>` : ""}
+      <div class="confirm-btns"><button class="btn" data-cf="0">Cancel</button><button class="btn ${danger ? "danger-solid" : "primary"}" data-cf="1">${esc(ok)}</button></div></div>`;
+    el.hidden = false;
+    const done = (v) => { el.hidden = true; el.onclick = null; document.removeEventListener("keydown", key, true); resolve(v); };
+    const key = (e) => { if (e.key === "Escape") { e.stopPropagation(); done(false); } else if (e.key === "Enter") { e.preventDefault(); done(true); } };
+    el.onclick = (e) => { e.stopPropagation(); const b = e.target.closest("[data-cf]"); if (b) done(b.dataset.cf === "1"); else if (e.target === el) done(false); };
+    document.addEventListener("keydown", key, true);
+    setTimeout(() => el.querySelector('[data-cf="0"]')?.focus(), 0);
+  });
+}
+function undoToast(msg, undo) {
+  const t = $("#toast");
+  t.innerHTML = `<span>${esc(msg)}</span><button class="toast-undo">Undo</button>`;
+  t.hidden = false;
+  t.querySelector(".toast-undo").onclick = (e) => { e.stopPropagation(); t.hidden = true; undo(); toast("Restored"); };
+  clearTimeout(toast._t);
+  toast._t = setTimeout(() => (t.hidden = true), 6000);
+}
+
 const ymd = (d) => `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, "0")}${String(d.getDate()).padStart(2, "0")}`;
 const addDays = (n) => { const d = new Date(); d.setDate(d.getDate() + n); return d; };
 const sameDay = (a, b) => a.toDateString() === b.toDateString();
@@ -2597,9 +2623,14 @@ document.addEventListener("click", async (e) => {
   if (ee) { const ev = (cfg.events || []).find((x) => x.id === ee.dataset.evEdit); if (ev) eventForm(ev); return; }
   const ed = t.closest("[data-ev-del]");
   if (ed) {
-    if (!ed.dataset.confirm) { ed.dataset.confirm = 1; ed.innerHTML = `${ic("trash-2")} Tap again to delete`; return; }
-    cfg.events = (cfg.events || []).filter((x) => x.id !== ed.dataset.evDel);
-    save(); closeModal(); refreshCalData(); renderCalendar(); renderBrief(); toast("Event deleted"); return;
+    const ev = (cfg.events || []).find((x) => x.id === ed.dataset.evDel);
+    askConfirm({ title: `Delete "${ev?.title || "this event"}"?`, body: "It will be removed from Daily HQ on all your synced devices. Copies you added to Outlook, Google or iPhone aren't affected." }).then((ok) => {
+      if (!ok) return;
+      cfg.events = (cfg.events || []).filter((x) => x.id !== ed.dataset.evDel);
+      save(); closeModal(); refreshCalData(); renderCalendar(); renderBrief();
+      undoToast("Event deleted", () => { cfg.events = [...(cfg.events || []), ev]; save(); refreshCalData(); renderCalendar(); renderBrief(); });
+    });
+    return;
   }
   const wa = t.closest("[data-w]");
   if (wa) { welcomeAction(wa); return; }
@@ -2607,8 +2638,10 @@ document.addEventListener("click", async (e) => {
   if (sv) {
     const link = sv.dataset.save;
     const i = (cfg.saved || []).findIndex((x) => x.link === link);
-    if (i >= 0) cfg.saved.splice(i, 1);
-    else {
+    if (i >= 0) {
+      const [gone] = cfg.saved.splice(i, 1);
+      undoToast("Removed from Saved", () => { cfg.saved.splice(Math.min(i, cfg.saved.length), 0, gone); save(); renderNews(); });
+    } else {
       const item = [...Object.values(data.news).filter(Boolean).flatMap((d) => d.items), ...Object.values(data.reSub).flatMap((d) => d.items || [])].find((x) => x.link === link);
       if (item) cfg.saved.unshift({ title: item.title, link: item.link, source: item.source, ts: item.ts, img: item.img, desc: (item.desc || "").slice(0, 160), feed: item.feed });
       cfg.saved = cfg.saved.slice(0, 100);
@@ -2623,7 +2656,12 @@ document.addEventListener("click", async (e) => {
   const pf = t.closest("[data-profile]");
   if (pf) { switchProfile(pf.dataset.profile); return; }
   const pd = t.closest("[data-profile-del]");
-  if (pd) { if (pd.dataset.confirm) { removeProfile(pd.dataset.profileDel); renderMore(); } else { pd.dataset.confirm = 1; pd.innerHTML = "Remove?"; } return; }
+  if (pd) {
+    const name = listProfiles().find((p) => p.id === pd.dataset.profileDel)?.name || "this person";
+    askConfirm({ title: `Remove ${name} from Daily HQ?`, body: `All of ${esc(name)}'s teams, cities, news, calendars and saved items on this device will be erased. <b>This can't be undone</b> unless they have a sync code.`, ok: "Remove" })
+      .then((ok) => { if (ok) { removeProfile(pd.dataset.profileDel); renderMore(); toast("Removed"); } });
+    return;
+  }
   if (t.closest("[data-pop-close]")) { $("#bellPop").hidden = true; $("#appsPop").hidden = true; return; }
   if (t.closest("#bellBtn")) { toggleBell(); return; }
   if (!t.closest("#bellPop")) $("#bellPop").hidden = true;
@@ -2673,7 +2711,9 @@ document.addEventListener("click", async (e) => {
   const rrm = t.closest("[data-re-remove]");
   if (rrm) {
     const a = rrm.dataset.reRemove, v = reCur(), d = reDefaults();
-    d.areas[v.country] = d.areas[v.country].filter((x) => x !== a);
+    const before = JSON.stringify(cfg.realestate || {}), c0 = v.country;
+    undoToast(`Removed ${a}`, () => { cfg.realestate = JSON.parse(before); save(); renderNews(); renderMarkets(true); });
+    d.areas[c0] = d.areas[c0].filter((x) => x !== a);
     if (v.area[v.country] === a) v.area[v.country] = "";
     if (d.area[v.country] === a) d.area[v.country] = "";
     save(); renderNews(); return;
@@ -3107,6 +3147,29 @@ $("#drawerBody").addEventListener("click", async (e) => {
   if (!a || a.tagName === "INPUT" || a.tagName === "SELECT") return;
   const act = a.dataset.act, i = +a.dataset.i, d = +a.dataset.d;
   const L = cfg.sports.leagues, C = cfg.news.categories, G = cfg.markets.groups;
+  const CONFIRM = {
+    "league-del": () => ({ title: `Remove ${LEAGUES[L[i]?.key]?.name || "this league"}?`, body: (L[i]?.teams || []).length ? `Your ${L[i].teams.length} picked team${L[i].teams.length > 1 ? "s" : ""} (${esc(L[i].teams.join(", "))}) will be removed too.` : "", ok: "Remove" }),
+    "cat-del": () => ({ title: `Delete the "${C[i]?.name}" news tab?`, body: `Its ${C[i]?.feeds?.length || 0} sources will be removed. Saved headlines stay saved.` }),
+    "feed-del": () => ({ title: `Remove ${C[i]?.feeds?.[+a.dataset.j]?.name || "this source"}?`, body: `It will no longer appear in ${esc(C[i]?.name || "this tab")}.`, ok: "Remove" }),
+    "city-del": () => ({ title: `Remove ${cfg.weather.cities[i]?.name || "this city"}?`, body: "Its forecast and weather alerts will stop.", ok: "Remove" }),
+    "grp-del": () => ({ title: `Delete the "${G[i]?.name}" board?`, body: `All ${G[i]?.symbols?.length || 0} symbols on it will be removed.` }),
+    "cal-del": () => ({ title: `Disconnect ${cfg.calendars[i]?.name || "this calendar"}?`, body: "Its events disappear from Daily HQ. To add it back you'll need the calendar link again.", ok: "Disconnect" }),
+    "app-del": () => ({ title: `Remove ${cfg.apps[i]?.name || "this app"}?`, body: "", ok: "Remove" }),
+    "pt-del": () => ({ title: "Delete this price alert?", body: "" }),
+    "sync-off": () => ({ title: "Turn off sync on this device?", body: "Changes here will stop reaching your other devices. <b>Save your code or restore link first</b> — you'll need it to turn sync back on.", ok: "Turn off" }),
+    "sync-join": () => ({ title: "Replace this device's settings?", body: "Everything on this device will be replaced by the settings saved under that code. This can't be undone.", ok: "Replace", danger: false }),
+    "import": () => ({ title: "Replace all your settings?", body: "Your current teams, cities, news tabs, boards and calendars will be replaced by the pasted settings. This can't be undone.", ok: "Replace", danger: false }),
+    "reset": () => ({ title: "Reset everything to defaults?", body: "All your teams, cities, news tabs, market boards, calendars, apps and saved events will be erased. <b>This can't be undone.</b>", ok: "Reset" }),
+  };
+  if (CONFIRM[act]) {
+    if (!(await askConfirm(CONFIRM[act]()))) return;
+    a.dataset.confirm = 1;
+  }
+  const UNDO = { "team-del": `Removed ${a.dataset.v}`, "tick-del": "Removed from ticker", "grp-sym-del": "Removed symbol" };
+  if (UNDO[act]) {
+    const before = JSON.stringify(cfg);
+    queueMicrotask(() => undoToast(UNDO[act], () => { cfg = JSON.parse(before); save(); dirty.add("sports"); dirty.add("markets"); renderSettings(); }));
+  }
   switch (act) {
     case "theme": cfg.theme = a.dataset.v; applyTheme(); commit(); renderMore(); break;
     case "sync-on": {
@@ -3175,8 +3238,7 @@ $("#drawerBody").addEventListener("click", async (e) => {
       } catch { toast("That doesn't look like Daily HQ settings"); }
       break;
     case "reset":
-      if (a.dataset.confirm) { cfg = clone(DEFAULTS); save(); applyTheme(); dirty.add("layout"); toast("Reset to defaults"); renderSettings(); }
-      else { a.dataset.confirm = 1; a.textContent = "Tap again to confirm"; }
+      cfg = clone(DEFAULTS); save(); applyTheme(); dirty.add("layout"); toast("Reset to defaults"); renderSettings();
       break;
     // sports
     case "league-move": move(L, i, d); commit("sports"); break;
@@ -3206,8 +3268,7 @@ $("#drawerBody").addEventListener("click", async (e) => {
     // news
     case "cat-move": move(C, i, d); commit("news"); break;
     case "cat-del":
-      if (a.dataset.confirm) { delete data.news[C[i].id]; C.splice(i, 1); commit("news"); }
-      else { a.dataset.confirm = 1; a.textContent = "Tap again to delete"; }
+      delete data.news[C[i].id]; C.splice(i, 1); commit("news");
       break;
     case "cat-add": { const n = $("#catName").value.trim(); if (!n) return; C.push({ id: uid(), name: n, on: true, feeds: [] }); commit("news"); break; }
     case "feed-del": C[i].feeds.splice(+a.dataset.j, 1); commit("news"); break;
@@ -3239,8 +3300,7 @@ $("#drawerBody").addEventListener("click", async (e) => {
     case "grp-sym-del": G[+a.dataset.g].symbols.splice(+a.dataset.k, 1); commit("markets"); break;
     case "grp-move": move(G, i, d); commit("markets"); break;
     case "grp-del":
-      if (a.dataset.confirm) { G.splice(i, 1); commit("markets"); }
-      else { a.dataset.confirm = 1; a.textContent = "Tap again"; }
+      G.splice(i, 1); commit("markets");
       break;
     case "grp-add": { const n = $("#grpName").value.trim(); if (!n) return; G.push({ name: n, symbols: [] }); commit("markets"); break; }
     case "sym-add": addSymbol(a.dataset.target, suggest.results[+a.dataset.k].symbol); break;
