@@ -375,7 +375,44 @@
     bars($('boxbars'), rows, 'var(--up)', (r) => { resetFilters(); ui.fBox = r.key; ui.sort = 'value'; ui.view = 'covers'; syncFilterInputs(); go('browse'); renderBrowse(); });
   }
 
-  function renderAll() { derive(); renderHeader(); renderBrowse(); renderSelling(); renderGrading(); renderTop(); renderLots(); renderValue(); renderBoxes(); applySections(); }
+  // ---------- tile summaries ----------
+  const strip = (list) => h('div', { class: 'strip' }, list.slice(0, 5).map((c) => coverOf(c) ? h('img', { alt: c.comic, loading: 'lazy', src: 'data:image/jpeg;base64,' + coverOf(c) }) : h('div', { class: 'none' })));
+  const big = (...k) => h('div', { class: 'big' }, ...k);
+  const line = (...k) => h('div', { class: 'line' }, ...k);
+  const B = (x) => h('b', { class: 'num', text: x });
+  function sum(k, pill, pillCls, kids, foot) {
+    const p = $('pill-' + k); p.textContent = pill || ''; p.className = 'pill' + (pillCls ? ' ' + pillCls : '');
+    $('sum-' + k).replaceChildren(...kids.filter(Boolean), h('div', { class: 'foot2' }, h('span', { text: foot || '' }), h('span', { class: 'open-hint', text: 'Open ›' })));
+  }
+  function renderSummaries() {
+    const owned = ranked.filter((c) => status(c) !== 'sold');
+    const total = owned.reduce((a, c) => a + (c.v ?? 0), 0), covr = owned.reduce((a, c) => a + (c.cp ?? 0), 0);
+    const series = new Set(owned.map((c) => c.series)).size, boxes = group(owned, (c) => c.box).filter((g) => g.key);
+    sum('browse', fmt.format(owned.length), '', [big(B(money(total)), ' CLZ value'), line(fmt.format(series), ' series · ', fmt.format(boxes.length), ' boxes · ', B(money(covr)), ' CovrPrice'), strip(owned)],
+      `Covers or list · search, filter, sort`);
+    const mine = comics.filter((c) => status(c)), prog = mine.filter((c) => !['sold', 'keep'].includes(status(c))), sold = mine.filter((c) => status(c) === 'sold');
+    const net = sold.reduce((a, c) => a + (soldNet(item(c.key)) ?? 0), 0), listed = mine.filter((c) => status(c) === 'listed');
+    sum('selling', sold.length ? `${fmt.format(sold.length)} sold` : prog.length ? `${fmt.format(prog.length)} active` : 'Not started', sold.length ? 'good' : prog.length ? '' : 'warn',
+      mine.length ? [big(B(fmt.format(prog.length)), ' in progress · ', B(money(prog.reduce((a, c) => a + (c.v ?? 0), 0))), ' CLZ value'), line(fmt.format(listed.length), ' listed · ', fmt.format(sold.length), ' sold · net ', B(money(net))), strip(prog.length ? prog : sold)]
+        : [big('Nothing marked yet'), line(unlocked ? 'Open a comic and set its status to start tracking.' : 'Turn on editing in Settings to start tracking.')],
+      'Status, prices and sales for each comic');
+    const cands = owned.filter(isCand), est = cands.filter((c) => num(item(c.key).gradedValue) != null), yes = est.filter((c) => num(item(c.key).gradedValue) > breakEven(c));
+    sum('grading', `${fmt.format(cands.length)} comics`, '', [big(B(money(cands.reduce((a, c) => a + (c.v ?? 0), 0))), ' raw value'), line(est.length ? [fmt.format(est.length), ' estimated · ', B(fmt.format(yes.length)), ' worth grading'] : 'Add graded estimates to see which to slab'), strip(cands)],
+      `Over ${money(prefs().candMin)}, or major keys over ${money(prefs().candMajorMin)}`);
+    const top = owned.slice(0, 100), t100 = top.reduce((a, c) => a + (c.v ?? 0), 0);
+    sum('valuable', `Top ${fmt.format(Math.min(100, owned.length))}`, '', [big(B(money(t100)), ` · ${Math.round(t100 / (total || 1) * 100)}% of value`), top[0] ? line('#1 ', B(top[0].comic), ' · ', money(top[0].v)) : null, strip(top)], 'Top 25, 50 and 100');
+    const p = prefs(), pool = comics.filter((c) => (c.v ?? 0) < p.lotMax && !['sold', 'keep', 'grade', 'submitted', 'graded'].includes(status(c)));
+    const lots = group(pool, (c) => c.series).filter((g) => g.comics >= p.lotMinCount).sort((a, b) => b.comics - a.comics);
+    sum('lots', `${fmt.format(lots.length)} series`, '', [big(B(fmt.format(lots.reduce((a, g) => a + g.comics, 0))), ` comics under ${money(p.lotMax)}`), lots[0] ? line('Biggest run: ', B(lots[0].key), ` (${lots[0].comics})`) : null, lots[0] ? strip(lots[0].list) : null], 'Low-value runs to sell together');
+    const hi = owned.filter((c) => (c.v ?? 0) >= 100), none = owned.filter((c) => c.v == null).length;
+    const last = history.length ? history[history.length - 1] : null;
+    sum('value', money(total), '', [big(B(fmt.format(hi.length)), ' comics at $100+ hold ', B(money(hi.reduce((a, c) => a + c.v, 0)))), line(fmt.format(none), ' without a value · ', history.length ? `${history.length} snapshots, last ${dateStr(last.at)}` : `as of ${dateStr(source.at)}`)],
+      'Price bands, publishers, eras, history');
+    const bs = boxes.sort((a, b) => b.value - a.value), nobox = owned.filter((c) => !c.box).length;
+    sum('boxes', `${fmt.format(boxes.length)} boxes`, '', [bs[0] ? big('Top: ', B('Box ' + bs[0].key), ' · ', money(bs[0].value), ` · ${fmt.format(bs[0].comics)} comics`) : null, line(fmt.format(nobox), ' comics with no box'), bs[0] ? strip(bs[0].list.sort((a, b) => (b.v ?? 0) - (a.v ?? 0))) : null], 'Value and covers by box');
+  }
+
+  function renderAll() { derive(); renderHeader(); renderBrowse(); renderSelling(); renderGrading(); renderTop(); renderLots(); renderValue(); renderBoxes(); renderSummaries(); applySections(); }
 
   // ---------- detail sheet ----------
   function searchQuery(c) {
@@ -482,16 +519,19 @@
 
   // ---------- sections: collapse, show/hide, navigation ----------
   function applySections() {
-    const collapsed = ls.get('collapsed', {}); const hidden = ls.get('hiddenSecs', {});
-    $$('[data-sec]').forEach((s) => { s.classList.toggle('collapsed', !!collapsed[s.dataset.sec]); s.hidden = !!hidden[s.dataset.sec]; });
+    const open = ls.get('openSecs', {}); const hidden = ls.get('hiddenSecs', {});
+    $$('[data-sec]').forEach((s) => { s.classList.toggle('open', !!open[s.dataset.sec]); s.hidden = !!hidden[s.dataset.sec]; });
+  }
+  function setOpen(k, on, scroll) {
+    const open = ls.get('openSecs', {}); if (on) open[k] = true; else delete open[k]; ls.set('openSecs', open); applySections();
+    const sec = document.querySelector(`[data-sec="${k}"]`);
+    if (scroll && sec) sec.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
   function go(where) {
     if (where === 'novalue') { resetFilters(); ui.fVal = 'none'; syncFilterInputs(); renderBrowse(); where = 'browse'; }
     const sec = document.querySelector(`[data-sec="${where}"]`); if (!sec) return;
     const hidden = ls.get('hiddenSecs', {}); if (hidden[where]) { delete hidden[where]; ls.set('hiddenSecs', hidden); }
-    const collapsed = ls.get('collapsed', {}); if (collapsed[where]) { delete collapsed[where]; ls.set('collapsed', collapsed); }
-    applySections();
-    sec.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    setOpen(where, true, true);
   }
 
   // ---------- settings drawer ----------
@@ -518,9 +558,9 @@
         setBlock('Appearance', 'Dark matches Daily HQ. Auto follows your device.', segCtl([['dark', 'Dark'], ['light', 'Light'], ['auto', 'Auto']], ls.get('theme', 'dark'), (v) => { ls.set('theme', v); applyTheme(v); })),
         setBlock('Browse view', null, segCtl([['covers', 'Covers'], ['list', 'List']], ui.view, (v) => { ui.view = v; ls.set('view', v); renderBrowse(); }),
           h('div', { class: 'field' }, h('span', null, 'Covers per page'), h('select', { onchange: (e) => { ui.page = ui.shown = +e.target.value; ls.set('page', ui.page); renderBrowse(); } }, [30, 60, 120, 240].map((n) => h('option', { value: n, selected: n === ui.page ? true : null, text: n }))))),
-        setBlock('Sections', 'Choose what shows on the page. Tap a section’s title to fold it away.',
+        setBlock('Sections', 'Choose which tiles show. Tap a tile to open its details; tap its title again to fold it back into a tile.',
           ...SECTIONS.map(([k, l]) => h('label', { class: 'check' }, h('input', { type: 'checkbox', checked: !ls.get('hiddenSecs', {})[k] ? true : null, onchange: (e) => { const hs = ls.get('hiddenSecs', {}); if (e.target.checked) delete hs[k]; else hs[k] = true; ls.set('hiddenSecs', hs); applySections(); } }), l)),
-          h('div', { class: 'inline' }, h('button', { class: 'btn', type: 'button', onclick: () => { ls.set('collapsed', {}); applySections(); } }, 'Expand all'), h('button', { class: 'btn', type: 'button', onclick: () => { ls.set('collapsed', Object.fromEntries(SECTIONS.map(([k]) => [k, true]))); applySections(); } }, 'Collapse all'))),
+          h('div', { class: 'inline' }, h('button', { class: 'btn', type: 'button', onclick: () => { ls.set('openSecs', Object.fromEntries(SECTIONS.map(([k]) => [k, true]))); applySections(); } }, 'Expand all'), h('button', { class: 'btn', type: 'button', onclick: () => { ls.set('openSecs', {}); applySections(); } }, 'Collapse all to tiles'))),
         setBlock('Add to your home screen', null, h('p', { class: 'hint' }, 'iPhone: open this page in Chrome or Safari, tap Share, then Add to Home Screen. Mac: in Chrome, use Install in the address bar or the ⋮ menu.')));
     }
     if (tab === 'selling') {
@@ -627,13 +667,14 @@
     applyLock();
     derive(); syncFilterInputs(); renderAll();
     for (const f of COVER_FILES) {
-      try { const obj = await (await fetch(f)).json(); for (const [k, v] of Object.entries(obj)) covers.set(k, v); renderBrowse(); renderGrading(); renderTop(); renderSelling(); } catch {}
+      try { const obj = await (await fetch(f)).json(); for (const [k, v] of Object.entries(obj)) covers.set(k, v); renderBrowse(); renderGrading(); renderTop(); renderSelling(); renderSummaries(); } catch {}
     }
   }
 
   // ---------- events ----------
   $$('[data-go]').forEach((b) => b.addEventListener('click', () => go(b.dataset.go)));
-  $$('.sec-h').forEach((b) => b.addEventListener('click', () => { const k = b.closest('[data-sec]').dataset.sec; const col = ls.get('collapsed', {}); col[k] = !col[k]; if (!col[k]) delete col[k]; ls.set('collapsed', col); applySections(); }));
+  $$('.sec-h').forEach((b) => b.addEventListener('click', () => { const s = b.closest('[data-sec]'); setOpen(s.dataset.sec, !s.classList.contains('open'), !s.classList.contains('open')); }));
+  $$('[data-sec]').forEach((s) => s.addEventListener('click', (e) => { if (!s.classList.contains('open') && !e.target.closest('.sec-h')) setOpen(s.dataset.sec, true, true); }));
   let qT; $('q').addEventListener('input', (e) => { clearTimeout(qT); qT = setTimeout(() => { ui.q = e.target.value.trim().toLowerCase(); ui.shown = ui.page; renderBrowse(); }, 120); });
   $('sort').addEventListener('change', (e) => { ui.sort = e.target.value; ui.shown = ui.page; renderBrowse(); });
   $('filterBtn').addEventListener('click', () => { $('filters').hidden = !$('filters').hidden; });

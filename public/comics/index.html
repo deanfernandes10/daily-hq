@@ -70,8 +70,10 @@
     <button class="tile" data-go="novalue"><span class="lbl">Without a value<svg class="ic"><use href="#i-chevron-right"/></svg></span><span class="val num" id="t-unvalued">—</span><span class="sub">Need a value in CLZ</span></button>
   </section>
 
+  <div class="sections" id="sections">
   <section class="card" id="sec-browse" data-sec="browse">
-    <button class="sec-h" type="button"><h2>Browse the collection</h2><span class="meta" id="browseMeta"></span><svg class="ic chev"><use href="#i-chevron-down"/></svg></button>
+    <button class="sec-h" type="button"><span class="sec-ic"><svg class="ic"><use href="#i-grid"/></svg></span><span class="sec-tt"><h2>Browse the collection</h2><span class="meta" id="browseMeta"></span></span><span class="pill" id="pill-browse"></span><svg class="ic chev"><use href="#i-chevron-down"/></svg></button>
+    <div class="sum" id="sum-browse"></div>
     <div class="sec-b">
       <div class="toolbar">
         <label class="search"><svg class="ic"><use href="#i-search"/></svg><input id="q" type="search" placeholder="Search series, issue, character, writer, artist, year" aria-label="Search the collection"></label>
@@ -124,7 +126,8 @@
   </section>
 
   <section class="card" id="sec-selling" data-sec="selling">
-    <button class="sec-h" type="button"><h2>Selling</h2><span class="meta" id="sellMeta"></span><svg class="ic chev"><use href="#i-chevron-down"/></svg></button>
+    <button class="sec-h" type="button"><span class="sec-ic"><svg class="ic"><use href="#i-tag"/></svg></span><span class="sec-tt"><h2>Selling</h2><span class="meta" id="sellMeta"></span></span><span class="pill" id="pill-selling"></span><svg class="ic chev"><use href="#i-chevron-down"/></svg></button>
+    <div class="sum" id="sum-selling"></div>
     <div class="sec-b">
       <p class="note">Every comic you give a status shows up here, from the decision to the sale. Tap a stage to see its comics; tap a comic to update it.</p>
       <div class="totals" id="sellTotals"></div>
@@ -134,7 +137,8 @@
   </section>
 
   <section class="card" id="sec-grading" data-sec="grading">
-    <button class="sec-h" type="button"><h2>Grading shortlist</h2><span class="meta" id="gradeMeta"></span><svg class="ic chev"><use href="#i-chevron-down"/></svg></button>
+    <button class="sec-h" type="button"><span class="sec-ic"><svg class="ic"><use href="#i-award"/></svg></span><span class="sec-tt"><h2>Grading shortlist</h2><span class="meta" id="gradeMeta"></span></span><span class="pill" id="pill-grading"></span><svg class="ic chev"><use href="#i-chevron-down"/></svg></button>
+    <div class="sum" id="sum-grading"></div>
     <div class="sec-b">
       <p class="note" id="gradeNote"></p>
       <div class="tbl-wrap"><table>
@@ -145,7 +149,8 @@
   </section>
 
   <section class="card" id="sec-valuable" data-sec="valuable">
-    <button class="sec-h" type="button"><h2>Most valuable comics</h2><span class="meta" id="topMeta"></span><svg class="ic chev"><use href="#i-chevron-down"/></svg></button>
+    <button class="sec-h" type="button"><span class="sec-ic"><svg class="ic"><use href="#i-star"/></svg></span><span class="sec-tt"><h2>Most valuable comics</h2><span class="meta" id="topMeta"></span></span><span class="pill" id="pill-valuable"></span><svg class="ic chev"><use href="#i-chevron-down"/></svg></button>
+    <div class="sum" id="sum-valuable"></div>
     <div class="sec-b">
       <div class="toolbar"><div class="seg" role="group" aria-label="How many to show">
         <button type="button" data-top="25">Top 25</button><button type="button" data-top="50">Top 50</button><button type="button" data-top="100" class="on">Top 100</button>
@@ -158,7 +163,8 @@
   </section>
 
   <section class="card" id="sec-lots" data-sec="lots">
-    <button class="sec-h" type="button"><h2>Lots to sell together</h2><span class="meta" id="lotMeta"></span><svg class="ic chev"><use href="#i-chevron-down"/></svg></button>
+    <button class="sec-h" type="button"><span class="sec-ic"><svg class="ic"><use href="#i-layers"/></svg></span><span class="sec-tt"><h2>Lots to sell together</h2><span class="meta" id="lotMeta"></span></span><span class="pill" id="pill-lots"></span><svg class="ic chev"><use href="#i-chevron-down"/></svg></button>
+    <div class="sum" id="sum-lots"></div>
     <div class="sec-b">
       <p class="note" id="lotNote"></p>
       <div class="tbl-wrap"><table>
@@ -169,7 +175,8 @@
   </section>
 
   <section class="card" id="sec-value" data-sec="value">
-    <button class="sec-h" type="button"><h2>Collection value</h2><span class="meta" id="valueMeta"></span><svg class="ic chev"><use href="#i-chevron-down"/></svg></button>
+    <button class="sec-h" type="button"><span class="sec-ic"><svg class="ic"><use href="#i-trend"/></svg></span><span class="sec-tt"><h2>Collection value</h2><span class="meta" id="valueMeta"></span></span><span class="pill" id="pill-value"></span><svg class="ic chev"><use href="#i-chevron-down"/></svg></button>
+    <div class="sum" id="sum-value"></div>
     <div class="sec-b">
       <div class="grid2">
         <div><h3 class="sub-h">By price band</h3><div class="bars" id="bands"></div></div>
@@ -181,12 +188,15 @@
   </section>
 
   <section class="card" id="sec-boxes" data-sec="boxes">
-    <button class="sec-h" type="button"><h2>Storage boxes</h2><span class="meta" id="boxMeta"></span><svg class="ic chev"><use href="#i-chevron-down"/></svg></button>
+    <button class="sec-h" type="button"><span class="sec-ic"><svg class="ic"><use href="#i-box"/></svg></span><span class="sec-tt"><h2>Storage boxes</h2><span class="meta" id="boxMeta"></span></span><span class="pill" id="pill-boxes"></span><svg class="ic chev"><use href="#i-chevron-down"/></svg></button>
+    <div class="sum" id="sum-boxes"></div>
     <div class="sec-b">
       <p class="note">Value in each box, most valuable first. Tap a box to see its covers.</p>
       <div class="bars" id="boxbars"></div>
     </div>
   </section>
+
+  </div>
 
   <p class="foot" id="foot"></p>
 </main>
