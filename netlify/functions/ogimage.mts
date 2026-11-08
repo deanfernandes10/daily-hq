@@ -27,6 +27,7 @@ async function get(url: string, ms = 7000, init: RequestInit = {}) {
 }
 
 // Google News article ids → publisher URL
+let why = "";
 async function decodeGoogle(u: URL): Promise<string | null> {
   const id = u.pathname.split("/").pop() || "";
   if (!id) return null;
@@ -41,7 +42,7 @@ async function decodeGoogle(u: URL): Promise<string | null> {
     const page = await (await get(`https://news.google.com/articles/${id}`, 6000)).text();
     const sg = page.match(/data-n-a-sg="([^"]+)"/)?.[1];
     const ts = page.match(/data-n-a-ts="([^"]+)"/)?.[1];
-    if (!sg || !ts) return null;
+    if (!sg || !ts) { why = "nosig " + page.length + " " + page.slice(0, 200).replace(/\s+/g, " "); return null; }
     const req = [[["Fbv4je", JSON.stringify(["garturlreq", [["X", "X", ["X", "X"], null, null, 1, 1, "US:en", null, 1, null, null, null, null, null, 0, 1], "X", "X", 1, [1, 1, 1], 1, 1, null, 0, 0, null, 0], id, Number(ts), sg]), null, "generic"]]];
     const r = await get("https://news.google.com/_/DotsSplashUi/data/batchexecute", 6000, {
       method: "POST",
@@ -50,8 +51,10 @@ async function decodeGoogle(u: URL): Promise<string | null> {
     });
     const text = await r.text();
     const m = text.match(/\\"garturlres\\",\\"(https?:[^\\"]+)\\"/) || text.match(/"garturlres","(https?:[^"]+)"/);
+    if (!m) why = "nores " + r.status + " " + text.slice(0, 300);
     return m ? m[1].replace(/\\\\u003d/g, "=").replace(/\\u003d/g, "=").replace(/\\u0026/g, "&") : null;
-  } catch {
+  } catch (e: any) {
+    why = "err " + e?.message;
     return null;
   }
 }
@@ -93,7 +96,7 @@ export default async (req: Request) => {
   let article = target.toString();
   if (target.hostname === "news.google.com") {
     const real = await decodeGoogle(target);
-    if (!real) { console.log("ogimage: couldn't decode Google News link"); return out({ img: null, reason: "google" }, 3600); }
+    if (!real) { console.log("ogimage: couldn't decode Google News link", why.slice(0, 200)); return out({ img: null, reason: "google", ...(new URL(req.url).searchParams.get("debug") ? { why } : {}) }, 600); }
     article = real;
   }
   try {
