@@ -1907,7 +1907,8 @@ function checkAlerts(kind) {
     if (!a || !b) continue;
     const lgName = LEAGUES[L.key]?.name || "";
     const mineT = [a, b].find((t) => (L.teams || []).includes(t.abbr)) || a;
-    const vis = { t: "game", lg: L.key, a: { abbr: a.abbr, logo: a.logo }, b: { abbr: b.abbr, logo: b.logo }, path: LEAGUES[L.key]?.path, id: e.id, icon: mineT.logo };
+    const tm = (t) => ({ abbr: t.abbr, logo: t.logo, name: t.name, score: t.score, record: t.record, winner: t.winner, mine: (L.teams || []).includes(t.abbr) });
+    const vis = { t: "game", lg: L.key, a: tm(a), b: tm(b), path: LEAGUES[L.key]?.path, id: e.id, icon: mineT.logo, state: e.state, detail: e.detail, tv: (e.broadcasts || []).slice(0, 2).join(", ") };
     if (A.gameStart && e.state === "in") cands.push({ id: `start-${e.id}`, title: `${lgName} · Game on: ${a.name} @ ${b.name}`, body: e.broadcasts?.length ? `Watch on ${e.broadcasts.slice(0, 2).join(", ")}` : e.detail, vis: { ...vis, live: true } });
     if (A.finals && e.state === "post" && Date.now() - new Date(e.date) < 8 * 3600e3) cands.push({ id: `final-${e.id}`, title: `${lgName} · Final: ${a.name} ${a.score}, ${b.name} ${b.score}`, body: e.detail, vis });
   }
@@ -1958,6 +1959,18 @@ function alertVis(v) {
   if (v.t === "mk") return `<span class="nv nv-mk">${v.icon ? imgOr(v.icon, label(v.sym).slice(0, 4), "nv-stock") : `<span class="nv-fb nv-stock">${esc(INDEX_ICON[v.sym] || label(v.sym).slice(0, 4))}</span>`}<span class="nv-dir ${v.up ? "up" : "down"}">${ic(v.up ? "trending-up" : "trending-down", "xs")}</span></span>`;
   return `<span class="nv nv-plain">${ic("bell")}</span>`;
 }
+// Game alerts look like the Sports cards: league + status, then each team with logo and score
+function alertGameCard(a, unread) {
+  const v = a.vis, live = v.state === "in" || v.live, fin = v.state === "post" || /^final/i.test(a.title.split("· ").pop() || "");
+  const lgName = LEAGUES[v.lg]?.name || "";
+  const status = live ? `<span class="pill live">LIVE</span> ${esc(v.detail || "")}` : fin ? `<span class="pill final">${esc(v.detail || "Final")}</span>` : `<span class="pill">${esc(v.detail || "")}</span>`;
+  const lose = (t, o) => fin && (t.winner === false || (t.winner == null && o && +t.score < +o.score));
+  const row = (t, o) => `<div class="g-team ${lose(t, o) ? "lose" : ""} ${t.mine ? "mine" : ""}">${imgOr(t.logo, t.abbr, "nv-row-logo")}<span class="nm">${esc(t.name || t.abbr || "")}${t.record ? `<small>${esc(t.record)}</small>` : ""}</span><span class="sc">${live || fin ? esc(t.score ?? "") : ""}</span></div>`;
+  return `<button class="bell-game game ${live ? "is-live" : fin ? "is-final" : ""} ${unread ? "unread" : ""}" ${alertTarget(v)}>
+    <div class="bg-h">${LEAGUES[v.lg] ? leagueBadge(v.lg, "bg-lg") : ""}<b>${esc(lgName)}</b><span class="g-status">${status}</span><small>${ago(a.t)}</small></div>
+    ${row(v.a, v.b)}${row(v.b, v.a)}
+    ${v.tv ? `<div class="g-meta"><span class="tv">${ic("tv")}${esc(v.tv)}</span></div>` : ""}</button>`;
+}
 function alertTarget(v) {
   if (!v) return "";
   if (v.t === "game" && v.path && v.id) return `data-game="${esc(v.id)}" data-path="${esc(v.path)}"`;
@@ -1981,7 +1994,7 @@ function renderBellPop() {
   const perm = "Notification" in window ? Notification.permission : "unsupported";
   $("#bellPop").innerHTML = `<div class="bell-h"><b>Alerts</b><span class="pop-acts"><button class="mini-btn" data-config="alerts">Settings</button><button class="pop-x" data-pop-close aria-label="Close">${ic("x")}</button></span></div>
     ${perm !== "granted" && perm !== "unsupported" ? `<button class="btn primary wide" data-quick="notif">${ic("bell-ring")} Also show alerts on this device</button>` : ""}
-    ${log.length ? log.slice(0, 15).map((a, i) => { const tg = alertTarget(a.vis); return `<${tg ? "button" : "div"} class="bell-item ${i < unread ? "unread" : ""}" ${tg}>${alertVis(a.vis)}<div><b>${esc(a.title)}</b>${a.body ? `<span>${esc(a.body)}</span>` : ""}<small>${ago(a.t)}</small></div>${tg ? ic("chevron-right", "xs") : "<span></span>"}</${tg ? "button" : "div"}>`; }).join("")
+    ${log.length ? log.slice(0, 15).map((a, i) => { if (a.vis?.t === "game" && a.vis.a?.name) return alertGameCard(a, i < unread); const tg = alertTarget(a.vis); return `<${tg ? "button" : "div"} class="bell-item ${i < unread ? "unread" : ""}" ${tg}>${alertVis(a.vis)}<div><b>${esc(a.title)}</b>${a.body ? `<span>${esc(a.body)}</span>` : ""}<small>${ago(a.t)}</small></div>${tg ? ic("chevron-right", "xs") : "<span></span>"}</${tg ? "button" : "div"}>`; }).join("")
       : `<div class="empty">No alerts yet. You'll see game starts, final scores, weather warnings and stock moves here.</div>`}`;
 }
 function toggleBell(force) {
@@ -1993,7 +2006,7 @@ function toggleBell(force) {
 }
 function notify(c) {
   const t = $("#toast");
-  t.innerHTML = `${alertVis(c.vis)}<span class="toast-txt"><b>${esc(c.title)}</b>${c.body ? `<span>${esc(c.body)}</span>` : ""}</span>`;
+  t.innerHTML = c.vis?.t === "game" && c.vis.a?.name ? alertGameCard({ ...c, t: Date.now() }, false) : `${alertVis(c.vis)}<span class="toast-txt"><b>${esc(c.title)}</b>${c.body ? `<span>${esc(c.body)}</span>` : ""}</span>`;
   t.classList.add("alert-toast"); t.hidden = false;
   clearTimeout(toast._t);
   toast._t = setTimeout(() => { t.hidden = true; t.classList.remove("alert-toast"); }, 5000);

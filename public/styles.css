@@ -968,3 +968,15 @@ span.nv-stock { display: grid; place-items: center; font-size: 11px; font-weight
 .nv-teams > :last-child { bottom: 3px; right: 2px; }
 .nv-dir { right: -3px; bottom: -3px; width: 18px; height: 18px; }
 .nv-stock { width: 28px; height: 28px; }
+
+/* Game alerts styled like Sports cards */
+.bell-game { display: block; width: 100%; text-align: left; font: inherit; color: var(--text); margin: 8px 0; cursor: pointer; }
+.bell-game.unread { box-shadow: inset 3px 0 0 var(--accent); }
+.bg-h { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+.bg-h .bg-lg { width: 20px; height: 20px; object-fit: contain; font-size: 15px; }
+.bg-h > b { font-size: 13.5px; }
+.bg-h .g-status { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; color: var(--muted); }
+.bg-h small { margin-left: auto; color: var(--muted); font-size: 12.5px; }
+.bell-game .g-team img.nv-row-logo, .bell-game .g-team .nv-row-logo { width: 22px; height: 22px; object-fit: contain; }
+span.nv-row-logo { display: grid; place-items: center; font-size: 9px; font-weight: 800; background: var(--panel); border-radius: 50%; }
+#toast.alert-toast .bell-game { margin: 0; background: var(--panel); min-width: 280px; }
