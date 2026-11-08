@@ -244,3 +244,27 @@ td.r, th.r { text-align: right; } td.c, th.c { text-align: center; }
   body { background: #fff; color: #000; padding: 0; }
   .card { box-shadow: none; border: 0; }
 }
+
+/* additions */
+.top-actions .btn { padding: 7px 10px; }
+.banner { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; border: 1px solid var(--warn); background: color-mix(in srgb, var(--warn) 12%, var(--panel)); border-radius: 12px; padding: 10px 14px; font-size: 14px; }
+.banner .ic { color: var(--warn); }
+.qgrade { display: flex; flex-wrap: wrap; gap: 6px; margin: 12px 0 0; }
+.qgrade button { border: 1px solid var(--line); background: var(--panel-2); border-radius: 8px; padding: 6px 10px; font-size: 13.5px; font-variant-numeric: tabular-nums; }
+.qgrade button.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+.listing { margin-top: 14px; border: 1px solid var(--line); border-radius: 12px; padding: 12px; background: var(--panel-2); font-size: 13.5px; }
+.listing .ttl { font-weight: 600; }
+.listing pre { white-space: pre-wrap; font: 13px/1.5 var(--font); margin: 8px 0 0; color: var(--muted); max-height: 160px; overflow: auto; }
+.photos { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
+.photos .ph { position: relative; }
+.photos img { width: 84px; height: 112px; object-fit: cover; border-radius: 8px; border: 1px solid var(--line); display: block; }
+.photos .del { position: absolute; top: 4px; right: 4px; width: 24px; height: 24px; border-radius: 7px; border: 0; background: rgba(0,0,0,.6); color: #fff; display: grid; place-items: center; }
+.photos .del .ic { width: 14px; height: 14px; }
+.batch { border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; margin-bottom: 10px; background: var(--panel-2); font-size: 13.5px; display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; }
+.batch b { font-weight: 650; }
+.batch .grow { flex: 1; min-width: 180px; }
+.pull-box h4 { margin: 14px 0 6px; font-size: 14.5px; }
+.pull-row { display: flex; gap: 10px; align-items: center; padding: 7px 0; border-bottom: 1px solid var(--line); font-size: 14px; }
+.pull-row input { width: 20px; height: 20px; flex: none; }
+.pull-row.done span { text-decoration: line-through; color: var(--muted); }
+.mini { font-size: 12px; color: var(--muted); }

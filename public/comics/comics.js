@@ -13,8 +13,9 @@
   ];
   const STATUS_LABEL = Object.fromEntries(STATUSES);
   const PIPELINE = ['sell', 'grade', 'submitted', 'graded', 'listed', 'lot', 'sold', 'keep'];
-  const DEFAULT_PREFS = { feePct: 13.25, perSaleFee: 0.4, shipCost: 5, gradeCost: 50, candMin: 100, candMajorMin: 50, lotMax: 10, lotMinCount: 5 };
-  const SECTIONS = [['browse', 'Browse the collection'], ['selling', 'Selling'], ['grading', 'Grading shortlist'], ['valuable', 'Most valuable comics'], ['lots', 'Lots to sell together'], ['value', 'Collection value'], ['boxes', 'Storage boxes']];
+  const DEFAULT_PREFS = { bulkMin: 25, feePct: 13.25, perSaleFee: 0.4, shipCost: 5, gradeCost: 50, candMin: 100, candMajorMin: 50, lotMax: 10, lotMinCount: 5 };
+  const SECTIONS = [['browse', 'Browse the collection'], ['selling', 'Selling'], ['grading', 'Grading shortlist'], ['extras', 'Extra copies'], ['changes', 'Value changes'], ['ledger', 'Sales record'], ['valuable', 'Most valuable comics'], ['lots', 'Lots to sell together'], ['value', 'Collection value'], ['boxes', 'Storage boxes']];
+  const CONDS = ['9.8', '9.6', '9.4', '9.2', '9.0', '8.5', '8.0', '7.5', '7.0', '6.0', '5.0', '4.0 or lower'];
 
   // ---------- small helpers ----------
   const $ = (id) => document.getElementById(id);
@@ -64,7 +65,7 @@
   function buildComics(csvText) {
     const { head, rows } = parseCSV(csvText);
     const ix = (name) => head.findIndex((x) => x.trim().toLowerCase() === name.toLowerCase());
-    const col = { series: ix('Series'), issue: ix('Issue'), title: ix('Full Title'), date: ix('Release Date'), pub: ix('Publisher'), age: ix('Age'), key: ix('Key'), grade: ix('Grade'), box: ix('Storage Box'), writer: ix('Writer'), artist: ix('Cover Artist'), chars: ix('Characters'), value: ix('Value'), covr: ix('CovrPrice Value'), coverPrice: ix('Cover Price'), cid: ix('Core ComicID'), slab: ix('Raw / Slabbed') };
+    const col = { series: ix('Series'), issue: ix('Issue'), title: ix('Full Title'), date: ix('Release Date'), pub: ix('Publisher'), age: ix('Age'), key: ix('Key'), grade: ix('Grade'), box: ix('Storage Box'), writer: ix('Writer'), artist: ix('Cover Artist'), chars: ix('Characters'), value: ix('Value'), covr: ix('CovrPrice Value'), coverPrice: ix('Cover Price'), cid: ix('Core ComicID'), slab: ix('Raw / Slabbed'), variant: ix('Variant'), paid: ix('Purchase Price') };
     if (col.series < 0) throw new Error('This file has no Series column. Export from CLZ Comics Web as CSV with the Series and Issue fields.');
     const g = (r, k) => (col[k] >= 0 ? (r[col[k]] || '').trim() : '');
     const seen = new Map();
@@ -73,10 +74,10 @@
       const base = cid && cid !== '0' ? 'c' + cid : 'm' + series + '|' + issue;
       const n = (seen.get(base) || 0) + 1; seen.set(base, n);
       const c = {
-        key: base + '#' + n, cid: cid && cid !== '0' ? cid : '', series, issue,
+        key: base + '#' + n, base, copy: n, cid: cid && cid !== '0' ? cid : '', series, issue,
         comic: series + (issue ? ' #' + issue : ''), title: g(r, 'title'), year: (g(r, 'date').match(/\d{4}/) || [''])[0],
         publisher: g(r, 'pub') || 'Unknown', age: g(r, 'age') || 'Unknown', ki: g(r, 'key') || 'No', grade: g(r, 'grade'), box: g(r, 'box'),
-        writer: g(r, 'writer'), artist: g(r, 'artist'), chars: g(r, 'chars'), v: num(g(r, 'value')), cp: num(g(r, 'covr')), coverPrice: num(g(r, 'coverPrice')), slab: g(r, 'slab'),
+        writer: g(r, 'writer'), artist: g(r, 'artist'), chars: g(r, 'chars'), v: num(g(r, 'value')), cp: num(g(r, 'covr')), coverPrice: num(g(r, 'coverPrice')), slab: g(r, 'slab'), variant: g(r, 'variant'), paid: num(g(r, 'paid')),
       };
       c.hay = `${c.comic} ${c.title} ${c.publisher} ${c.year} ${c.chars} ${c.writer} ${c.artist}`.toLowerCase();
       return c;
@@ -103,10 +104,11 @@
 
   // ---------- money math ----------
   const feeOn = (price) => price * prefs().feePct / 100 + prefs().perSaleFee;
-  const netRaw = (c) => c.v == null ? null : c.v - feeOn(c.v) - prefs().shipCost;
+  const ev = (c) => { const p = c.key ? num(item(c.key).checkedPrice) : null; return p ?? c.v; };
+  const netRaw = (c) => { const v = ev(c); return v == null ? null : v - feeOn(v) - prefs().shipCost; };
   const netGraded = (gv) => gv == null ? null : gv - feeOn(gv) - prefs().shipCost - prefs().gradeCost;
   // Graded sale price at which grading nets the same as selling raw.
-  const breakEven = (c) => { if (c.v == null) return null; const p = prefs(); return (netRaw(c) + p.shipCost + p.gradeCost + p.perSaleFee) / (1 - p.feePct / 100); };
+  const breakEven = (c) => { if (ev(c) == null) return null; const p = prefs(); return (netRaw(c) + p.shipCost + p.gradeCost + p.perSaleFee) / (1 - p.feePct / 100); };
   const isCand = (c) => { const p = prefs(); if (status(c) === 'sold') return false; return (c.v ?? 0) >= p.candMin || (c.ki === 'Major' && (c.v ?? 0) >= p.candMajorMin); };
   const soldNet = (it) => { const sp = num(it.soldPrice); if (sp == null) return null; const fees = num(it.soldFees) ?? feeOn(sp); return sp - fees - (num(it.shipCost) ?? 0) - (num(it.gradeCost) ?? 0); };
 
@@ -306,11 +308,15 @@
     const p = prefs();
     const list = comics.filter(isCand).sort((a, b) => a.rank - b.rank);
     $('gradeMeta').textContent = `${fmt.format(list.length)} comics · ${money(list.reduce((a, c) => a + (c.v ?? 0), 0))}`;
+    const checked = list.filter((c) => item(c.key).cond).length;
+    $('condProgress').textContent = `${checked} of ${list.length} condition-checked`;
+    $('condCheck').hidden = !unlocked;
+    renderBatches();
     $('gradeNote').textContent = `Comics worth ${money(p.candMin)}+, or major keys worth ${money(p.candMajorMin)}+. “Graded sale needed” is the slabbed price at which grading nets you the same as selling raw, after ${p.feePct}% selling fees, ${money(p.shipCost)} shipping and ${money(p.gradeCost)} per book to grade. Add your own graded estimate on a comic (from CovrPrice or eBay sold listings) to get a verdict. Check condition first: a raw 8.0 rarely gains enough from a slab.`;
     $('cands').replaceChildren(...list.map((c, i) => {
       const gv = num(item(c.key).gradedValue), be = breakEven(c);
       const verdict = gv == null ? h('span', { class: 'muted', text: 'Add estimate' }) : gv > be ? h('span', { class: 'better-grade', text: 'Grade' }) : h('span', { class: 'better-raw', text: 'Sell raw' });
-      return row(c, list, i, [td(thumb(c)), td(h('div', null, c.comic, ' ', c.ki !== 'No' ? keyPill(c.ki) : null, ' ', status(c) ? statusPill(status(c)) : null)), td(money(c.v), 'r num'), td(money(netRaw(c)), 'r num hide-n'), td(money(be), 'r num'), td(money(gv), 'r num hide-n'), td(verdict, 'c'), td(c.box || '–', 'r')]);
+      return row(c, list, i, [td(thumb(c)), td(h('div', null, c.comic, ' ', c.ki !== 'No' ? keyPill(c.ki) : null, ' ', status(c) ? statusPill(status(c)) : null)), td(item(c.key).cond || '–', 'c num'), td(money(ev(c)), 'r num'), td(money(netRaw(c)), 'r num hide-n'), td(money(be), 'r num'), td(money(gv), 'r num hide-n'), td(verdict, 'c'), td(c.box || '–', 'r')]);
     }));
   }
 
@@ -375,6 +381,99 @@
     bars($('boxbars'), rows, 'var(--up)', (r) => { resetFilters(); ui.fBox = r.key; ui.sort = 'value'; ui.view = 'covers'; syncFilterInputs(); go('browse'); renderBrowse(); });
   }
 
+  // ---------- grading submissions ----------
+  const BATCH_STAGES = [['prep', 'Preparing'], ['sent', 'Sent'], ['grading', 'At grader'], ['back', 'Returned']];
+  function renderBatches() {
+    const box = $('batches'); box.replaceChildren();
+    const p = prefs(), queue = comics.filter((c) => status(c) === 'grade' && !item(c.key).batch);
+    const batches = Object.entries(state.batches || {}).sort((a, b) => (b[1].created || 0) - (a[1].created || 0));
+    const need = Math.max(0, p.bulkMin - queue.length);
+    box.append(h('div', { class: 'batch' },
+      h('div', { class: 'grow' }, h('b', { text: `${fmt.format(queue.length)} comics marked “To grade”` }), h('div', { class: 'mini', text: queue.length ? (need ? `${need} more to reach a ${p.bulkMin}-book bulk submission (cheaper per book at CGC).` : `Enough for a ${p.bulkMin}-book bulk submission.`) + ` Est. cost ${money(queue.length * p.gradeCost)}.` : 'Mark comics “To grade” from their detail page or with Select in Browse.' })),
+      unlocked && queue.length ? h('button', { class: 'btn primary', type: 'button', onclick: () => {
+        const id = 'b' + Date.now().toString(36);
+        state.batches = { ...(state.batches || {}), [id]: { name: `Submission ${Object.keys(state.batches || {}).length + 1}`, grader: 'CGC', tier: p.bulkMin <= queue.length ? 'Modern Bulk' : 'Modern', stage: 'prep', created: Date.now() } };
+        queue.forEach((c) => setItem(c.key, { batch: id }));
+        saveState(); toast(`Submission created with ${queue.length} comics`); renderAll();
+      } }, 'Create submission') : null));
+    for (const [id, b] of batches) {
+      const list = comics.filter((c) => item(c.key).batch === id);
+      const upd = (patch) => { state.batches[id] = { ...b, ...patch }; saveState(); renderAll(); };
+      const inp = (k, ph, type = 'text') => unlocked ? h('input', { type, value: b[k] || '', placeholder: ph, style: 'max-width:150px', onchange: (e) => upd({ [k]: e.target.value }) }) : h('span', { text: b[k] || '' });
+      box.append(h('div', { class: 'batch' },
+        h('div', { class: 'grow' }, h('b', { text: b.name }), h('div', { class: 'mini', text: `${list.length} comics · ${money(list.reduce((a, c) => a + (c.v ?? 0), 0))} raw · est. cost ${money(num(b.cost) ?? list.length * prefs().gradeCost)}` })),
+        unlocked ? h('select', { onchange: (e) => { const s = e.target.value; upd({ stage: s }); list.forEach((c) => setItem(c.key, { status: s === 'back' ? 'graded' : s === 'prep' ? 'grade' : 'submitted' })); renderAll(); } }, BATCH_STAGES.map(([v, l]) => h('option', { value: v, selected: b.stage === v ? true : null, text: l }))) : h('span', { class: 'pill', text: Object.fromEntries(BATCH_STAGES)[b.stage] }),
+        inp('grader', 'Grader'), inp('tier', 'Tier'), inp('sent', 'Sent', 'date'), inp('tracking', 'Tracking / order #'), inp('cost', 'Actual cost $', 'number'),
+        h('button', { class: 'btn', type: 'button', onclick: () => pullList(list, b.name) }, icon('box'), 'Pull list'),
+        unlocked ? h('button', { class: 'btn', type: 'button', onclick: () => { if (!confirm(`Delete ${b.name}? The comics go back to “To grade”.`)) return; list.forEach((c) => setItem(c.key, { batch: '', status: 'grade' })); delete state.batches[id]; saveState(); renderAll(); } }, icon('trash')) : null));
+    }
+  }
+
+  // ---------- extra copies ----------
+  function extraGroups() {
+    return group(comics.filter((c) => status(c) !== 'sold'), (c) => c.base).filter((g) => g.comics > 1).map((g) => {
+      const best = g.list.slice().sort((a, b) => (b.v ?? 0) - (a.v ?? 0));
+      return { ...g, keepKey: best[0].key, spares: best.slice(1), each: best[0].v, spareValue: best.slice(1).reduce((a, c) => a + (c.v ?? 0), 0) };
+    }).sort((a, b) => b.spareValue - a.spareValue || b.comics - a.comics);
+  }
+  function renderExtras() {
+    const gs = extraGroups(), spares = gs.reduce((a, g) => a + g.spares.length, 0);
+    $('extrasMeta').textContent = `${fmt.format(gs.length)} issues · ${fmt.format(spares)} spares · ${money(gs.reduce((a, g) => a + g.spareValue, 0))}`;
+    $('extras').replaceChildren(...gs.map((g) => {
+      const c = g.list[0], done = g.spares.every((s) => status(s));
+      return h('tr', { onclick: () => openDetail(g.spares[0], g.list, g.list.indexOf(g.spares[0])) }, td(thumb(c)), td(c.comic), td(fmt.format(g.comics), 'r num'), td(money(g.each), 'r num'), td(money(g.spareValue), 'r num'), td([...new Set(g.list.map((x) => x.box || '–'))].join(', '), 'hide-n'),
+        unlocked ? td(h('button', { class: 'btn' + (done ? ' on' : ''), type: 'button', onclick: (e) => { e.stopPropagation(); g.spares.forEach((s) => setItem(s.key, { status: 'sell' })); toast(`${g.spares.length} spare${g.spares.length > 1 ? 's' : ''} marked Sell raw`); renderAll(); } }, done ? 'Marked ✓' : 'Sell spares')) : null);
+    }));
+  }
+
+  // ---------- value changes ----------
+  function renderChanges() {
+    const ch = state.lastChanges, box = $('changes'); box.replaceChildren();
+    if (!ch) { $('changesMeta').textContent = 'No comparison yet'; $('changesNote').textContent = 'When you load a new CLZ export (Settings → Update values), the comics whose values moved most show up here.'; return; }
+    if (!ch.list?.length) { $('changesMeta').textContent = dateStr(ch.at); $('changesNote').textContent = `No values changed when you loaded ${ch.name || 'the export'} on ${dateStr(ch.at)}.`; return; }
+    const up = ch.list.filter((x) => x.to > x.from).sort((a, b) => (b.to - b.from) - (a.to - a.from)), down = ch.list.filter((x) => x.to < x.from).sort((a, b) => (a.to - a.from) - (b.to - b.from));
+    $('changesMeta').textContent = `${dateStr(ch.at)} · ${up.length} up · ${down.length} down`;
+    $('changesNote').textContent = `Compared with the previous values when you loaded ${ch.name || 'the export'} on ${dateStr(ch.at)}. Total went from ${money(ch.fromTotal)} to ${money(ch.toTotal)}.`;
+    const tbl = (title, list, cls) => h('div', null, h('h3', { class: 'sub-h', text: title }), list.length ? h('div', { class: 'tbl-wrap' }, h('table', null, h('thead', null, h('tr', null, h('th'), h('th', { text: 'Comic' }), h('th', { class: 'r', text: 'Was' }), h('th', { class: 'r', text: 'Now' }), h('th', { class: 'r', text: 'Change' }))),
+      h('tbody', null, list.slice(0, 40).map((x) => { const c = byKey.get(x.key) || { comic: x.comic, key: x.key }; return h('tr', { onclick: () => byKey.get(x.key) && openDetail(byKey.get(x.key)) }, td(byKey.get(x.key) ? thumb(c) : ''), td(x.comic), td(money(x.from), 'r num'), td(money(x.to), 'r num'), td(h('span', { class: cls, text: (x.to - x.from >= 0 ? '+' : '') + money(x.to - x.from) }), 'r num')); })))) : h('p', { class: 'empty', text: 'None.' }));
+    box.append(h('div', { class: 'grid2' }, tbl('Went up', up, 'up'), tbl('Went down', down, 'down')));
+  }
+
+  // ---------- sales record ----------
+  let ledgerYear = null;
+  function soldRows() {
+    return comics.filter((c) => status(c) === 'sold').map((c) => { const it = item(c.key); const price = num(it.soldPrice) ?? 0; const fees = num(it.soldFees) ?? feeOn(price);
+      return { c, date: it.soldDate || '', year: (it.soldDate || '').slice(0, 4) || 'No date', price, fees, feesEst: num(it.soldFees) == null, ship: num(it.shipCost) ?? 0, grade: num(it.gradeCost) ?? 0, net: soldNet(it) ?? 0, paid: c.paid, where: it.listedOn || '' }; })
+      .sort((a, b) => b.date.localeCompare(a.date));
+  }
+  function renderLedger() {
+    const all = soldRows(), years = [...new Set(all.map((r) => r.year))].sort().reverse();
+    if (!ledgerYear || !years.includes(ledgerYear)) ledgerYear = years[0] || String(new Date().getFullYear());
+    fillSelect($('ledgerYear'), (years.length ? years : [ledgerYear]).map((y) => [y, y]), ledgerYear);
+    const rows = all.filter((r) => r.year === ledgerYear);
+    const sum2 = (k) => rows.reduce((a, r) => a + (r[k] || 0), 0);
+    $('ledgerMeta').textContent = all.length ? `${fmt.format(all.length)} sales · net ${money(all.reduce((a, r) => a + r.net, 0))}` : 'No sales yet';
+    $('ledgerTotals').replaceChildren(...[['Sales', fmt.format(rows.length)], ['Gross', money(sum2('price'))], ['Fees', money(sum2('fees'))], ['Shipping', money(sum2('ship'))], ['Grading', money(sum2('grade'))], ['Net', money(sum2('net'))]].map(([k, v]) => h('div', null, h('span', { text: k }), h('b', { class: 'num', text: v }))));
+    const box = $('ledger'); box.replaceChildren();
+    if (!rows.length) { box.append(h('p', { class: 'empty', text: 'Sales show up here once you set a comic to Sold and enter what it sold for.' })); return; }
+    box.append(h('div', { class: 'tbl-wrap' }, h('table', null, h('thead', null, h('tr', null, ...['Date', 'Comic', 'Where', 'Sold for', 'Fees', 'Ship', 'Grading', 'Net'].map((x, i) => h('th', { class: i > 2 ? 'r' : i === 2 ? 'hide-n' : null, text: x })))),
+      h('tbody', null, rows.map((r) => h('tr', { onclick: () => openDetail(r.c) }, td(r.date || '–'), td(r.c.comic), td(r.where, 'hide-n'), td(money(r.price, 2), 'r num'), td((r.feesEst ? '~' : '') + money(r.fees, 2), 'r num'), td(money(r.ship, 2), 'r num'), td(money(r.grade, 2), 'r num'), td(money(r.net, 2), 'r num')))))));
+    box.append(h('p', { class: 'mini', text: '~ means the fee is estimated from your Selling settings; enter the actual fee on the comic to replace it.' }));
+  }
+  function ledgerCSV() {
+    const rows = soldRows().filter((r) => r.year === ledgerYear);
+    const lines = [['Date', 'Series', 'Issue', 'Year', 'Where sold', 'Sold for', 'Fees', 'Fees estimated', 'Shipping', 'Grading', 'Net', 'Purchase price'].join(',')].concat(rows.map((r) => [r.date, r.c.series, r.c.issue, r.c.year, r.where, r.price.toFixed(2), r.fees.toFixed(2), r.feesEst ? 'yes' : '', r.ship.toFixed(2), r.grade.toFixed(2), r.net.toFixed(2), r.paid ?? ''].map(csvCell).join(',')));
+    download(`comic-sales-${ledgerYear}.csv`, lines.join('\n'));
+  }
+
+  // ---------- subscriptions ----------
+  function renderBanner() {
+    const s = state.prefs?.subs || {}, now = Date.now(), b = $('banner');
+    const due = [['CLZ', s.clzRenew], ['CovrPrice', s.covrRenew]].filter(([, d]) => d).map(([n, d]) => [n, Math.round((Date.parse(d + 'T12:00:00') - now) / 864e5)]).filter(([, days]) => days <= 30);
+    if (!due.length) { b.hidden = true; return; }
+    b.hidden = false; b.replaceChildren(icon('bell'), h('span', null, due.map(([n, d]) => d < 0 ? `${n} renewal date passed ${-d} days ago` : `${n} renews in ${d} day${d === 1 ? '' : 's'}`).join(' · '), '. Decide whether to keep it.'), h('button', { class: 'btn', type: 'button', onclick: () => openSettings('subs') }, 'Review'));
+  }
+
   // ---------- tile summaries ----------
   const strip = (list) => h('div', { class: 'strip' }, list.slice(0, 5).map((c) => coverOf(c) ? h('img', { alt: c.comic, loading: 'lazy', src: 'data:image/jpeg;base64,' + coverOf(c) }) : h('div', { class: 'none' })));
   const big = (...k) => h('div', { class: 'big' }, ...k);
@@ -408,11 +507,17 @@
     const last = history.length ? history[history.length - 1] : null;
     sum('value', money(total), '', [big(B(fmt.format(hi.length)), ' comics at $100+ hold ', B(money(hi.reduce((a, c) => a + c.v, 0)))), line(fmt.format(none), ' without a value · ', history.length ? `${history.length} snapshots, last ${dateStr(last.at)}` : `as of ${dateStr(source.at)}`)],
       'Price bands, publishers, eras, history');
+    const xs = extraGroups(), spares = xs.reduce((a, g) => a + g.spares.length, 0);
+    sum('extras', `${fmt.format(spares)} spares`, '', [big(B(money(xs.reduce((a, g) => a + g.spareValue, 0))), ' in spare copies'), line(fmt.format(xs.length), ' issues you own twice or more'), xs[0] ? line('Top: ', B(xs[0].list[0].comic), ` · ${xs[0].comics} copies`) : null, strip(xs.map((g) => g.list[0]))], 'Sell the spares, keep your best copy');
+    const chg = state.lastChanges;
+    sum('changes', chg?.list?.length ? dateStr(chg.at) : 'Waiting', chg?.list?.length ? '' : 'warn', chg?.list?.length ? [big(B((chg.toTotal - chg.fromTotal >= 0 ? '+' : '') + money(chg.toTotal - chg.fromTotal)), ' since the previous export'), line(fmt.format(chg.list.filter((x) => x.to > x.from).length), ' up · ', fmt.format(chg.list.filter((x) => x.to < x.from).length), ' down')] : [big('No comparison yet'), line('Load a new CLZ export to see what moved.')], 'Biggest risers and fallers');
+    const sr = soldRows();
+    sum('ledger', sr.length ? `${fmt.format(sr.length)} sales` : 'No sales', sr.length ? 'good' : '', sr.length ? [big('Net ', B(money(sr.reduce((a, r) => a + r.net, 0)))), line('Gross ', B(money(sr.reduce((a, r) => a + r.price, 0))), ' · fees ', money(sr.reduce((a, r) => a + r.fees, 0)))] : [big('Nothing sold yet'), line('Sales appear here with fees and net, by year.')], 'Yearly totals and CSV for taxes');
     const bs = boxes.sort((a, b) => b.value - a.value), nobox = owned.filter((c) => !c.box).length;
     sum('boxes', `${fmt.format(boxes.length)} boxes`, '', [bs[0] ? big('Top: ', B('Box ' + bs[0].key), ' · ', money(bs[0].value), ` · ${fmt.format(bs[0].comics)} comics`) : null, line(fmt.format(nobox), ' comics with no box'), bs[0] ? strip(bs[0].list.sort((a, b) => (b.v ?? 0) - (a.v ?? 0))) : null], 'Value and covers by box');
   }
 
-  function renderAll() { derive(); renderHeader(); renderBrowse(); renderSelling(); renderGrading(); renderTop(); renderLots(); renderValue(); renderBoxes(); renderSummaries(); applySections(); }
+  function renderAll() { derive(); renderHeader(); renderBanner(); renderBrowse(); renderSelling(); renderGrading(); renderExtras(); renderChanges(); renderLedger(); renderTop(); renderLots(); renderValue(); renderBoxes(); renderSummaries(); applySections(); }
 
   // ---------- detail sheet ----------
   function searchQuery(c) {
@@ -420,12 +525,70 @@
     const issue = (c.issue.match(/^\d+/) || [c.issue])[0];
     return `${series} ${issue}${c.year ? ' ' + c.year : ''}`.trim();
   }
+  function listingText(c) {
+    const it = item(c.key);
+    const series = c.series.replace(/,?\s*Vol\.?\s*(\d+)$/i, (m, v) => v === '1' ? '' : ` Vol ${v}`).trim();
+    const issue = (c.issue.match(/^\d+/) || [c.issue])[0];
+    const variant = /^[B-Z]$/.test((c.issue.match(/[A-Z]+$/) || [''])[0]) ? `Variant ${(c.issue.match(/[A-Z]+$/) || [''])[0]}` : (/TP|HC/.test(c.issue) ? (c.issue.includes('HC') ? 'Hardcover' : 'TPB') : '');
+    const grade = it.gradedGrade ? `CGC ${it.gradedGrade}` : it.cond ? `${it.cond} ${+it.cond >= 9 ? 'NM' : +it.cond >= 7.5 ? 'VF' : +it.cond >= 5 ? 'VG/FN' : ''}`.trim() : '';
+    const key = c.ki === 'Major' ? 'KEY' : '';
+    const cover = c.artist ? c.artist.split(' | ')[0] + ' Cover' : '';
+    const parts = [series, '#' + issue, c.year ? `(${c.year})` : '', key, variant, cover, grade, c.publisher.replace(/ Comics$/, '')].filter(Boolean);
+    let title = ''; for (const p of parts) { if ((title + ' ' + p).trim().length <= 80) title = (title + ' ' + p).trim(); }
+    const desc = [
+      `${series} #${issue}${c.year ? ' (' + c.year + ')' : ''}${c.title ? ' — ' + c.title : ''}`,
+      `Publisher: ${c.publisher}`, c.writer ? `Writer: ${c.writer.replaceAll(' | ', ', ')}` : '', c.artist ? `Cover: ${c.artist.replaceAll(' | ', ', ')}` : '',
+      c.chars ? `Featuring: ${c.chars.split(' | ').slice(0, 6).join(', ')}` : '', c.ki !== 'No' ? `Key issue (${c.ki.toLowerCase()})` : '',
+      `Condition: ${it.gradedGrade ? 'CGC graded ' + it.gradedGrade : it.cond ? 'raw, approx. ' + it.cond + ' — see photos' : 'raw — see photos'}`,
+      'Ships bagged and boarded in a rigid mailer. Please review all photos before buying.'].filter(Boolean).join('\n');
+    return { title, desc };
+  }
+  function copy(text, label) { (navigator.clipboard ? navigator.clipboard.writeText(text) : Promise.reject()).then(() => toast(`${label} copied`), () => { const ta = h('textarea', null, text); document.body.append(ta); ta.select(); try { document.execCommand('copy'); toast(`${label} copied`); } catch { toast('Couldn’t copy'); } ta.remove(); }); }
+  function listingBox(c) {
+    const { title, desc } = listingText(c);
+    return h('div', { class: 'listing' }, h('div', { class: 'sub-h', text: 'Listing builder' }), h('div', { class: 'ttl', text: title }), h('div', { class: 'mini', text: `${title.length}/80 characters` }), h('pre', { text: desc }),
+      h('div', { class: 'inline' }, h('button', { class: 'btn', type: 'button', onclick: () => copy(title, 'Title') }, icon('copy'), 'Copy title'), h('button', { class: 'btn', type: 'button', onclick: () => copy(desc, 'Description') }, icon('copy'), 'Copy description'),
+        h('a', { class: 'btn', href: 'https://www.ebay.com/sl/sell', target: '_blank', rel: 'noopener' }, icon('external'), 'List on eBay')));
+  }
+  async function resizePhoto(file) {
+    const url = URL.createObjectURL(file);
+    try {
+      const img = await new Promise((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = rej; i.src = url; });
+      const s = Math.min(1, 1600 / Math.max(img.width, img.height)), cv = document.createElement('canvas');
+      cv.width = Math.round(img.width * s); cv.height = Math.round(img.height * s); cv.getContext('2d').drawImage(img, 0, 0, cv.width, cv.height);
+      return cv.toDataURL('image/jpeg', 0.82);
+    } finally { URL.revokeObjectURL(url); }
+  }
+  function photoBox(c) {
+    const it = item(c.key), ids = it.photos || [];
+    const box = h('div', null, h('div', { class: 'sub-h', style: 'margin:14px 0 0', text: `Your photos${ids.length ? ' (' + ids.length + ')' : ''}` }));
+    const row2 = h('div', { class: 'photos' }, ids.map((id) => h('div', { class: 'ph' }, h('a', { href: `${API}?photo=${id}`, target: '_blank', rel: 'noopener' }, h('img', { src: `${API}?photo=${id}`, alt: 'Your photo of ' + c.comic, loading: 'lazy' })),
+      unlocked ? h('button', { class: 'del', type: 'button', title: 'Delete photo', onclick: async () => { if (!confirm('Delete this photo?')) return; try { await fetch(API, { method: 'PUT', headers: { 'content-type': 'application/json', 'x-comics-key': editKey }, body: JSON.stringify({ kind: 'photo-delete', id }) }); } catch {} setItem(c.key, { photos: (item(c.key).photos || []).filter((x) => x !== id) }); drawDetail(c); } }, icon('x')) : null)));
+    box.append(row2);
+    if (unlocked) {
+      const inp = h('input', { type: 'file', accept: 'image/*', multiple: true, hidden: true });
+      inp.addEventListener('change', async () => {
+        for (const f of inp.files) {
+          toast('Uploading photo…');
+          try {
+            const data = await resizePhoto(f), id = 'p' + Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+            const r = await fetch(API, { method: 'PUT', headers: { 'content-type': 'application/json', 'x-comics-key': editKey }, body: JSON.stringify({ kind: 'photo', id, data }) });
+            if (!r.ok) throw new Error();
+            setItem(c.key, { photos: [...(item(c.key).photos || []), id] }); toast('Photo saved');
+          } catch { toast('Couldn’t upload that photo'); }
+        }
+        drawDetail(c);
+      });
+      box.append(h('div', { class: 'inline' }, h('button', { class: 'btn', type: 'button', onclick: () => inp.click() }, icon('camera'), 'Add photos'), inp));
+    } else if (!ids.length) box.append(h('p', { class: 'mini', text: 'No photos yet.' }));
+    return box;
+  }
   function openDetail(c, list, i) {
     ui.ctx = list || [c]; ui.ctxIndex = list ? i : 0;
     drawDetail(c);
     $('modal').hidden = false; document.body.style.overflow = 'hidden';
   }
-  function closeDetail() { $('modal').hidden = true; document.body.style.overflow = ''; }
+  function closeDetail() { $('modal').hidden = true; document.body.style.overflow = ''; ui.condMode = false; }
   function stepDetail(d) { const n = ui.ctx.length; if (n < 2) return; ui.ctxIndex = (ui.ctxIndex + d + n) % n; drawDetail(ui.ctx[ui.ctxIndex]); }
   function drawDetail(c) {
     const it = item(c.key), p = prefs();
@@ -438,7 +601,10 @@
     add('Story', c.title); add('Year', c.year); add('Publisher', c.publisher); add('Era', c.age !== 'Unknown' ? c.age : '');
     add('Key issue', c.ki !== 'No' ? keyPill(c.ki) : '');
     add('CLZ value', c.v != null ? money(c.v) : 'No value'); add('CovrPrice', c.cp != null ? money(c.cp) : ''); add('Cover price', c.coverPrice != null ? money(c.coverPrice, 2) : '');
-    add('Condition', c.grade || (c.slab || 'Raw')); add('Box', c.box ? 'Box ' + c.box : 'No box');
+    add('Condition', it.cond ? `~${it.cond} (your check)` : c.grade || (c.slab || 'Raw')); add('Box', c.box ? 'Box ' + c.box : 'No box');
+    if (it.checkedAt) add('Price check', `${money(num(it.checkedPrice))} on ${dateStr(Date.parse(it.checkedAt + 'T12:00:00'))}`);
+    if (it.batch && state.batches?.[it.batch]) add('Submission', state.batches[it.batch].name);
+    if (c.paid != null) add('You paid', money(c.paid, 2));
     add('Status', status(c) ? statusPill(status(c)) : '');
     add('Writer', c.writer.replaceAll(' | ', ', ')); add('Cover artist', c.artist.replaceAll(' | ', ', '));
     add('Characters', c.chars.split(' | ').slice(0, 10).join(', '));
@@ -447,23 +613,28 @@
       h('a', { class: 'btn', href: `https://www.ebay.com/sch/i.html?_nkw=${q}&LH_Sold=1&LH_Complete=1`, target: '_blank', rel: 'noopener' }, icon('external'), 'eBay sold'),
       h('a', { class: 'btn', href: `https://www.ebay.com/sch/i.html?_nkw=${q}`, target: '_blank', rel: 'noopener' }, icon('external'), 'eBay for sale'),
       h('a', { class: 'btn', href: `https://www.google.com/search?q=${encodeURIComponent('site:covrprice.com ' + searchQuery(c))}`, target: '_blank', rel: 'noopener' }, icon('external'), 'CovrPrice'),
-      h('a', { class: 'btn', href: `https://www.google.com/search?q=${encodeURIComponent('site:gocollect.com ' + searchQuery(c))}`, target: '_blank', rel: 'noopener' }, icon('external'), 'GoCollect'));
+      h('a', { class: 'btn', href: `https://www.google.com/search?q=${encodeURIComponent('site:gocollect.com ' + searchQuery(c))}`, target: '_blank', rel: 'noopener' }, icon('external'), 'GoCollect'),
+      h('a', { class: 'btn', href: `https://www.google.com/search?q=${encodeURIComponent('CGC census population ' + searchQuery(c))}`, target: '_blank', rel: 'noopener' }, icon('external'), 'CGC population'),
+      h('a', { class: 'btn', href: `https://www.google.com/search?q=${encodeURIComponent('site:keycollectorcomics.com ' + searchQuery(c))}`, target: '_blank', rel: 'noopener' }, icon('external'), 'Key Collector'),
+      h('a', { class: 'btn', href: `https://www.google.com/search?q=${encodeURIComponent('site:gpanalysis.com ' + searchQuery(c))}`, target: '_blank', rel: 'noopener' }, icon('external'), 'GPAnalysis'),
+      h('a', { class: 'btn', href: 'https://app.clz.com/comics', target: '_blank', rel: 'noopener' }, icon('external'), 'CLZ'));
 
     // net calculator
     const gv = num(it.gradedValue);
     const calc = h('div', { class: 'calc' });
     const r = (k, v, cls) => h('div', { class: 'row' }, h('span', { class: 'muted', text: k }), h('b', { class: 'num ' + (cls || ''), text: v }));
-    if (c.v != null) {
-      calc.append(h('div', { class: 'sub-h', text: 'Sell raw or grade?' }),
-        r(`Net selling raw at ${money(c.v)}`, money(netRaw(c))),
+    if (ev(c) != null) {
+      calc.append(...[h('div', { class: 'sub-h', text: 'Sell raw or grade?' }),
+        r(`Net selling raw at ${money(ev(c))}${num(item(c.key).checkedPrice) != null ? ' (your price check)' : ''}`, money(netRaw(c))),
         r('Graded sale needed to beat raw', money(breakEven(c))),
         gv != null ? r(`Net if graded and sold at ${money(gv)}`, money(netGraded(gv))) : null,
         h('div', { class: 'verdict ' + (gv == null ? 'muted' : gv > breakEven(c) ? 'better-grade' : 'better-raw'), text: gv == null ? 'Add a graded estimate below to compare.' : gv > breakEven(c) ? `Grading comes out ahead by ${money(netGraded(gv) - netRaw(c))}.` : `Selling raw comes out ahead by ${money(netRaw(c) - netGraded(gv))}.` }),
-        h('div', { class: 'muted', style: 'font-size:12px;margin-top:4px', text: `Assumes ${p.feePct}% + ${money(p.perSaleFee, 2)} selling fees, ${money(p.shipCost)} shipping, ${money(p.gradeCost)} to grade. Change these in Settings → Selling.` }));
+        h('div', { class: 'muted', style: 'font-size:12px;margin-top:4px', text: `Assumes ${p.feePct}% + ${money(p.perSaleFee, 2)} selling fees, ${money(p.shipCost)} shipping, ${money(p.gradeCost)} to grade. Change these in Settings → Selling.` })].filter(Boolean));
     } else calc.append(h('div', { class: 'muted', text: 'No value in CLZ for this comic. Check eBay sold listings above for a price.' }));
     if (status(c) === 'sold' && num(it.soldPrice) != null) calc.append(r('Your net on this sale', money(soldNet(it)), 'up'));
 
-    const right = h('div', null, dl, links, calc);
+    const right = h('div', null, dl, links, calc, listingBox(c), photoBox(c));
+    if (unlocked) right.insertBefore(h('div', null, h('div', { class: 'sub-h', style: 'margin:14px 0 0', text: 'Your condition check' }), h('div', { class: 'qgrade' }, CONDS.map((g) => h('button', { type: 'button', class: it.cond === g ? 'on' : null, onclick: () => { setItem(c.key, { cond: it.cond === g ? '' : g }); renderAll(); if (ui.condMode && it.cond !== g && ui.ctx.length > 1 && ui.ctxIndex < ui.ctx.length - 1) stepDetail(1); else drawDetail(c); } }, g))), ui.condMode ? h('div', { class: 'mini', style: 'margin-top:6px', text: `Condition check: ${ui.ctxIndex + 1} of ${ui.ctx.length}. Tap a grade to move to the next comic.` }) : null), dl);
     if (unlocked) {
       const field = (label, k, type = 'text', attrs = {}) => h('label', { class: attrs.wide ? 'wide' : null }, label,
         type === 'textarea' ? h('textarea', { oninput: (e) => setItem(c.key, { [k]: e.target.value }) }, it[k] || '')
@@ -474,6 +645,8 @@
       right.append(h('div', { class: 'form' },
         h('label', null, 'Status', sel),
         field('Graded estimate ($)', 'gradedValue', 'number', { ph: 'e.g. from CovrPrice' }),
+        field('Recent sold price ($)', 'checkedPrice', 'number', { ph: 'from eBay sold' }),
+        h('label', null, 'Price checked', h('button', { class: 'btn', type: 'button', onclick: () => { setItem(c.key, { checkedAt: new Date().toISOString().slice(0, 10) }); renderAll(); drawDetail(c); } }, it.checkedAt ? `Checked ${dateStr(Date.parse(it.checkedAt + 'T12:00:00'))} · update` : 'Mark checked today')),
         ['grade', 'submitted', 'graded', 'listed', 'sold'].includes(s) ? field('Grader / submission #', 'submission') : null,
         ['graded', 'listed', 'sold'].includes(s) ? field('Certified grade', 'gradedGrade', 'text', { ph: 'e.g. 9.4' }) : null,
         ['listed', 'sold', 'sell', 'graded', 'lot'].includes(s) ? field('Asking price ($)', 'ask', 'number') : null,
@@ -507,14 +680,26 @@
     const lines = [cols.join(',')].concat(list.map((c) => { const it = item(c.key); return [c.rank, c.series, c.issue, c.title, c.year, c.publisher, c.ki, c.box, c.v, c.cp, STATUS_LABEL[status(c)] === 'Unsorted' ? '' : STATUS_LABEL[status(c)], it.gradedValue, it.gradedGrade, it.ask, it.listedOn, it.soldPrice, it.soldFees, it.soldDate, it.notes].map(csvCell).join(','); }));
     download(name, lines.join('\n'));
   }
-  function pullList(list) {
+  function printPull(list, title) {
     const byBox = group(list, (c) => c.box, (k) => k ? 'Box ' + k : 'No box').sort((a, b) => (a.key === '') - (b.key === '') || (+a.key - +b.key));
     const w = window.open('', '_blank'); if (!w) { toast('Allow pop-ups to print the pull list.'); return; }
-    const d = w.document; d.title = 'Pull list';
-    const st = d.createElement('style'); st.textContent = 'body{font:14px system-ui;margin:24px}h1{font-size:20px}h2{font-size:16px;margin:18px 0 6px}li{margin:2px 0}'; d.head.append(st);
-    const b = d.body; const H1 = d.createElement('h1'); H1.textContent = `Pull list — ${list.length} comics`; b.append(H1);
-    for (const g of byBox) { const h2 = d.createElement('h2'); h2.textContent = `${g.label} (${g.comics})`; const ul = d.createElement('ul'); g.list.sort((a, b2) => a.series.localeCompare(b2.series)).forEach((c) => { const li = d.createElement('li'); li.textContent = `☐ ${c.comic}${c.year ? ' (' + c.year + ')' : ''} — ${money(c.v)}`; ul.append(li); }); b.append(h2, ul); }
-    w.focus();
+    const d = w.document; d.title = title;
+    const st = d.createElement('style'); st.textContent = 'body{font:14px system-ui;margin:24px}h1{font-size:20px}h2{font-size:16px;margin:18px 0 6px}li{margin:2px 0;list-style:none}'; d.head.append(st);
+    const H1 = d.createElement('h1'); H1.textContent = `${title} — ${list.length} comics`; d.body.append(H1);
+    for (const g of byBox) { const h2 = d.createElement('h2'); h2.textContent = `${g.label} (${g.comics})`; const ul = d.createElement('ul'); g.list.sort((a, b2) => a.series.localeCompare(b2.series)).forEach((c) => { const li = d.createElement('li'); li.textContent = `☐ ${c.comic}${c.year ? ' (' + c.year + ')' : ''} — ${money(c.v)}`; ul.append(li); }); d.body.append(h2, ul); }
+    w.focus(); setTimeout(() => w.print(), 300);
+  }
+  function pullList(list, title = 'Pull list') {
+    const draw = () => {
+      const byBox = group(list, (c) => c.box, (k) => k ? 'Box ' + k : 'No box').sort((a, b) => (a.key === '') - (b.key === '') || (+a.key - +b.key));
+      const done = list.filter((c) => item(c.key).pulled).length;
+      $('s2Title').textContent = `${title} · ${done} of ${list.length} pulled`;
+      $('s2Body').replaceChildren(
+        h('div', { class: 'inline', style: 'margin-top:0' }, h('button', { class: 'btn', type: 'button', onclick: () => printPull(list, title) }, icon('print'), 'Print'), h('button', { class: 'btn', type: 'button', onclick: () => { list.forEach((c) => setItem(c.key, { pulled: '' })); draw(); } }, 'Clear ticks')),
+        ...byBox.map((g) => h('div', { class: 'pull-box' }, h('h4', { text: `${g.label} · ${g.list.filter((c) => item(c.key).pulled).length}/${g.comics}` }),
+          ...g.list.sort((a, b) => a.series.localeCompare(b.series) || (parseFloat(a.issue) || 0) - (parseFloat(b.issue) || 0)).map((c) => h('label', { class: 'pull-row' + (item(c.key).pulled ? ' done' : '') }, h('input', { type: 'checkbox', checked: item(c.key).pulled ? true : null, onchange: (e) => { setItem(c.key, { pulled: e.target.checked ? 1 : '' }); draw(); } }), thumb(c), h('span', { text: `${c.comic}${c.year ? ' (' + c.year + ')' : ''}` }), h('span', { class: 'muted num', style: 'margin-left:auto', text: money(c.v) }))))));
+    };
+    draw(); $('sheet2').hidden = false; document.body.style.overflow = 'hidden';
   }
 
   // ---------- sections: collapse, show/hide, navigation ----------
@@ -571,11 +756,20 @@
           pf('Per-order fee ($)', 'Fixed fee charged on each sale', 'perSaleFee'),
           pf('Shipping per sale ($)', 'Your cost: mailer, boards, postage', 'shipCost'),
           pf('Grading cost per book ($)', 'Fee plus your share of shipping and insurance', 'gradeCost')),
-        setBlock('Grading shortlist', null, pf('Any comic worth at least ($)', null, 'candMin', '1'), pf('Major keys worth at least ($)', null, 'candMajorMin', '1')),
+        setBlock('Grading shortlist', null, pf('Any comic worth at least ($)', null, 'candMin', '1'), pf('Major keys worth at least ($)', null, 'candMajorMin', '1'), pf('Books needed for a bulk submission', 'CGC’s Modern Bulk minimum', 'bulkMin', '1')),
         setBlock('Lots', null, pf('Comics under this value go in lots ($)', null, 'lotMax', '1'), pf('Minimum comics per series', null, 'lotMinCount', '1')),
         h('button', { class: 'btn', type: 'button', onclick: () => { state.prefs = { ...DEFAULT_PREFS }; saveState(); renderAll(); renderSettings('selling'); toast('Selling settings reset'); } }, 'Reset to defaults'));
     }
     if (tab === 'data') renderDataTab(body);
+    if (tab === 'subs') {
+      const s = state.prefs.subs || {};
+      const sf = (label, hint, k, type) => h('div', { class: 'field' }, h('span', null, label, hint ? h('small', { text: hint }) : null), h('input', { type, value: s[k] ?? '', step: type === 'number' ? '0.01' : null, onchange: (e) => { state.prefs = { ...prefs(), subs: { ...(state.prefs.subs || {}), [k]: e.target.value } }; saveState(); renderBanner(); renderSettings('subs'); } }));
+      const yearly = (num(s.clzCost) ?? 0) + (num(s.covrCost) ?? 0);
+      body.append(
+        setBlock('CLZ Comics', 'Your catalog and cover gallery.', sf('Renews on', null, 'clzRenew', 'date'), sf('Cost per year ($)', null, 'clzCost', 'number'), h('div', { class: 'inline' }, h('a', { class: 'btn', href: 'https://app.clz.com/comics', target: '_blank', rel: 'noopener' }, icon('external'), 'Open CLZ Comics Web'), h('a', { class: 'btn', href: 'https://my.clz.com', target: '_blank', rel: 'noopener' }, icon('external'), 'My CLZ account'))),
+        setBlock('CovrPrice', 'Values in CLZ disappear when this lapses. Exporting values needs the yearly plan.', sf('Renews on', null, 'covrRenew', 'date'), sf('Cost per year ($)', null, 'covrCost', 'number'), h('div', { class: 'inline' }, h('a', { class: 'btn', href: 'https://covrprice.com/', target: '_blank', rel: 'noopener' }, icon('external'), 'Open CovrPrice'))),
+        setBlock('Reminders', `A banner appears on the home page 30 days before either renewal.${yearly ? ` Together these cost ${money(yearly, 2)} a year.` : ''}`));
+    }
     if (tab === 'editing') {
       const inp = h('input', { type: 'password', placeholder: 'Edit key', value: editKey, autocomplete: 'off', autocapitalize: 'characters' });
       body.append(setBlock('Editing', 'Anyone with the link can look at your collection. Only someone with your edit key can change statuses, sales or values, and the changes sync to all your devices.',
@@ -628,6 +822,8 @@
             ls.set('localCollection', { csv: text, name: f.name, at: Date.now() });
             source = { kind: 'import', at: Date.now(), name: f.name + ' (this device only)' };
           }
+          state.lastChanges = { at: Date.now(), name: f.name, fromTotal: oldTotal, toTotal: newTotal, list: changes.slice(0, 300).map(({ c }) => ({ key: c.key, comic: c.comic, from: oldMap.get(c.key).v ?? 0, to: c.v ?? 0 })) };
+          saveState();
           comics = nl; renderAll(); syncFilterInputs(); toast('Values updated'); renderSettings('data');
         } }, unlocked ? 'Use these values everywhere' : 'Use on this device'))));
     });
@@ -693,6 +889,11 @@
   $('closeSettings').addEventListener('click', closeSettings); $('scrim').addEventListener('click', closeSettings);
   $$('#drawerTabs button').forEach((b) => b.addEventListener('click', () => { $$('#drawerTabs button').forEach((x) => x.classList.toggle('on', x === b)); renderSettings(b.dataset.tab); }));
   $('sync').addEventListener('click', () => openSettings('editing'));
+  $('condCheck').addEventListener('click', () => { const list = comics.filter(isCand).sort((a, b) => a.rank - b.rank); const start = Math.max(0, list.findIndex((c) => !item(c.key).cond)); ui.condMode = true; openDetail(list[start], list, start); ui.condMode = true; });
+  $('s2Close').addEventListener('click', () => { $('sheet2').hidden = true; document.body.style.overflow = ''; renderAll(); });
+  $('sheet2').addEventListener('click', (e) => { if (e.target.id === 'sheet2') { $('sheet2').hidden = true; document.body.style.overflow = ''; renderAll(); } });
+  $('ledgerYear').addEventListener('change', (e) => { ledgerYear = e.target.value; renderLedger(); });
+  $('ledgerCsv').addEventListener('click', ledgerCSV);
   $('mClose').addEventListener('click', closeDetail); $('mPrev').addEventListener('click', () => stepDetail(-1)); $('mNext').addEventListener('click', () => stepDetail(1));
   $('modal').addEventListener('click', (e) => { if (e.target.id === 'modal') closeDetail(); });
   document.addEventListener('keydown', (e) => {

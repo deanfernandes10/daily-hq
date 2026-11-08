@@ -42,6 +42,13 @@
   <symbol id="i-layers" viewBox="0 0 24 24"><path d="M12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83z"/><path d="M2 12a1 1 0 0 0 .58.91l8.6 3.91a2 2 0 0 0 1.65 0l8.58-3.9A1 1 0 0 0 22 12"/><path d="M2 17a1 1 0 0 0 .58.91l8.6 3.91a2 2 0 0 0 1.65 0l8.58-3.9A1 1 0 0 0 22 17"/></symbol>
   <symbol id="i-print" viewBox="0 0 24 24"><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><path d="M6 9V3a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v6"/><rect x="6" y="14" width="12" height="8" rx="1"/></symbol>
   <symbol id="i-lock" viewBox="0 0 24 24"><rect width="18" height="11" x="3" y="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></symbol>
+  <symbol id="i-copy" viewBox="0 0 24 24"><rect width="14" height="14" x="8" y="8" rx="2" ry="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></symbol>
+  <symbol id="i-camera" viewBox="0 0 24 24"><path d="M13.997 4a2 2 0 0 1 1.76 1.05l.486.9A2 2 0 0 0 18.003 7H20a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2h1.997a2 2 0 0 0 1.759-1.048l.489-.904A2 2 0 0 1 10.004 4z"/><circle cx="12" cy="13" r="3"/></symbol>
+  <symbol id="i-copies" viewBox="0 0 24 24"><rect width="14" height="14" x="8" y="8" rx="2"/><path d="M4 16V4a2 2 0 0 1 2-2h10"/></symbol>
+  <symbol id="i-activity" viewBox="0 0 24 24"><path d="M22 12h-2.48a2 2 0 0 0-1.93 1.46l-2.35 8.36a.25.25 0 0 1-.48 0L9.24 2.18a.25.25 0 0 0-.48 0l-2.35 8.36A2 2 0 0 1 4.49 12H2"/></symbol>
+  <symbol id="i-receipt" viewBox="0 0 24 24"><path d="M4 2v20l2-1 2 1 2-1 2 1 2-1 2 1 2-1 2 1V2l-2 1-2-1-2 1-2-1-2 1-2-1-2 1Z"/><path d="M16 8h-6a2 2 0 1 0 0 4h4a2 2 0 1 1 0 4H8"/><path d="M12 17.5v-11"/></symbol>
+  <symbol id="i-bell" viewBox="0 0 24 24"><path d="M10.268 21a2 2 0 0 0 3.464 0"/><path d="M3.262 15.326A1 1 0 0 0 4 17h16a1 1 0 0 0 .74-1.673C19.41 13.956 18 12.499 18 8A6 6 0 0 0 6 8c0 4.499-1.411 5.956-2.738 7.326"/></symbol>
+  <symbol id="i-trash" viewBox="0 0 24 24"><path d="M3 6h18"/><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"/><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"/></symbol>
 </svg>
 
 <header class="top">
@@ -54,12 +61,15 @@
   </div>
   <div class="top-actions">
     <div class="sync" id="sync" hidden><i></i><span id="syncText">View only</span></div>
+    <a class="btn hide-n" href="https://app.clz.com/comics" target="_blank" rel="noopener" title="Open CLZ Comics Web"><svg class="ic"><use href="#i-external"/></svg>CLZ</a>
+    <a class="btn hide-n" href="https://covrprice.com/" target="_blank" rel="noopener" title="Open CovrPrice"><svg class="ic"><use href="#i-external"/></svg>CovrPrice</a>
     <button class="icon-btn" id="openSettings" title="Settings" aria-label="Settings"><svg class="ic"><use href="#i-settings"/></svg></button>
   </div>
 </header>
 
 <main class="wrap">
   <p class="lede" id="lede"></p>
+  <div class="banner" id="banner" hidden></div>
 
   <section class="tiles" id="tiles">
     <button class="tile" data-go="value"><span class="lbl">Collection value<svg class="ic"><use href="#i-chevron-right"/></svg></span><span class="val num" id="t-value">—</span><span class="sub" id="t-value-sub">CLZ value</span></button>
@@ -141,10 +151,44 @@
     <div class="sum" id="sum-grading"></div>
     <div class="sec-b">
       <p class="note" id="gradeNote"></p>
+      <div class="toolbar"><button class="btn primary" id="condCheck" type="button"><svg class="ic"><use href="#i-award"/></svg>Start condition check</button><span class="muted" id="condProgress" style="font-size:13px"></span></div>
+      <div id="batches"></div>
       <div class="tbl-wrap"><table>
-        <thead><tr><th></th><th>Comic</th><th class="r">Raw value</th><th class="r hide-n">Net selling raw</th><th class="r">Graded sale needed</th><th class="r hide-n">Your graded estimate</th><th class="c">Better</th><th class="r">Box</th></tr></thead>
+        <thead><tr><th></th><th>Comic</th><th class="c">Your grade</th><th class="r">Raw value</th><th class="r hide-n">Net selling raw</th><th class="r">Graded sale needed</th><th class="r hide-n">Your graded estimate</th><th class="c">Better</th><th class="r">Box</th></tr></thead>
         <tbody id="cands"></tbody>
       </table></div>
+    </div>
+  </section>
+
+  <section class="card" id="sec-extras" data-sec="extras">
+    <button class="sec-h" type="button"><span class="sec-ic"><svg class="ic"><use href="#i-copies"/></svg></span><span class="sec-tt"><h2>Extra copies</h2><span class="meta" id="extrasMeta"></span></span><span class="pill" id="pill-extras"></span><svg class="ic chev"><use href="#i-chevron-down"/></svg></button>
+    <div class="sum" id="sum-extras"></div>
+    <div class="sec-b">
+      <p class="note">Issues you own more than once. Selling the spares first is the easiest money: you keep your best copy.</p>
+      <div class="tbl-wrap"><table>
+        <thead><tr><th></th><th>Comic</th><th class="r">Copies</th><th class="r">Value each</th><th class="r">Spare value</th><th class="hide-n">Boxes</th><th class="edit-only" hidden></th></tr></thead>
+        <tbody id="extras"></tbody>
+      </table></div>
+    </div>
+  </section>
+
+  <section class="card" id="sec-changes" data-sec="changes">
+    <button class="sec-h" type="button"><span class="sec-ic"><svg class="ic"><use href="#i-activity"/></svg></span><span class="sec-tt"><h2>Value changes</h2><span class="meta" id="changesMeta"></span></span><span class="pill" id="pill-changes"></span><svg class="ic chev"><use href="#i-chevron-down"/></svg></button>
+    <div class="sum" id="sum-changes"></div>
+    <div class="sec-b">
+      <p class="note" id="changesNote"></p>
+      <div id="changes"></div>
+    </div>
+  </section>
+
+  <section class="card" id="sec-ledger" data-sec="ledger">
+    <button class="sec-h" type="button"><span class="sec-ic"><svg class="ic"><use href="#i-receipt"/></svg></span><span class="sec-tt"><h2>Sales record</h2><span class="meta" id="ledgerMeta"></span></span><span class="pill" id="pill-ledger"></span><svg class="ic chev"><use href="#i-chevron-down"/></svg></button>
+    <div class="sum" id="sum-ledger"></div>
+    <div class="sec-b">
+      <p class="note">Every sale with its fees and costs, by year. Download it for your accountant at tax time.</p>
+      <div class="toolbar"><select id="ledgerYear" aria-label="Year"></select><button class="btn" id="ledgerCsv" type="button"><svg class="ic"><use href="#i-download"/></svg>Download CSV</button></div>
+      <div class="totals" id="ledgerTotals"></div>
+      <div id="ledger"></div>
     </div>
   </section>
 
@@ -216,6 +260,7 @@
     <button data-tab="general" class="on">General</button>
     <button data-tab="selling">Selling</button>
     <button data-tab="data">Update values</button>
+    <button data-tab="subs">Subscriptions</button>
     <button data-tab="editing">Editing</button>
   </div>
   <div class="drawer-body" id="drawerBody"></div>
@@ -230,6 +275,13 @@
       <button class="icon-btn" id="mClose" aria-label="Close"><svg class="ic"><use href="#i-x"/></svg></button>
     </div>
     <div class="dt" id="mBody"></div>
+  </div>
+</div>
+
+<div class="modal" id="sheet2" hidden role="dialog" aria-modal="true" aria-labelledby="s2Title">
+  <div class="modal-card">
+    <div class="modal-h"><h3 id="s2Title"></h3><button class="icon-btn" id="s2Close" aria-label="Close"><svg class="ic"><use href="#i-x"/></svg></button></div>
+    <div id="s2Body" style="padding:16px"></div>
   </div>
 </div>
 
