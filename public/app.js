@@ -1785,14 +1785,14 @@ function renderBrief() {
   const sport = [];
   for (const { e, L } of [...live, ...recent, ...tonight]) {
     if (seenG.has(e.id)) continue; seenG.add(e.id);
-    const gl = (txt) => `<button class="br-link" data-game="${esc(e.id)}" data-path="${esc(LEAGUES[L.key]?.path || "")}">${txt} ${ic("chevron-right", "xs")}</button>`;
     const [a, b] = [e.teams.find((t) => t.homeAway === "away"), e.teams.find((t) => t.homeAway === "home")];
     if (!a || !b) continue;
-    if (e.state === "in") sport.push(gl(`<b>Live:</b> ${esc(a.name)} ${esc(a.score)}, ${esc(b.name)} ${esc(b.score)} (${esc(e.detail)})`));
-    else if (e.state === "post") { const [W, Lo] = +a.score > +b.score ? [a, b] : [b, a]; sport.push(gl(`${esc(W.name)} beat ${esc(Lo.name)} ${esc(W.score)}–${esc(Lo.score)}${/OT|SO/.test(e.detail) ? ` (${esc(e.detail.replace(/^Final\/?/, ""))})` : ""}`)); }
-    else sport.push(gl(`${esc(a.name)} @ ${esc(b.name)} at ${hm(e.date)}${e.broadcasts?.length ? ` on ${esc(e.broadcasts[0])}` : ""}`));
+    const fin = e.state === "post", liveG = e.state === "in";
+    const tl = (t, o) => `<span class="bs-t ${fin && +t.score < +o.score ? "lose" : ""} ${(L.teams || []).includes(t.abbr) ? "mine" : ""}">${imgOr(t.logo, t.abbr, "bs-logo")}<span class="bs-n">${esc(t.abbr || t.name)}</span>${liveG || fin ? `<b class="bs-s">${esc(t.score ?? "")}</b>` : ""}</span>`;
+    const st = liveG ? `<span class="pill live">LIVE</span><span class="bs-d">${esc(e.detail)}</span>` : fin ? `<span class="pill final">${esc(e.detail || "Final")}</span>` : `<span class="bs-d">${hm(e.date)}${e.broadcasts?.length ? ` · ${esc(e.broadcasts[0])}` : ""}</span>`;
+    sport.push(`<button class="bs-game ${liveG ? "is-live" : ""}" data-game="${esc(e.id)}" data-path="${esc(LEAGUES[L.key]?.path || "")}" title="${esc(matchup(e))}">${leagueBadge(L.key, "bs-lg")}${tl(a, b)}<span class="bs-at">${liveG || fin ? "–" : "@"}</span>${tl(b, a)}<span class="bs-st">${st}</span>${ic("chevron-right", "xs")}</button>`);
   }
-  if (sport.length) rows.push(`<div class="br-row">${ic("trophy")}<div>${sport.slice(0, 4).join(" · ")}</div></div>`);
+  if (sport.length) rows.push(`<div class="br-row">${ic("trophy")}<div class="bs-list">${sport.slice(0, 5).join("")}</div></div>`);
   // markets
   const idx = ["^GSPC", "^IXIC", "^DJI"].map((s) => data.quotes[s]).filter((q) => q && !q.error);
   if (idx.length) {

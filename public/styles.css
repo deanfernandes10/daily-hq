@@ -980,3 +980,20 @@ span.nv-stock { display: grid; place-items: center; font-size: 11px; font-weight
 .bell-game .g-team img.nv-row-logo, .bell-game .g-team .nv-row-logo { width: 22px; height: 22px; object-fit: contain; }
 span.nv-row-logo { display: grid; place-items: center; font-size: 9px; font-weight: 800; background: var(--panel); border-radius: 50%; }
 #toast.alert-toast .bell-game { margin: 0; background: var(--panel); min-width: 280px; }
+
+/* Brief: games with league + team logos */
+.bs-list { display: grid; gap: 6px; }
+.bs-game { display: flex; align-items: center; gap: 7px; width: 100%; padding: 7px 10px; border: 1px solid var(--line); border-radius: 12px; background: var(--panel-2); color: var(--text); font: inherit; font-size: 14.5px; cursor: pointer; text-align: left; flex-wrap: wrap; }
+.bs-game:hover { border-color: var(--sec, var(--accent)); }
+.bs-game.is-live { border-color: color-mix(in srgb, var(--live) 60%, var(--line)); }
+.bs-game > .ic.xs { margin-left: auto; color: var(--muted); width: 14px; height: 14px; }
+.bs-lg { width: 20px; height: 20px; object-fit: contain; font-size: 15px; flex: none; }
+.bs-t { display: inline-flex; align-items: center; gap: 5px; }
+.bs-t.lose { opacity: .55; }
+.bs-t.mine .bs-n { font-weight: 800; }
+.bs-logo { width: 22px; height: 22px; object-fit: contain; flex: none; }
+span.bs-logo { display: grid; place-items: center; font-size: 9px; font-weight: 800; background: var(--panel); border-radius: 50%; }
+.bs-n { font-weight: 650; }
+.bs-s { font-variant-numeric: tabular-nums; font-size: 15.5px; }
+.bs-at { color: var(--muted); }
+.bs-st { display: inline-flex; align-items: center; gap: 6px; color: var(--muted); font-size: 13px; margin-left: 4px; }
