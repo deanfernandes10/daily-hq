@@ -3544,3 +3544,498 @@ document.addEventListener("visibilitychange", () => {
 });
 
 if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").catch(() => {});
+
+// ============================================================ HQ Assistant (free — runs on this device, no AI service)
+// Like Alex in Executive Search: launcher bubble, chat, suggestions, task cards and confirm-before-change.
+// It understands everyday phrasing for the things Daily HQ knows about and answers from the data on screen.
+const AS = { open: false, msgs: [], pending: null, speak: store.get(pkey("dhq-as-speak")) === "1", rec: null, listening: false, teamIdx: null };
+const AS_SUGGEST = ["Brief me", "What's on my calendar today?", "Will it rain tomorrow?", "When do my teams play next?", "How are the markets?", "Price of NVDA", "Add lunch with Jen Tue 12:30", "Mississauga market", "Mortgage rates", "News about AI", "Follow the Raptors", "Alert me if TSLA drops below 300", "100 USD to CAD", "What can you do?"];
+
+function asInit() {
+  if ($("#asLauncher")) return;
+  document.body.insertAdjacentHTML("beforeend", `
+    <button id="asLauncher" class="as-launcher" aria-label="Open HQ Assistant" title="Ask HQ"><span class="as-av">${ic("sparkles")}</span><span class="as-lbl">Ask HQ</span></button>
+    <section id="asPanel" class="as-panel" role="dialog" aria-label="HQ Assistant" hidden>
+      <header class="as-head">
+        <span class="as-av big">${ic("sparkles")}</span>
+        <div class="as-id"><b>HQ Assistant</b><small>Free · runs on your device · type or talk</small></div>
+        <div class="as-acts">
+          <button class="icon-btn sm" data-as="speak" title="Read answers aloud" aria-pressed="${AS.speak}">${ic(AS.speak ? "volume-2" : "volume-x")}</button>
+          <button class="icon-btn sm" data-as="new" title="New chat">${ic("rotate-ccw")}</button>
+          <button class="icon-btn sm" data-as="close" aria-label="Close">${ic("x")}</button>
+        </div>
+      </header>
+      <div class="as-msgs" id="asMsgs" aria-live="polite"></div>
+      <details class="as-sugg" id="asSugg" open><summary>Try asking</summary><div class="as-chips">${AS_SUGGEST.map((s) => `<button data-as-q="${esc(s)}">${esc(s)}</button>`).join("")}</div></details>
+      <form class="as-compose" id="asForm">
+        <button type="button" class="as-mic" data-as="mic" aria-label="Speak">${ic("mic")}</button>
+        <input id="asInput" placeholder="Ask or tell me to do something…" autocomplete="off" enterkeyhint="send">
+        <button class="as-send" aria-label="Send">${ic("send")}</button>
+      </form>
+    </section>`);
+  $("#asLauncher").onclick = () => asToggle(true);
+  $("#asForm").onsubmit = (e) => { e.preventDefault(); const v = $("#asInput").value.trim(); if (v) { $("#asInput").value = ""; asAsk(v); } };
+  $("#asPanel").addEventListener("click", asClick);
+  $("#asPanel").addEventListener("keydown", (e) => { if (e.key === "Escape") { e.stopPropagation(); asToggle(false); } });
+}
+function asToggle(open) {
+  AS.open = open;
+  $("#asPanel").hidden = !open;
+  $("#asLauncher").hidden = open;
+  if (open) {
+    if (!AS.msgs.length) asGreet();
+    asRender();
+    setTimeout(() => $("#asInput")?.focus(), 50);
+  } else { asStopMic(); try { speechSynthesis.cancel(); } catch {} }
+}
+function asGreet() {
+  const h = new Date().getHours();
+  const part = h < 12 ? "morning" : h < 17 ? "afternoon" : "evening";
+  asSay(`Good ${part}${cfg.name ? `, ${esc(cfg.name.split(" ")[0])}` : ""}. I can brief you, answer questions about your scores, calendar, weather, markets, news and real estate, and make changes for you — I'll always check before changing anything.`, { quiet: true });
+}
+function asSay(html, opts = {}) {
+  AS.msgs.push({ who: "hq", html, cards: opts.cards || "", actions: opts.actions || [] });
+  asRender();
+  if (AS.speak && !opts.quiet) asSpeak(opts.spoken || html);
+}
+function asRender() {
+  const box = $("#asMsgs");
+  if (!box) return;
+  box.innerHTML = AS.msgs.map((m, i) => m.who === "me"
+    ? `<div class="as-msg me">${esc(m.text)}</div>`
+    : `<div class="as-msg hq"><div>${m.html}</div>${m.cards ? `<div class="as-cards">${m.cards}</div>` : ""}${m.actions.length ? `<div class="as-btns">${m.actions.map((a, k) => `<button class="btn sm ${a.primary ? "primary" : ""}" data-as-act="${i}:${k}" ${m.done ? "disabled" : ""}>${a.icon ? ic(a.icon) + " " : ""}${esc(a.label)}</button>`).join("")}</div>` : ""}</div>`).join("");
+  box.scrollTop = box.scrollHeight;
+}
+function asClick(e) {
+  const t = e.target;
+  const q = t.closest("[data-as-q]");
+  if (q) { $("#asSugg").open = false; asAsk(q.dataset.asQ); return; }
+  const a = t.closest("[data-as-act]");
+  if (a) {
+    const [i, k] = a.dataset.asAct.split(":").map(Number);
+    const m = AS.msgs[i], act = m?.actions[k];
+    if (!act || m.done) return;
+    if (act.once !== false) m.done = true;
+    if (act.confirm) AS.pending = null;
+    act.run();
+    asRender();
+    return;
+  }
+  const b = t.closest("[data-as]");
+  if (!b) return;
+  if (b.dataset.as === "close") asToggle(false);
+  else if (b.dataset.as === "new") { AS.msgs = []; AS.pending = null; asGreet(); asRender(); $("#asSugg").open = true; }
+  else if (b.dataset.as === "speak") {
+    AS.speak = !AS.speak; store.set(pkey("dhq-as-speak"), AS.speak ? "1" : "0");
+    b.innerHTML = ic(AS.speak ? "volume-2" : "volume-x"); b.setAttribute("aria-pressed", AS.speak);
+    if (!AS.speak) try { speechSynthesis.cancel(); } catch {}
+    toast(AS.speak ? "I'll read answers aloud" : "Read-aloud off");
+  } else if (b.dataset.as === "mic") asMic();
+}
+
+// ---------- voice: speech-to-text and read-aloud (built into the browser, free)
+function asMic() {
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SR) { $("#asInput").focus(); toast("Tap the 🎤 on your keyboard to dictate"); return; }
+  if (AS.listening) { asStopMic(); return; }
+  try {
+    const r = new SR();
+    r.lang = navigator.language || "en-US"; r.interimResults = true; r.continuous = false;
+    let final = "";
+    r.onresult = (ev) => { let txt = ""; for (const res of ev.results) txt += res[0].transcript; $("#asInput").value = txt; if (ev.results[ev.results.length - 1].isFinal) final = txt; };
+    r.onerror = (ev) => { asStopMic(); if (ev.error === "not-allowed" || ev.error === "service-not-allowed") toast("Microphone blocked — allow it in Settings, or use the keyboard 🎤"); };
+    r.onend = () => { const v = (final || $("#asInput").value).trim(); asStopMic(); if (v) { $("#asInput").value = ""; asAsk(v); } };
+    AS.rec = r; AS.listening = true; $("#asPanel").classList.add("listening");
+    $("#asInput").placeholder = "Listening…";
+    r.start();
+  } catch { asStopMic(); $("#asInput").focus(); toast("Tap the 🎤 on your keyboard to dictate"); }
+}
+function asStopMic() {
+  AS.listening = false; $("#asPanel")?.classList.remove("listening");
+  if ($("#asInput")) $("#asInput").placeholder = "Ask or tell me to do something…";
+  try { AS.rec?.stop(); } catch {} AS.rec = null;
+}
+function asSpeak(html) {
+  try {
+    const d = document.createElement("div"); d.innerHTML = html;
+    const text = (d.textContent || "").replace(/\s+/g, " ").replace(/·/g, ",").trim();
+    if (!text) return;
+    speechSynthesis.cancel();
+    const u = new SpeechSynthesisUtterance(text.slice(0, 900));
+    u.rate = 1.03;
+    speechSynthesis.speak(u);
+  } catch {}
+}
+
+// ---------- understanding
+const AS_DAYS = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"];
+function asDay(q) {
+  const t = sod(new Date());
+  if (/\btomorrow\b/.test(q)) return plusDays(t, 1);
+  if (/\byesterday\b/.test(q)) return plusDays(t, -1);
+  const m = q.match(/\b(sun|mon|tue|wed|thu|fri|sat)[a-z]*\b/);
+  if (m) { const k = AS_DAYS.findIndex((d) => d.startsWith(m[1])); let add = (k - t.getDay() + 7) % 7; if (/\bnext\b/.test(q) && add === 0) add = 7; return plusDays(t, add); }
+  return t;
+}
+const asYes = (q) => /^(yes|yeah|yep|sure|ok|okay|do it|go ahead|confirm|please do)\b/.test(q);
+const asNo = (q) => /^(no|nope|cancel|stop|never ?mind|don'?t)\b/.test(q);
+
+async function asAsk(text) {
+  AS.msgs.forEach((m) => { if (m.actions?.some((a) => a.confirm) && !(asYes(text.toLowerCase()) || asNo(text.toLowerCase()))) m.done = true; });
+  AS.msgs.push({ who: "me", text });
+  asRender();
+  const q = text.toLowerCase().replace(/[’']/g, "'").replace(/[?!.]+$/g, "").trim();
+  try {
+    if (AS.pending && asYes(q)) { const p = AS.pending; AS.pending = null; AS.msgs.forEach((m) => (m.done = true)); p(); return; }
+    if (AS.pending && asNo(q)) { AS.pending = null; AS.msgs.forEach((m) => (m.done = true)); asSay("Okay, cancelled — nothing changed."); return; }
+    AS.pending = null;
+    for (const [re, fn] of AS_INTENTS) { const m = q.match(re); if (m) { await fn(q, m, text); return; } }
+    await asFallback(q, text);
+  } catch (e) { asSay(`Sorry, that didn't work: ${esc(e.message || "please try again")}.`); }
+}
+function asConfirm(html, label, run, icon = "check") {
+  AS.pending = run;
+  asSay(`${html}<br><small class="as-hint">Say or tap <b>Yes</b> to go ahead, or <b>Cancel</b>.</small>`, { actions: [{ label, icon, primary: true, confirm: true, run }, { label: "Cancel", confirm: true, run: () => asSay("Okay, nothing changed.") }] });
+}
+const asOpen = (id, label) => ({ label: label || `Open ${id[0].toUpperCase() + id.slice(1)}`, icon: "arrow-right", once: false, run: () => { asToggle(false); goToSection(id, "HQ Assistant"); } });
+
+// ---------- intents (order matters: specific first)
+const AS_INTENTS = [
+  [/^(hi|hello|hey|yo|good (morning|afternoon|evening))\b(?!.*\b(brief|weather|game|score)\b)/, () => asSay(`Hi${cfg.name ? ` ${esc(cfg.name.split(" ")[0])}` : ""}! Ask me for your brief, a score, the weather, a stock price — or tell me to add an event.`)],
+  [/^(help|what can you do|what do you do|commands|how do (i|you) use)/, () => asHelp()],
+  [/\b(brief|briefing|catch me up|what('s| is) (my day|happening|up today)|morning report|summary of (today|my day))\b/, () => asBrief()],
+  [/^(open|show|go to|take me to)( the| my)? (scores|sports|weather|news|markets?|calendar|brief|settings|customize|alerts|apps)\b/, (q, m) => asNavigate(m[3])],
+  [/\b(\d+(?:[.,]\d+)?)\s*(usd|us dollars?|cad|canadian dollars?|dollars?)\s*(to|in|into)\s*(usd|us dollars?|cad|canadian)\b/, (q, m) => asConvert(m)],
+  [/\b(alert|notify|tell) me (if|when) ([a-z.^=-]{1,10}) (goes |drops |falls |rises |gets |is )?(above|over|below|under) \$?(\d+(?:\.\d+)?)/, (q, m) => asPriceAlert(m)],
+  [/^(add|put|schedule|book|remind me|create|new event)\b(?!.*\b(to|on) (my )?(weather|watchlist|ticker|board|markets?)\b)(?!.*\bcity\b)/, (q, m, t) => asAddEvent(t)],
+  [/\b(add|follow|track|watch)( the)? (.+?)( to (my )?(teams|sports))?$/, async (q, m) => { if (/\b(weather|city)\b/.test(q)) return asAddCity(q); if (/\b(watchlist|ticker|stock|board|markets?)\b/.test(q)) return asAddStock(q); if (!(await asFollow(m[3]))) await asFallback(q); }],
+  [/\b(unfollow|stop following)( the)? (.+)$/, (q, m) => asUnfollow(m[3])],
+  [/\b(calendar|schedule|agenda|meetings?|events?|appointments?|busy|free)\b|\bwhat('s| is| do i have) (on )?(today|tomorrow|this|next)\b/, (q) => asCalendar(q)],
+  [/\b(weather|rain|snow|umbrella|jacket|cold|hot|warm|temperature|forecast|sunny|storm|wind|aqi|air quality|uv)\b/, (q) => asWeather(q)],
+  [/\b(mortgage|rates?|prime rate|bank of canada|fed rate|stress test)\b(?!.*\bstock\b)/, (q) => asRates(q)],
+  [/\b(housing|real estate|home prices?|market report|benchmark|listings)\b|\b(\w+) (housing )?market$/, (q, m) => asRealEstate(q)],
+  [/\bstandings?\b|\btable\b/, (q) => asStandings(q)],
+  [/\b(score|play|playing|game|games|won|win|lose|lost|beat|match|next game|tonight|schedule)\b/, (q) => asSports(q)],
+  [/\b(markets?|stocks?|dow|nasdaq|s&p|tsx|price of|how('s| is) [a-z.]+ (doing|trading)|quote)\b|^[a-z.^=-]{1,6} (price|stock|quote)$|^\$?[a-z]{1,5}$/, (q) => asMarkets(q)],
+  [/\b(news|headlines?|stories|articles?|latest on|what's new with)\b/, (q) => asNews(q)],
+  [/\b(time|date|day is it)\b/, () => asSay(`It's ${new Date().toLocaleString([], { weekday: "long", month: "long", day: "numeric", hour: "numeric", minute: "2-digit" })}.`)],
+  [/\b(thank|thanks|cheers)\b/, () => asSay("Anytime! 👍")],
+];
+
+function asHelp() {
+  asSay(`Here's what I can do — just type or tap the mic:
+    <ul class="as-list">
+      <li><b>Brief me</b> — weather, today's events, your games and markets</li>
+      <li><b>Calendar</b> — "What's on tomorrow?", "Next meeting", "Add dentist Nov 12 3pm"</li>
+      <li><b>Sports</b> — "Did the Devils win?", "When do the Leafs play?", "NHL standings", "Follow the Raptors"</li>
+      <li><b>Weather</b> — "Will it rain tomorrow?", "Weather in Toronto", "Add Ottawa to weather"</li>
+      <li><b>Markets</b> — "How are the markets?", "Price of NVDA", "Add AAPL to my watchlist", "Alert me if TSLA drops below 300", "100 USD to CAD"</li>
+      <li><b>Real estate</b> — "Mississauga market", "Mortgage rates", "Payment on 900k with 20% down"</li>
+      <li><b>News</b> — "Headlines", "News about the Fed"</li>
+      <li><b>Go places</b> — "Open markets", "Open settings"</li>
+    </ul>I'll always ask before I change anything.`);
+}
+function asNavigate(where) {
+  const map = { scores: "sports", sports: "sports", weather: "weather", news: "news", market: "markets", markets: "markets", calendar: "calendar", brief: "brief" };
+  if (/settings|customize/.test(where)) { asToggle(false); openSettings(); return; }
+  if (/alerts/.test(where)) { asToggle(false); toggleBell(true); return; }
+  if (/apps/.test(where)) { asToggle(false); matchMedia("(max-width: 680px)").matches ? setView("more") : $("#appsBtn")?.click(); return; }
+  const id = map[where];
+  asSay(`Opening ${esc(where)}…`, { quiet: true });
+  setTimeout(() => { asToggle(false); goToSection(id, "HQ Assistant"); }, 250);
+}
+
+// brief
+function asBrief() {
+  const parts = [];
+  const w = data.weather?.find((x) => x.d);
+  if (w) { const c = w.d.current, d = w.d.daily; parts.push(`It's <b>${Math.round(c.temperature_2m)}°</b> and ${esc(wmo(c.weather_code)[1].toLowerCase())} in ${esc(w.c.name.split(",")[0])}, with a high of ${Math.round(d.temperature_2m_max[0])}° and low of ${Math.round(d.temperature_2m_min[0])}°${d.precipitation_probability_max?.[0] >= 40 ? ` — <b>${d.precipitation_probability_max[0]}% chance of rain</b>, bring an umbrella` : ""}.`); }
+  const al = (data.weather || []).flatMap((x) => (x.alerts || []).map((a) => `${a.event} for ${x.c.name.split(",")[0]}`));
+  if (al.length) parts.push(`⚠️ ${esc(al.slice(0, 2).join("; "))}.`);
+  const now = new Date(), end = sod(plusDays(now, 1));
+  const evs = calEventsBetween(now, end, false).filter((e) => e.end > now);
+  if (evs.length) { const n = evs.find((e) => !e.allDay); parts.push(`You have <b>${evs.length} event${evs.length > 1 ? "s" : ""}</b> left today${n ? ` — next is <b>${esc(n.title || "Busy")}</b> at ${hm(n.start)}` : ""}.`); }
+  else if ((cfg.calendars || []).length || (cfg.events || []).length) parts.push("Nothing else on your calendar today.");
+  const games = asMyGames();
+  const live = games.filter((x) => x.e.state === "in"), recent = games.filter((x) => x.e.state === "post" && Date.now() - new Date(x.e.date) < 30 * 3600e3), tonight = games.filter((x) => x.e.state === "pre" && sameDay(new Date(x.e.date), now));
+  const gl = [...live, ...recent, ...tonight].slice(0, 4);
+  if (gl.length) parts.push(gl.map(({ e }) => asGameLine(e)).join(" "));
+  const sp = data.quotes?.["^GSPC"], tsx = data.quotes?.["^GSPTSE"];
+  if (sp && !sp.error) parts.push(`The S&amp;P 500 is ${sp.pct >= 0 ? "up" : "down"} <b>${fmtNum(Math.abs(sp.pct), 2)}%</b>${tsx && !tsx.error ? ` and the TSX is ${tsx.pct >= 0 ? "up" : "down"} ${fmtNum(Math.abs(tsx.pct), 2)}%` : ""}${marketOpen() ? "" : " (markets closed)"}.`);
+  asSay(parts.length ? parts.join("<br><br>") : "I don't have much loaded yet — give it a few seconds and ask again.", { cards: gl.map(({ e, L }) => asGameCard(e, L)).join(""), actions: [asOpen("brief", "Open Your brief")] });
+}
+
+// calendar
+function asCalendar(q) {
+  const now = new Date();
+  if (/\bnext (meeting|event|appointment)\b|\bwhen is my next\b/.test(q)) {
+    const n = calEventsBetween(now, plusDays(now, 30)).find((e) => !e.allDay && e.start > now && !e.game);
+    if (!n) return asSay("I don't see anything coming up in the next 30 days.");
+    calUI.list = [n];
+    return asSay(`Your next event is <b>${esc(n.title || "Busy")}</b> — ${esc(calDayLabel(n.start))} at ${hm(n.start)} (${untilText(n.start - now)})${placeOf(n) ? `, at ${esc(placeOf(n))}` : ""}.`, { actions: [{ label: "Details", icon: "calendar-days", once: false, run: () => showEvent(n) }, ...(joinLink(n) ? [{ label: "Join", icon: "video", once: false, run: () => window.open(joinLink(n), "_blank") }] : [])] });
+  }
+  const day = asDay(q), evs = calEventsBetween(day, plusDays(day, 1), false);
+  const lbl = calDayLabel(day);
+  if (!(cfg.calendars || []).length && !(cfg.events || []).length) return asSay(`Your calendar is empty. Say "Add lunch with Jen Tuesday 12:30", or connect Outlook/Google in Customize → Calendar.`, { actions: [{ label: "Connect a calendar", icon: "link", run: () => { asToggle(false); openSettings("calendar"); } }] });
+  if (!evs.length) return asSay(`Nothing on your calendar ${lbl === "Today" || lbl === "Tomorrow" ? lbl.toLowerCase() : `on ${esc(lbl)}`}. 🎉`);
+  const list = evs.map((e) => `<li><b>${e.allDay ? "All day" : hm(e.start)}</b> — ${esc(e.title || "Busy")}${placeOf(e) ? ` <small>· ${esc(placeOf(e))}</small>` : ""}</li>`).join("");
+  asSay(`${esc(lbl)} you have <b>${evs.length}</b> event${evs.length > 1 ? "s" : ""}:<ul class="as-list">${list}</ul>`, { actions: [{ label: "Open Calendar", icon: "calendar-days", once: false, run: () => { calUI.sel = day; calUI.month = new Date(day.getFullYear(), day.getMonth(), 1); renderCalendar(); asToggle(false); goToSection("calendar", "HQ Assistant"); } }] });
+}
+function asAddEvent(text) {
+  const clean = text.replace(/^(please )?(add|put|schedule|book|create|new event|remind me( to| about)?)\s+(an? )?(event |meeting |appointment )?(called |for )?/i, "").replace(/\s+(to|on|in) my calendar\b/i, "").trim();
+  if (!clean) return asSay(`What should I add? For example: "Add dentist Nov 12 3pm".`);
+  const p = parseQuick(clean, sod(new Date()));
+  p.title = p.title.charAt(0).toUpperCase() + p.title.slice(1);
+  const when = p.allDay ? `${calDayLabel(p.start)} (all day)` : `${calDayLabel(p.start)} at ${hm(p.start)}–${hm(p.end)}`;
+  asConfirm(`Add <b>${esc(p.title)}</b> on ${esc(when)} to your Daily HQ calendar?`, "Add event", () => {
+    const ev = { id: `l${Date.now().toString(36)}`, title: p.title, start: p.start.toISOString(), end: p.end.toISOString(), allDay: p.allDay, location: "", notes: "" };
+    addLocalEvent(ev);
+    asSay(`Added <b>${esc(ev.title)}</b>. Want it in Outlook, Google or your iPhone calendar too?`, { actions: [{ label: "Send to my calendar", icon: "calendar-plus", once: false, run: () => showEvent(ev, true) }] });
+  }, "calendar-plus");
+}
+
+// weather
+function asWeather(q) {
+  const ws = (data.weather || []).filter((x) => x.d);
+  if (/\badd\b/.test(q) && /\b(weather|city)\b/.test(q)) return asAddCity(q);
+  if (!ws.length) return asSay(`You don't have a weather city yet. Say "Add Manalapan to weather".`);
+  const w = ws.find((x) => q.includes(x.c.name.split(",")[0].toLowerCase())) || ws[0];
+  const day = asDay(q), i = Math.max(0, Math.round((day - sod(new Date())) / 864e5));
+  const d = w.d.daily, c = w.d.current, city = esc(w.c.name.split(",")[0]);
+  if (/\b(aqi|air quality)\b/.test(q)) return asSay(w.aqi != null ? `Air quality in ${city} is <b>${w.aqi}</b> — ${esc(aqiLabel(w.aqi))}.` : `I don't have air quality for ${city} right now.`);
+  if (/\buv\b/.test(q)) return asSay(d.uv_index_max ? `Today's UV index in ${city} peaks at <b>${Math.round(d.uv_index_max[0])}</b> (${esc(uvLabel(d.uv_index_max[0]))}).` : "UV isn't available right now.");
+  if (/\b(this week|week|7 day|next few days|weekend)\b/.test(q)) {
+    const rows = d.time.slice(0, 7).map((t, k) => `<li><b>${k ? new Date(t + "T12:00").toLocaleDateString([], { weekday: "short" }) : "Today"}</b> ${wmo(d.weather_code[k])[0]} ${Math.round(d.temperature_2m_max[k])}° / ${Math.round(d.temperature_2m_min[k])}°${d.precipitation_probability_max?.[k] >= 30 ? ` · ${d.precipitation_probability_max[k]}% rain` : ""}</li>`).join("");
+    return asSay(`The week ahead in ${city}:<ul class="as-list as-wx">${rows}</ul>`, { actions: [asOpen("weather")] });
+  }
+  if (i >= d.time.length) return asSay(`I only have the forecast for the next ${d.time.length} days.`);
+  const pop = d.precipitation_probability_max?.[i] ?? 0, hi = Math.round(d.temperature_2m_max[i]), lo = Math.round(d.temperature_2m_min[i]);
+  const desc = wmo(d.weather_code[i])[1].toLowerCase();
+  let ans = i === 0 ? `Right now it's <b>${Math.round(c.temperature_2m)}°</b> and ${esc(wmo(c.weather_code)[1].toLowerCase())} in ${city} (feels like ${Math.round(c.apparent_temperature)}°). Today: high ${hi}°, low ${lo}°.` : `${esc(calDayLabel(day))} in ${city}: ${esc(desc)}, high <b>${hi}°</b>, low ${lo}°.`;
+  if (/\b(rain|umbrella|wet|shower)\b/.test(q)) ans += pop >= 50 ? ` <b>Yes — ${pop}% chance of rain</b>, take an umbrella. ☔` : pop >= 25 ? ` Maybe — ${pop}% chance of rain.` : ` Rain is unlikely (${pop}%).`;
+  else if (/\bsnow\b/.test(q)) ans += /snow/.test(desc) ? " ❄️ Snow is in the forecast." : " No snow in the forecast.";
+  else if (/\b(jacket|coat|cold|warm|hot)\b/.test(q)) { const f = cfg.units === "C" ? lo : (lo - 32) * 5 / 9; ans += f < 5 ? " 🧥 Bundle up — it's cold." : f < 14 ? " A jacket is a good idea." : " No jacket needed."; }
+  else if (pop >= 40) ans += ` ${pop}% chance of rain.`;
+  if (w.alerts?.length) ans += `<br>⚠️ <b>${esc(w.alerts[0].event)}</b> in effect.`;
+  asSay(ans, { actions: [asOpen("weather")] });
+}
+async function asAddCity(q) {
+  const name = q.replace(/\b(please|add|put|track|follow|watch|the|city|of|to|my|weather|forecast|for|in)\b/g, " ").replace(/\s+/g, " ").trim();
+  if (!name) return asSay(`Which city? For example: "Add Ottawa to weather".`);
+  const d = await api(`https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(name)}&count=3&language=en`);
+  const r = (d.results || [])[0];
+  if (!r) return asSay(`I couldn't find a city called "${esc(name)}".`);
+  const region = r.country_code === "US" || r.country_code === "CA" ? abbrevRegion(r.admin1) : r.country;
+  const label2 = [r.name, region].filter(Boolean).join(", ");
+  if (cfg.weather.cities.some((c) => c.name === label2)) return asSay(`${esc(label2)} is already in your weather.`);
+  asConfirm(`Add <b>${esc(label2)}</b> to your weather?`, "Add city", () => {
+    cfg.weather.cities.push({ name: label2, lat: r.latitude, lon: r.longitude }); save(); data.weather = []; refresh(["weather"]);
+    asSay(`Added ${esc(label2)}. The forecast will appear in Weather in a moment.`, { actions: [asOpen("weather")] });
+  }, "map-pin");
+}
+
+// sports
+function asMyGames() { return (data.sports || []).flatMap(({ L, events }) => (events || []).filter((e) => e.teams && isMine(L, e)).map((e) => ({ e, L }))); }
+function asGameLine(e) {
+  const [a, b] = [e.teams.find((t) => t.homeAway === "away"), e.teams.find((t) => t.homeAway === "home")];
+  if (!a || !b) return "";
+  if (e.state === "in") return `🔴 <b>${esc(a.name)} ${esc(a.score)}, ${esc(b.name)} ${esc(b.score)}</b> (${esc(e.detail)}).`;
+  if (e.state === "post") { const [W, Lo] = +a.score > +b.score ? [a, b] : [b, a]; return `The <b>${esc(W.name)}</b> beat the ${esc(Lo.name)} ${esc(W.score)}–${esc(Lo.score)}${/OT|SO/.test(e.detail) ? ` (${esc(e.detail.replace(/^Final\/?/, ""))})` : ""}.`; }
+  return `${esc(a.name)} at ${esc(b.name)} ${esc(when(e.date))}${e.broadcasts?.length ? ` on ${esc(e.broadcasts[0])}` : ""}.`;
+}
+function asGameCard(e, L) { return e.golf || e.cricket ? "" : gameHTML(e, L.teams || []).replace('class="game', `data-game="${esc(e.id)}" data-path="${esc(LEAGUES[L.key]?.path || "")}" class="game`); }
+function asFindTeams(q) {
+  const words = q.replace(/\b(the|did|do|does|when|what|is|are|was|were|score|play|playing|game|games|next|tonight|today|tomorrow|win|won|lose|lost|beat|match|of|in|my|team|teams|how|last|night|yesterday|time|at|vs|versus|and|against|who)\b/g, " ").replace(/\s+/g, " ").trim();
+  if (!words) return [];
+  const hits = [];
+  for (const { L, events } of data.sports || []) for (const e of events || []) for (const t of e.teams || []) {
+    const names = [t.name, t.abbr, t.full].filter(Boolean).map((x) => x.toLowerCase());
+    if (names.some((n) => n === words || (words.length > 3 && (n.includes(words) || words.includes(n) && n.length > 3)))) hits.push({ e, L, t });
+  }
+  return hits;
+}
+function asSports(q) {
+  const hits = asFindTeams(q);
+  const myQ = /\b(my teams?|our)\b/.test(q) || !hits.length;
+  const now = Date.now();
+  let pool = myQ ? asMyGames() : hits.map(({ e, L }) => ({ e, L }));
+  pool = pool.filter((x, i, arr) => arr.findIndex((y) => y.e.id === x.e.id) === i);
+  if (!pool.length) {
+    if (!myQ) return;
+    return asSay(`I don't see games for your teams in the past or next week. You can follow teams with "Follow the Raptors".`);
+  }
+  let pick;
+  if (/\b(next|when|tonight|tomorrow|play)\b/.test(q) && !/\b(won|win|lose|lost|beat|score)\b/.test(q)) pick = pool.filter((x) => x.e.state !== "post").sort((a, b) => new Date(a.e.date) - new Date(b.e.date));
+  else if (/\b(won|win|lose|lost|beat|last|yesterday|score|result)\b/.test(q)) pick = [...pool.filter((x) => x.e.state === "in"), ...pool.filter((x) => x.e.state === "post").sort((a, b) => new Date(b.e.date) - new Date(a.e.date))];
+  else pick = [...pool.filter((x) => x.e.state === "in"), ...pool.filter((x) => x.e.state === "post" && now - new Date(x.e.date) < 36e5 * 36), ...pool.filter((x) => x.e.state === "pre").sort((a, b) => new Date(a.e.date) - new Date(b.e.date))];
+  if (!myQ) { const seen = new Set(); pick = pick.filter((x) => { const k = x.e.teams.find((t) => hits.some((h) => h.t.abbr === t.abbr && h.e.id === x.e.id))?.abbr; if (seen.has(k)) return false; seen.add(k); return true; }); }
+  pick = pick.slice(0, myQ ? 4 : 2);
+  if (!pick.length) return asSay("No games found for that.");
+  asSay(pick.map(({ e }) => asGameLine(e)).join(" "), { cards: pick.map(({ e, L }) => asGameCard(e, L)).join(""), actions: [asOpen("sports", "Open Scores")] });
+}
+function asStandings(q) {
+  const key = Object.keys(LEAGUES).find((k) => q.includes(k) || q.includes(LEAGUES[k].name.toLowerCase())) || cfg.sports.leagues.find((l) => !LEAGUES[l.key]?.kind)?.key;
+  if (!key || LEAGUES[key].kind) return asSay(`Which league? For example "NHL standings".`);
+  asSay(`Opening ${esc(LEAGUES[key].name)} standings…`, { quiet: true });
+  showStandings(key);
+}
+async function asTeamIndex() {
+  if (AS.teamIdx) return AS.teamIdx;
+  const keys = Object.keys(LEAGUES).filter((k) => !LEAGUES[k].kind);
+  const lists = await Promise.all(keys.map(async (k) => { try { return (await fetchTeams(LEAGUES[k].path)).map((t) => ({ ...t, key: k })); } catch { return []; } }));
+  return (AS.teamIdx = lists.flat());
+}
+async function asFollow(name) {
+  name = name.replace(/\b(team|please|to my teams|the)\b/g, " ").replace(/\s+/g, " ").trim();
+  if (!name || name.length < 2) return false;
+  const idx = await asTeamIndex();
+  const n = name.toLowerCase();
+  const cands = idx.filter((t) => [t.name, t.short, t.abbr].filter(Boolean).some((x) => x.toLowerCase() === n || (n.length > 3 && x.toLowerCase().includes(n))));
+  if (!cands.length) return false;
+  const leagueHint = Object.keys(LEAGUES).find((k) => n.includes(k));
+  const t = cands.find((c) => c.key === leagueHint) || cands.find((c) => cfg.sports.leagues.some((l) => l.key === c.key)) || cands[0];
+  const L = cfg.sports.leagues.find((l) => l.key === t.key);
+  if (L?.teams?.includes(t.abbr)) { asSay(`You already follow the ${esc(t.name)}.`); return true; }
+  asConfirm(`Follow the <b>${esc(t.name)}</b> (${esc(LEAGUES[t.key].name)})?${L ? "" : ` I'll add ${esc(LEAGUES[t.key].name)} to your leagues too.`}`, "Follow", () => {
+    let lg = cfg.sports.leagues.find((l) => l.key === t.key);
+    if (!lg) { lg = { key: t.key, teams: [], showAll: false }; cfg.sports.leagues.push(lg); }
+    lg.teams = [...(lg.teams || []), t.abbr];
+    save(); refresh(["sports"]);
+    asSay(`Done — you're following the ${esc(t.name)}. Their games will show in Scores and Your brief.`, { actions: [asOpen("sports", "Open Scores")] });
+  }, "plus");
+  return true;
+}
+function asUnfollow(name) {
+  const n = name.toLowerCase().replace(/^the /, "");
+  for (const L of cfg.sports.leagues) {
+    const ab = (L.teams || []).find((a) => a.toLowerCase() === n) || (L.teams || []).find((a) => (data.sports || []).some(({ events }) => (events || []).some((e) => (e.teams || []).some((t) => t.abbr === a && (t.name || "").toLowerCase().includes(n)))));
+    if (ab) return asConfirm(`Stop following <b>${esc(ab)}</b> in ${esc(LEAGUES[L.key].name)}?`, "Unfollow", () => { L.teams = L.teams.filter((x) => x !== ab); save(); refresh(["sports"]); asSay(`Unfollowed ${esc(ab)}.`); }, "x");
+  }
+  asSay(`I couldn't find "${esc(name)}" among the teams you follow.`);
+}
+
+// markets
+const AS_INDEX = { "s&p": "^GSPC", "s&p 500": "^GSPC", sp500: "^GSPC", dow: "^DJI", "dow jones": "^DJI", nasdaq: "^IXIC", tsx: "^GSPTSE", "russell": "^RUT", vix: "^VIX", gold: "GC=F", oil: "CL=F", bitcoin: "BTC-USD", btc: "BTC-USD", ethereum: "ETH-USD", "loonie": "CAD=X", "canadian dollar": "CAD=X" };
+async function asQuote(sym) {
+  if (data.quotes?.[sym] && !data.quotes[sym].error) return data.quotes[sym];
+  const d = await api(`/api/quotes?s=${encodeURIComponent(sym)}`);
+  const q = d.quotes?.[0];
+  if (q && !q.error) { data.quotes[q.symbol] = q; return q; }
+  return null;
+}
+async function asSymbolFrom(q) {
+  for (const [k, v] of Object.entries(AS_INDEX)) if (new RegExp(`\\b${k.replace(/[&^$.]/g, "\\$&")}\\b`).test(q)) return v;
+  const m = q.match(/\$([a-z.]{1,8})\b/) || q.match(/\b(?:price of|quote for|quote|how(?:'s| is)|is)\s+([a-z.^=-]{1,10})\b/) || q.match(/^([a-z.^=-]{1,6})(?: (?:price|stock|quote))?$/) || q.match(/\b([a-z.]{1,6}) (?:price|stock|shares|quote)\b/);
+  if (m && !/^(the|a|my|stock|market|markets|doing|it)$/.test(m[1])) return m[1].toUpperCase();
+  const name = q.replace(/\b(price|of|quote|stock|shares|how|is|doing|trading|today|the|what's|whats|what|for)\b/g, " ").trim();
+  if (name.length > 2) { try { const s = await api(`/api/quotes?search=${encodeURIComponent(name)}`); return s.results?.[0]?.symbol || s.quotes?.[0]?.symbol || null; } catch {} }
+  return null;
+}
+async function asMarkets(q) {
+  if (/\b(markets?|stocks?) (today|doing)\b|^how (are|is) (the )?(markets?|stocks?)|^markets?$|\bmarket (update|summary)\b/.test(q)) {
+    const syms = ["^GSPC", "^DJI", "^IXIC", "^GSPTSE"];
+    const qs = (await Promise.all(syms.map((s) => asQuote(s).catch(() => null)))).filter(Boolean);
+    if (!qs.length) return asSay("Market data isn't loaded yet — try again in a moment.");
+    const line = qs.map((x) => `${esc(label(x.symbol))} <b class="${x.pct >= 0 ? "up" : "down"}">${x.pct >= 0 ? "▲" : "▼"} ${fmtNum(Math.abs(x.pct), 2)}%</b>`).join(" · ");
+    const movers = cfg.markets.groups.flatMap((g) => g.symbols).map((s) => data.quotes[s]).filter((x) => x && !x.error && x.pct != null && !/^\^/.test(x.symbol)).sort((a, b) => Math.abs(b.pct) - Math.abs(a.pct)).slice(0, 3);
+    return asSay(`${marketOpen() ? "Markets right now" : "At the last close"}: ${line}.${movers.length ? `<br>Biggest movers on your boards: ${movers.map((x) => `${esc(label(x.symbol))} ${x.pct >= 0 ? "+" : "−"}${fmtNum(Math.abs(x.pct), 1)}%`).join(", ")}.` : ""}`, { actions: [asOpen("markets")] });
+  }
+  const sym = await asSymbolFrom(q);
+  if (!sym) return asFallback(q);
+  const x = await asQuote(sym);
+  if (!x) return asSay(`I couldn't find a quote for "${esc(sym)}".`);
+  const onBoard = cfg.markets.groups.some((g) => g.symbols.includes(x.symbol));
+  asSay(`<b>${esc(x.name || label(x.symbol))}</b> (${esc(label(x.symbol))}) is at <b>${fmtNum(x.price, priceDigits(x.price))}</b>, ${x.pct >= 0 ? "up" : "down"} <b class="${x.pct >= 0 ? "up" : "down"}">${fmtNum(Math.abs(x.pct), 2)}%</b> today${marketOpen() ? "" : " (last close)"}.`, { cards: quoteTile(x.symbol), actions: [...(onBoard ? [] : [{ label: "Add to my board", icon: "plus", run: () => asAddStock(`add ${x.symbol}`) }]), { label: "Set a price alert", icon: "bell", once: false, run: () => { $("#asInput").value = `Alert me if ${label(x.symbol)} drops below ${Math.round(x.price * 0.95)}`; $("#asInput").focus(); } }] });
+}
+async function asAddStock(q) {
+  const sym = await asSymbolFrom(q.replace(/\b(add|to|my|watchlist|ticker|board|markets?|please|put|on)\b/g, " ").replace(/\s+/g, " ").trim());
+  if (!sym) return asSay(`Which stock? For example "Add AAPL to my watchlist".`);
+  const x = await asQuote(sym);
+  if (!x) return asSay(`I couldn't find "${esc(sym)}".`);
+  const G = cfg.markets.groups;
+  const g = G.find((gr) => /watch|stocks|compan/i.test(gr.name)) || G[G.length - 1];
+  if (!g) return asSay("You don't have a market board yet — create one in Customize → Markets.");
+  if (g.symbols.includes(x.symbol)) return asSay(`${esc(label(x.symbol))} is already on your ${esc(g.name)} board.`);
+  asConfirm(`Add <b>${esc(x.name || x.symbol)}</b> (${esc(x.symbol)}) to your <b>${esc(g.name)}</b> board?`, "Add", () => { g.symbols.push(x.symbol); save(); refresh(["markets"]); asSay(`Added ${esc(label(x.symbol))} to ${esc(g.name)}.`, { actions: [asOpen("markets")] }); }, "plus");
+}
+async function asPriceAlert(m) {
+  const sym = (await asSymbolFrom(m[3])) || m[3].toUpperCase();
+  const x = await asQuote(sym);
+  if (!x) return asSay(`I couldn't find "${esc(m[3])}".`);
+  const dir = /above|over/.test(m[5]) ? "above" : "below", v = +m[6];
+  asConfirm(`Alert you when <b>${esc(label(x.symbol))}</b> goes <b>${dir} ${fmtNum(v, 2)}</b>? It's at ${fmtNum(x.price, priceDigits(x.price))} now.`, "Set alert", () => {
+    cfg.alerts ||= {}; cfg.alerts.prices ||= [];
+    cfg.alerts.prices.push({ symbol: x.symbol, [dir]: v }); save();
+    if (!cfg.markets.groups.some((g) => g.symbols.includes(x.symbol))) asSay(`Alert set. Note: I check prices for symbols on your boards — say "Add ${esc(label(x.symbol))} to my watchlist" so I can watch it.`);
+    else asSay(`Alert set — I'll notify you when ${esc(label(x.symbol))} goes ${dir} ${fmtNum(v, 2)}.`);
+  }, "bell");
+}
+async function asConvert(m) {
+  const amt = +m[1].replace(",", "."), from = /cad|canad/.test(m[2]) ? "CAD" : "USD", to = /cad|canad/.test(m[4]) ? "CAD" : "USD";
+  if (from === to) return asSay("Those are the same currency 🙂");
+  const fx = await asQuote("CAD=X");
+  if (!fx) return asSay("I couldn't get the exchange rate right now.");
+  const out = from === "USD" ? amt * fx.price : amt / fx.price;
+  asSay(`<b>${fmtNum(amt, 2)} ${from}</b> ≈ <b>${fmtNum(out, 2)} ${to}</b> <small>(1 USD = ${fmtNum(fx.price, 4)} CAD)</small>.`);
+}
+
+// real estate
+function asRates(q) {
+  const S = data.rates?.series;
+  const go = { label: "Open mortgage desk", icon: "calculator", once: false, run: () => { cfg.markets.tab = `re:${reDefaults().country}`; save(); renderMarkets(true); asToggle(false); goToSection("markets", "HQ Assistant"); } };
+  const pay = q.match(/(?:payment|afford|mortgage)\D*?\$?(\d+(?:\.\d+)?)\s*(k|m|thousand|million)?\b(?:.*?(\d{1,2})\s*%\s*down)?/);
+  if (pay && /payment|monthly|cost/.test(q)) {
+    let price = +pay[1] * (/^m|million/.test(pay[2] || "") ? 1e6 : /^k|thousand/.test(pay[2] || "") ? 1e3 : 1);
+    if (price < 1000) price *= 1000;
+    const md = { ...mortgageDefaults(), price, downPct: pay[3] ? +pay[3] : mortgageDefaults().downPct, rate: "" };
+    const r = calcMortgage(md);
+    return asSay(`On a <b>$${fmtNum(price, 0)}</b> home with ${md.downPct}% down at ${fmtNum(r.rate, 2)}% over ${md.years} years: about <b>$${fmtNum(r.monthlyEq, 0)}/month</b>${r.insurance ? ` (includes $${fmtNum(r.insurance, 0)} mortgage insurance)` : ""}. ${md.country === "CA" ? `To qualify you'd be tested at ${fmtNum(r.qualRate, 2)}%.` : ""}${r.ltt ? ` Ontario land transfer tax ≈ $${fmtNum(r.ltt, 0)}.` : ""}`, { actions: [go] });
+  }
+  if (!S) { loadRates().then(() => data.rates?.series && asRates(q)); return asSay("Getting the latest rates…", { quiet: true }); }
+  const f = (k) => S[k] ? `${esc(S[k].label)} <b>${S[k].value.toFixed(2)}%</b>` : "";
+  const ca = ["ca_overnight", "ca_prime", "ca_5y_posted"].map(f).filter(Boolean).join(" · ");
+  const us = ["us_30y", "us_15y", "us_fedfunds"].map(f).filter(Boolean).join(" · ");
+  asSay(`${ca ? `🇨🇦 ${ca}.<br>Stress test: the higher of 5.25% or your rate + 2%.<br>` : ""}${us ? `🇺🇸 ${us}.` : ""}<br><small class="as-hint">Try "Payment on 900k with 20% down".</small>`, { actions: [go] });
+}
+function asRealEstate(q) {
+  const areas = [...Object.keys(RE_LOCAL), ...Object.keys(RE_ALIAS)];
+  const hit = areas.sort((a, b) => b.length - a.length).find((a) => q.includes(a.toLowerCase()));
+  const loc = hit ? reLocal(hit) : null;
+  if (loc) {
+    const tiles = loc.tiles.slice(0, 4).map(([l, v, s]) => `<li><b>${esc(l)}:</b> ${esc(v)} <small>${esc(s)}</small></li>`).join("");
+    return asSay(`<b>${esc(loc.name)}</b> — ${esc(loc.assoc)}, ${esc(loc.period)}:<ul class="as-list">${tiles}</ul>${esc(loc.summary)}`, { actions: [{ label: "Open real estate", icon: "building-2", once: false, run: () => { cfg.markets.tab = `re:${/new jersey|realtors® \(nj|monmouth/i.test(loc.assoc + loc.name) ? "US" : "CA"}`; marketREArea[/new jersey|monmouth/i.test(loc.assoc + loc.name) ? "US" : "CA"] = hit; save(); renderMarkets(true); asToggle(false); goToSection("markets", "HQ Assistant"); } }, { label: "Source", icon: "external-link", once: false, run: () => window.open(loc.source, "_blank") }] });
+  }
+  const c = /\b(us|u\.s\.|usa|america|american|nar)\b/.test(q) ? "US" : /\b(canada|canadian|crea)\b/.test(q) ? "CA" : reDefaults().country;
+  const s = RE_SNAPSHOT[c];
+  asSay(`${RE_MARKETS[c].flag} National (${esc(s.source[0])}, ${esc(s.period)}):<ul class="as-list">${s.tiles.slice(0, 4).map(([l, v, sub]) => `<li><b>${esc(l)}:</b> ${esc(v)} <small>${esc(sub)}</small></li>`).join("")}</ul><small class="as-hint">Ask about a local market, e.g. "Mississauga market" or "Hamilton market".</small>`);
+}
+
+// news
+async function asNews(q) {
+  const topic = q.replace(/\b(news|headlines?|stories|articles?|latest|on|about|the|any|what's|whats|new|with|show|me|top|today|give|read|for|in|is|there)\b/g, " ").replace(/\s+/g, " ").trim();
+  const all = Object.values(data.news || {}).flatMap((d) => d?.items || []);
+  let items;
+  if (topic) {
+    const words = topic.split(" ").filter((w) => w.length > 1);
+    items = all.filter((i) => words.every((w) => (i.title + " " + i.desc).toLowerCase().includes(w)));
+    if (!items.length) {
+      try { items = parseFeed(await api(`/api/feed?url=${encodeURIComponent(`https://news.google.com/rss/search?q=${encodeURIComponent(topic)}&hl=en-US&gl=US&ceid=US:en`)}`, true), { name: "Google News" }); } catch { items = []; }
+    }
+  } else items = data.news?.[cfg.news.categories.find((c) => c.on)?.id]?.items || all;
+  const seen = new Set();
+  items = items.filter((i) => !seen.has(i.title) && seen.add(i.title)).sort((a, b) => b.ts - a.ts).slice(0, 5);
+  if (!items.length) return asSay(`I couldn't find news${topic ? ` about "${esc(topic)}"` : ""}.`);
+  asSay(`${topic ? `Latest on <b>${esc(topic)}</b>` : "Top headlines"}:`, { spoken: items.slice(0, 3).map((i) => i.title).join(". "), cards: `<div class="as-news">${items.map((i) => `<a href="${esc(i.link)}" target="_blank" rel="noopener">${thumbHTML(i)}<span><b>${esc(i.title)}</b><small>${esc(i.source)}${i.ts ? ` · ${ago(i.ts)}` : ""}</small></span></a>`).join("")}</div>` });
+  setTimeout(fillArticleImages, 50);
+}
+
+// fallback: try teams / stocks, then point to help
+async function asFallback(q) {
+  const hits = asFindTeams(q);
+  if (hits.length) return asSports(q);
+  if (/^[a-z.]{1,6}$/.test(q)) { const x = await asQuote(q.toUpperCase()).catch(() => null); if (x) return asMarkets(q); }
+  if (/^(follow|add) /.test(q) && (await asFollow(q.replace(/^(follow|add) /, "")))) return;
+  asSay(`I'm not sure how to help with that yet. I work best with things Daily HQ knows about — your brief, calendar, scores, weather, markets, real estate and news.`, { actions: [{ label: "What can you do?", icon: "sparkles", run: () => asHelp() }] });
+}
+
+asInit();
