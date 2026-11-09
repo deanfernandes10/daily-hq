@@ -204,7 +204,7 @@ const DEFAULTS = {
 
 const SECTION_META = {
   brief: { title: "Your brief", icon: "sparkles" },
-  calendar: { title: "Workspace", icon: "briefcase" },
+  calendar: { title: "Calendar", icon: "calendar-days" },
   sports: { title: "Sports", icon: "trophy" },
   news: { title: "News", icon: "newspaper" },
   weather: { title: "Weather", icon: "cloud-sun" },
@@ -592,7 +592,7 @@ function buildShell() {
     })
     .join("") || `<div class="card w-12"><div class="empty">All sections are hidden. <br><button class="btn" data-config="general">Customize</button></div></div>`;
 
-  $("#jump").innerHTML = `<button class="jump-btn" data-collapse-all="1" title="Collapse all sections">${ic("chevron-down", "rot")} Collapse all</button><button class="jump-btn" data-collapse-all="0" title="Expand all sections">${ic("chevron-down")} Expand all</button>` + on.map((s) => `<a href="#sec-${s.id}" data-sec="${s.id}">${ic(SECTION_META[s.id].icon)} ${SECTION_META[s.id].title}</a>${s.id === "calendar" ? `<a href="#sec-calendar" data-sec="calendar" data-ws-jumpcal>${ic("calendar-days")} Calendar</a>` : ""}`).join("");
+  $("#jump").innerHTML = `<button class="jump-btn" data-collapse-all="1" title="Collapse all sections">${ic("chevron-down", "rot")} Collapse all</button><button class="jump-btn" data-collapse-all="0" title="Expand all sections">${ic("chevron-down")} Expand all</button>` + on.map((s) => `<a href="#sec-${s.id}" data-sec="${s.id}">${ic(SECTION_META[s.id].icon)} ${SECTION_META[s.id].title}</a>`).join("");
   $("#ticker").hidden = !cfg.ticker.on;
 }
 
@@ -1379,11 +1379,6 @@ function parseICS(text) {
       case "LOCATION": cur.location = icsText(val); break;
       case "DESCRIPTION": cur.desc = icsText(val).slice(0, 1500); break;
       case "URL": cur.url = val; break;
-      case "ATTENDEE": case "ORGANIZER": {
-        const em = val.replace(/^mailto:/i, "").trim();
-        (cur.people ||= []).push({ name: params.CN || em, email: /@/.test(em) ? em : "", org: name === "ORGANIZER" });
-        break;
-      }
       case "STATUS": cur.status = val; break;
       case "RRULE": cur.rrule = Object.fromEntries(val.split(";").map((x) => x.split("="))); break;
       case "DTSTART": { const d = icsDate(val, params); if (d) { cur.start = d.date; cur.allDay = d.allDay; } break; }
@@ -1525,11 +1520,8 @@ function dayWeather() {
 const evTime = (e) => (e.allDay ? "All day" : `${hm(e.start)}${e.end - e.start > 0 && !e.game ? ` – ${hm(e.end)}` : ""}`);
 
 function renderCalendar() {
-  const host = $("#calendar-body");
-  if (!host) return;
-  wsShell(host);
-  if (wsTab() !== "calendar") return wsRenderPane();
-  const body = $("#wsPane");
+  const body = $("#calendar-body");
+  if (!body) return;
   const now = new Date(), today = sod(now);
   calUI.sel ||= today;
   calUI.month ||= new Date(today.getFullYear(), today.getMonth(), 1);
@@ -1721,9 +1713,8 @@ function showEvent(e, justSaved = false) {
       ${e.notes ? `<p class="ev-notes">${esc(e.notes)}</p>` : e.desc && !e.game ? `<p class="ev-notes">${esc(e.desc.slice(0, 400))}${e.desc.length > 400 ? "…" : ""}</p>` : ""}
     </div>
     ${local ? sendLinks(e) + `<div class="ev-acts"><button class="btn" data-ev-edit="${esc(e.id)}">${ic("pencil")} Edit</button><button class="btn danger" data-ev-del="${esc(e.id)}">${ic("trash-2")} Delete</button></div>` : ""}
-    ${e.game ? `<button class="btn wide" data-cal-scores>${ic("trophy")} Open Scores</button>` : wsPrepHTML(e)}
+    ${e.game ? `<button class="btn wide" data-cal-scores>${ic("trophy")} Open Scores</button>` : ""}
     ${!local && !e.game ? `<p class="hint">From your ${esc(e.cal)} calendar — edit it there.</p>` : ""}`);
-  if (!e.game) wsPrepNews(e);
 }
 
 // ============================================================ brief
@@ -1788,9 +1779,6 @@ function renderBrief() {
     if ((cfg.calendars || []).length || (cfg.events || []).length || briefEvents.length)
       rows.push(`<div class="br-row">${ic("calendar-days")}<div><button class="br-link" data-brief-cal>${left.length ? `<b>${left.length} ${left.length === 1 ? "event" : "events"} left today</b>` : "<b>No more meetings today</b>"}${allDay.length ? ` · ${allDay.length} all-day` : ""} ${ic("chevron-right", "xs")}</button>${chips || more ? `<div class="br-evs">${chips}${more}</div>` : ""}</div></div>`);
   }
-  // follow-ups due
-  const fus = wsDue();
-  if (fus.length) rows.push(`<div class="br-row">${ic("list-checks")}<div><button class="br-link" data-brief-fu><b>${fus.length} follow-up${fus.length > 1 ? "s" : ""} due</b> — ${esc(fus.slice(0, 2).map((x) => x.text).join(" · "))}${fus.length > 2 ? "…" : ""} ${ic("chevron-right", "xs")}</button></div></div>`);
   // sports
   const mine = data.sports.flatMap(({ L, events }) => (events || []).filter((e) => isMine(L, e)).map((e) => ({ e, L })));
   const live = mine.filter((x) => x.e.state === "in");
@@ -2733,7 +2721,7 @@ document.addEventListener("click", async (e) => {
   if (bev) { const ev = briefEvents[+bev.dataset.briefEv]; if (ev) { calUI.sel = sod(new Date()); calUI.month = new Date(calUI.sel.getFullYear(), calUI.sel.getMonth(), 1); renderCalendar(); showEvent(ev); } return; }
   const gto = t.closest("[data-goto]");
   if (gto) { goToSection(gto.dataset.goto); return; }
-  if (t.closest("[data-brief-cal]")) { wsSetTab("calendar"); calUI.sel = sod(new Date()); calUI.month = new Date(calUI.sel.getFullYear(), calUI.sel.getMonth(), 1); renderCalendar(); goToSection("calendar"); return; }
+  if (t.closest("[data-brief-cal]")) { calUI.sel = sod(new Date()); calUI.month = new Date(calUI.sel.getFullYear(), calUI.sel.getMonth(), 1); renderCalendar(); goToSection("calendar"); return; }
   const gf = t.closest("[data-golf-full]");
   if (gf) { cfg.sports.golfFull = { [gf.dataset.golfFull]: !cfg.sports.golfFull?.[gf.dataset.golfFull] }; save(); renderSports(); return; }
   if (t.closest("[data-back-pill]")) { goBack(); return; }
@@ -3561,7 +3549,7 @@ if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").cat
 // Like Alex in Executive Search: launcher bubble, chat, suggestions, task cards and confirm-before-change.
 // It understands everyday phrasing for the things Daily HQ knows about and answers from the data on screen.
 const AS = { open: false, msgs: [], pending: null, speak: store.get(pkey("dhq-as-speak")) === "1", rec: null, listening: false, teamIdx: null };
-const AS_SUGGEST = ["Brief me", "Text Jen running 5 min late", "Join my next meeting", "Follow up with Jen tomorrow", "What are my follow-ups?", "What's on my calendar today?", "Will it rain tomorrow?", "When do my teams play next?", "How are the markets?", "Price of NVDA", "Add lunch with Jen Tue 12:30", "Mississauga market", "Mortgage rates", "News about AI", "Follow the Raptors", "Alert me if TSLA drops below 300", "100 USD to CAD", "What can you do?"];
+const AS_SUGGEST = ["Brief me", "What's on my calendar today?", "Will it rain tomorrow?", "When do my teams play next?", "How are the markets?", "Price of NVDA", "Add lunch with Jen Tue 12:30", "Mississauga market", "Mortgage rates", "News about AI", "Follow the Raptors", "Alert me if TSLA drops below 300", "100 USD to CAD", "What can you do?"];
 
 function asInit() {
   if ($("#asLauncher")) return;
@@ -3715,11 +3703,6 @@ const asOpen = (id, label) => ({ label: label || `Open ${id[0].toUpperCase() + i
 const AS_INTENTS = [
   [/^(hi|hello|hey|yo|good (morning|afternoon|evening))\b(?!.*\b(brief|weather|game|score)\b)/, () => asSay(`Hi${cfg.name ? ` ${esc(cfg.name.split(" ")[0])}` : ""}! Ask me for your brief, a score, the weather, a stock price — or tell me to add an event.`)],
   [/^(help|what can you do|what do you do|commands|how do (i|you) use)/, () => asHelp()],
-  [/^(text|message|sms|imessage|call|phone|ring|facetime|email|e-mail|mail|whatsapp|teams|teams chat|chat with)\s+(.+)$/, (q, m, t) => asContact(m[1], t.replace(/^\S+(\s+chat)?(\s+with)?\s+/i, ""))],
-  [/\b(follow[- ]?ups?|to-?do)\b(?!.*\bwith\b)|what do i need to follow up/, () => asFollowups()],
-  [/^(remind me to )?follow up (with|on) (.+)$/, (q, m, t) => asNewFollow(t.replace(/^(remind me to )?follow up (with|on) /i, "").replace(/[?!.]+$/, ""))],
-  [/\bjoin (my )?(next |the )?(meeting|call)\b/, () => asJoinNext()],
-  [/\b(start|new|create) (a )?(zoom|teams|google meet|meet|video) (meeting|call)?/, () => { asSay("Here are your options to start a call:"); wsMeet(); }],
   [/\b(brief|briefing|catch me up|what('s| is) (my day|happening|up today)|morning report|summary of (today|my day))\b/, () => asBrief()],
   [/^(open|show|go to|take me to)( the| my)? (scores|sports|weather|news|markets?|calendar|brief|settings|customize|alerts|apps)\b/, (q, m) => asNavigate(m[3])],
   [/\b(\d+(?:[.,]\d+)?)\s*(usd|us dollars?|cad|canadian dollars?|dollars?)\s*(to|in|into)\s*(usd|us dollars?|cad|canadian)\b/, (q, m) => asConvert(m)],
@@ -4056,304 +4039,3 @@ async function asFallback(q) {
 }
 
 asInit();
-
-// ============================================================ Workspace: Calendar + People + Follow-ups in one place
-// Messages open in your real apps (Mail, Outlook, Gmail, Messages, WhatsApp, Teams) already filled in — nothing is
-// sent from Daily HQ and no accounts are connected, so it's free and private.
-const WS_TABS = [["calendar", "Calendar", "calendar-days"], ["people", "People", "users"], ["follow", "Follow-ups", "list-checks"]];
-const wsTab = () => store.get(pkey("dhq-ws-tab")) || "calendar";
-function wsSetTab(t) { store.set(pkey("dhq-ws-tab"), t); }
-const isPhone = () => /iPhone|iPad|Android/i.test(navigator.userAgent);
-const isApple = () => /iPhone|iPad|Macintosh/i.test(navigator.userAgent);
-const digits = (p) => (p || "").replace(/[^\d+]/g, "");
-const initials = (n) => (n || "?").split(/\s+/).filter(Boolean).slice(0, 2).map((w) => w[0].toUpperCase()).join("");
-const PERSON_COLORS = ["#14b8a6", "#8b5cf6", "#f59e0b", "#3b82f6", "#ec4899", "#22c27a", "#ef4444", "#0ea5e9"];
-const personColor = (p) => PERSON_COLORS[[...(p.name || "")].reduce((a, c) => a + c.charCodeAt(0), 0) % PERSON_COLORS.length];
-const MAIL_APPS = [["mail", "Mail app"], ["outlook", "Outlook"], ["gmail", "Gmail"]];
-
-function wsShell(host) {
-  const tab = wsTab();
-  const due = wsDue().length;
-  if (!$("#wsPane", host)) host.innerHTML = `<div class="ws-top"></div><div id="wsPane"></div>`;
-  host.querySelector(".ws-top").innerHTML = `
-    <div class="ws-tabs" role="tablist">${WS_TABS.map(([k, l, i]) => `<button role="tab" data-ws-tab="${k}" class="${tab === k ? "on" : ""}" aria-selected="${tab === k}">${ic(i)} ${l}${k === "follow" && due ? ` <span class="ws-badge">${due}</span>` : ""}</button>`).join("")}</div>
-    <div class="ws-quick">
-      <button class="ws-q" data-ws-compose="email">${ic("mail")}<span>Email</span></button>
-      <button class="ws-q" data-ws-compose="text">${ic("message-circle")}<span>Text</span></button>
-      <button class="ws-q" data-ws-compose="whatsapp">${ic("message-square")}<span>WhatsApp</span></button>
-      <button class="ws-q" data-ws-compose="teams">${ic("users")}<span>Teams</span></button>
-      <button class="ws-q" data-ws-meet>${ic("video")}<span>Meeting</span></button>
-    </div>`;
-}
-function wsRenderPane() {
-  const pane = $("#wsPane");
-  if (!pane) return;
-  pane.innerHTML = wsTab() === "people" ? wsPeopleHTML() : wsFollowHTML();
-}
-
-// ---------- people
-function wsPeopleHTML() {
-  const P = cfg.people || [];
-  const list = P.map((p) => `<div class="ws-person">
-      <span class="ws-av" style="--pc:${personColor(p)}">${esc(initials(p.name))}</span>
-      <div class="ws-pinfo"><b>${esc(p.name)}</b>${p.org ? `<small>${esc(p.org)}</small>` : ""}</div>
-      <button class="icon-btn sm ws-pedit" data-ws-pedit="${esc(p.id)}" aria-label="Edit ${esc(p.name)}">${ic("pencil")}</button>
-      <div class="ws-pacts">${wsContactBtns(p)}</div>
-    </div>`).join("");
-  return `${list || `<div class="empty">Add the people you message most — one tap to text, call, email, WhatsApp or Teams them.</div>`}
-    <button class="btn wide" data-ws-padd>${ic("plus")} Add a person</button>`;
-}
-function wsContactBtns(p, compact = false) {
-  const b = [];
-  if (p.phone) b.push(`<button class="ws-c" data-ws-to="text|${esc(p.id)}">${ic("message-circle")}${compact ? "" : "<span>Text</span>"}</button>`, `<a class="ws-c" href="tel:${esc(digits(p.phone))}">${ic("phone")}${compact ? "" : "<span>Call</span>"}</a>`);
-  if (isApple() && (p.phone || p.email)) b.push(`<a class="ws-c" href="facetime:${esc(p.phone ? digits(p.phone) : p.email)}">${ic("video")}${compact ? "" : "<span>FaceTime</span>"}</a>`);
-  if (p.email) b.push(`<button class="ws-c" data-ws-to="email|${esc(p.id)}">${ic("mail")}${compact ? "" : "<span>Email</span>"}</button>`);
-  if (p.whatsapp || p.phone) b.push(`<button class="ws-c" data-ws-to="whatsapp|${esc(p.id)}">${ic("message-square")}${compact ? "" : "<span>WhatsApp</span>"}</button>`);
-  if (p.teams || p.email) b.push(`<button class="ws-c" data-ws-to="teams|${esc(p.id)}">${ic("users")}${compact ? "" : "<span>Teams</span>"}</button>`);
-  return b.join("");
-}
-function wsPersonForm(p = {}) {
-  openModal(`${ic(p.id ? "pencil" : "user-plus")} ${p.id ? `Edit ${esc(p.name)}` : "Add a person"}`, `
-    <form class="ev-form" data-ws-pform="${esc(p.id || "")}">
-      <label class="fld">Name<input name="name" value="${esc(p.name || "")}" required autocomplete="off" placeholder="e.g. Jennifer Harrison"></label>
-      <label class="fld">Company or note <small class="hint">(optional)</small><input name="org" value="${esc(p.org || "")}" placeholder="e.g. RE/MAX"></label>
-      <label class="fld">Mobile number<input name="phone" type="tel" value="${esc(p.phone || "")}" placeholder="+1 416 555 0123"></label>
-      <label class="fld">Email<input name="email" type="email" value="${esc(p.email || "")}" placeholder="name@company.com"></label>
-      <details ${p.whatsapp || p.teams ? "open" : ""}><summary class="hint">WhatsApp or Teams use a different number or email?</summary>
-        <label class="fld">WhatsApp number<input name="whatsapp" type="tel" value="${esc(p.whatsapp || "")}" placeholder="Same as mobile if blank"></label>
-        <label class="fld">Teams email<input name="teams" type="email" value="${esc(p.teams || "")}" placeholder="Same as email if blank"></label>
-      </details>
-      <button class="btn primary wide" type="submit">${ic("check")} Save</button>
-      ${p.id ? `<button class="btn danger wide" type="button" data-ws-pdel="${esc(p.id)}">${ic("trash-2")} Remove ${esc(p.name)}</button>` : ""}
-    </form>`);
-}
-function wsSavePerson(form) {
-  const f = new FormData(form);
-  const name = (f.get("name") || "").trim();
-  if (!name) return toast("Add a name");
-  const id = form.dataset.wsPform || `p${Date.now().toString(36)}`;
-  const p = { id, name, org: (f.get("org") || "").trim(), phone: (f.get("phone") || "").trim(), email: (f.get("email") || "").trim(), whatsapp: (f.get("whatsapp") || "").trim(), teams: (f.get("teams") || "").trim() };
-  cfg.people ||= [];
-  const i = cfg.people.findIndex((x) => x.id === id);
-  if (i >= 0) cfg.people[i] = p; else cfg.people.push(p);
-  save(); closeModal(); wsSetTab("people"); renderCalendar(); toast(`Saved ${name}`);
-}
-const findPerson = (q) => {
-  if (!q) return null;
-  const n = q.toLowerCase().trim();
-  return (cfg.people || []).find((p) => p.name.toLowerCase() === n) || (cfg.people || []).find((p) => p.name.toLowerCase().split(/\s+/)[0] === n) || (cfg.people || []).find((p) => p.name.toLowerCase().includes(n) || (p.email || "").toLowerCase() === n);
-};
-
-// ---------- compose: one form, opens the right app pre-filled
-function wsLink(kind, to, subject, body) {
-  const enc = encodeURIComponent;
-  if (kind === "email") {
-    const app = cfg.mailApp || "mail";
-    if (app === "outlook") return isPhone() ? `ms-outlook://compose?to=${enc(to)}&subject=${enc(subject)}&body=${enc(body)}` : `https://outlook.office.com/mail/deeplink/compose?to=${enc(to)}&subject=${enc(subject)}&body=${enc(body)}`;
-    if (app === "gmail") return isPhone() ? `googlegmail:///co?to=${enc(to)}&subject=${enc(subject)}&body=${enc(body)}` : `https://mail.google.com/mail/?view=cm&fs=1&to=${enc(to)}&su=${enc(subject)}&body=${enc(body)}`;
-    return `mailto:${to.split(/[,;\s]+/).filter(Boolean).map(enc).join(",")}?subject=${enc(subject)}&body=${enc(body)}`;
-  }
-  if (kind === "text") return `sms:${to.split(/[,;]+/).map(digits).filter(Boolean).join(",")}${isApple() ? "&" : "?"}body=${enc(body)}`;
-  if (kind === "whatsapp") { const d = digits(to).replace(/^\+/, ""); return `https://wa.me/${d}${body ? `?text=${enc(body)}` : ""}`; }
-  if (kind === "teams") return `https://teams.microsoft.com/l/chat/0/0?users=${to.split(/[,;\s]+/).filter(Boolean).map(enc).join(",")}${body ? `&message=${enc(body)}` : ""}`;
-  return "";
-}
-const WS_KIND = { email: ["mail", "Email", "Email address"], text: ["message-circle", "Text message", "Mobile number"], whatsapp: ["message-square", "WhatsApp", "WhatsApp number"], teams: ["users", "Teams chat", "Teams email"] };
-function wsCompose(kind, person, preset = {}) {
-  const [icon, title, toLabel] = WS_KIND[kind];
-  const toVal = person ? (kind === "email" ? person.email : kind === "text" ? person.phone : kind === "whatsapp" ? person.whatsapp || person.phone : person.teams || person.email) : preset.to || "";
-  const opts = (cfg.people || []).filter((p) => (kind === "email" ? p.email : kind === "teams" ? p.teams || p.email : p.whatsapp || p.phone)).map((p) => `<option value="${esc(kind === "email" ? p.email : kind === "teams" ? p.teams || p.email : kind === "whatsapp" ? p.whatsapp || p.phone : p.phone)}">${esc(p.name)}</option>`).join("");
-  openModal(`${ic(icon)} ${title}${person ? ` to ${esc(person.name.split(" ")[0])}` : ""}`, `
-    <form class="ev-form" data-ws-cform="${kind}">
-      <label class="fld">${toLabel}<input name="to" list="wsPeopleList" value="${esc(toVal || "")}" ${kind === "email" || kind === "teams" ? 'type="text" inputmode="email"' : 'type="tel"'} placeholder="${kind === "email" ? "Pick a person or type an email" : "Pick a person or type a number"}" required autocomplete="off"></label>
-      <datalist id="wsPeopleList">${opts}</datalist>
-      ${kind === "email" ? `<label class="fld">Subject<input name="subject" value="${esc(preset.subject || "")}" placeholder="Subject"></label>` : ""}
-      <label class="fld">Message<textarea name="body" rows="${kind === "email" ? 6 : 3}" placeholder="Write your message…">${esc(preset.body || "")}</textarea></label>
-      ${kind === "email" ? `<div class="fld">Open in<div class="seg ws-mailapp">${MAIL_APPS.map(([k, l]) => `<button type="button" data-ws-mailapp="${k}" class="${(cfg.mailApp || "mail") === k ? "on" : ""}">${l}</button>`).join("")}</div></div>` : ""}
-      <button class="btn primary wide" type="submit">${ic("send")} Open ${kind === "email" ? "in " + (MAIL_APPS.find(([k]) => k === (cfg.mailApp || "mail"))?.[1] || "Mail") : kind === "text" ? "in Messages" : kind === "whatsapp" ? "in WhatsApp" : "in Teams"}</button>
-      <p class="hint">Opens your ${kind === "email" ? "email app" : kind === "text" ? "Messages app" : kind === "whatsapp" ? "WhatsApp" : "Teams"} with everything filled in — tap Send there. Nothing is sent from Daily HQ.</p>
-    </form>`);
-}
-function wsSendForm(form) {
-  const f = new FormData(form), kind = form.dataset.wsCform;
-  const to = (f.get("to") || "").trim();
-  if (!to) return toast("Add who it's to");
-  const url = wsLink(kind, to, (f.get("subject") || "").trim(), (f.get("body") || "").trim());
-  closeModal();
-  if (/^https:/.test(url)) window.open(url, "_blank", "noopener"); else location.href = url;
-}
-
-// ---------- start a meeting
-function wsMeet() {
-  openModal(`${ic("video")} Start a meeting`, `<div class="ws-meet">
-    <a class="btn wide" href="https://zoom.us/start/videomeeting" target="_blank" rel="noopener">${imgOr("https://www.google.com/s2/favicons?domain=zoom.us&sz=64", "Z", "ws-mi")} Zoom</a>
-    <a class="btn wide" href="https://teams.microsoft.com/l/meeting/new" target="_blank" rel="noopener">${imgOr("https://www.google.com/s2/favicons?domain=teams.microsoft.com&sz=64", "T", "ws-mi")} Microsoft Teams</a>
-    <a class="btn wide" href="https://meet.google.com/new" target="_blank" rel="noopener">${imgOr("https://www.google.com/s2/favicons?domain=meet.google.com&sz=64", "M", "ws-mi")} Google Meet</a>
-    ${isApple() ? `<a class="btn wide" href="facetime:">${ic("video")} FaceTime</a>` : ""}
-    <p class="hint">Opens the app to start or schedule a call. To invite people, add the meeting link in the app.</p></div>`);
-}
-
-// ---------- follow-ups
-const todayKey = () => dkey(new Date());
-const wsDue = () => (cfg.followups || []).filter((x) => !x.done && x.due <= todayKey());
-function wsFollowHTML() {
-  const F = (cfg.followups || []).slice().sort((a, b) => a.due.localeCompare(b.due));
-  const t = todayKey(), tm = dkey(plusDays(new Date(), 1));
-  const open = F.filter((x) => !x.done), done = F.filter((x) => x.done).slice(-8).reverse();
-  const groups = [["Overdue", open.filter((x) => x.due < t), "od"], ["Today", open.filter((x) => x.due === t), "td"], ["Tomorrow", open.filter((x) => x.due === tm), ""], ["Later", open.filter((x) => x.due > tm), ""]];
-  const row = (x) => {
-    const p = (cfg.people || []).find((pp) => pp.id === x.person);
-    return `<div class="ws-fu ${x.done ? "done" : ""}"><button class="ws-chk" data-ws-fdone="${esc(x.id)}" aria-label="${x.done ? "Mark not done" : "Mark done"}">${x.done ? ic("check") : ""}</button>
-      <div class="ws-fu-t"><b>${esc(x.text)}</b><small>${p ? `${esc(p.name)} · ` : ""}${x.due === t ? "Today" : x.due === tm ? "Tomorrow" : new Date(x.due + "T12:00").toLocaleDateString([], { weekday: "short", month: "short", day: "numeric" })}</small></div>
-      ${p && !x.done ? `<div class="ws-pacts mini">${wsContactBtns(p, true)}</div>` : ""}
-      ${x.done ? `<button class="icon-btn sm" data-ws-fdel="${esc(x.id)}" aria-label="Delete">${ic("x")}</button>` : ""}</div>`;
-  };
-  const people = (cfg.people || []).map((p) => `<option value="${esc(p.id)}">${esc(p.name)}</option>`).join("");
-  return `<form class="ws-fadd" data-ws-fform>
-      <input name="text" placeholder="Follow up on… (e.g. Send Jen the listing)" required autocomplete="off">
-      <div class="ws-fadd-row">
-        <select name="person" aria-label="Person"><option value="">No person</option>${people}</select>
-        <select name="due" aria-label="When"><option value="${t}">Today</option><option value="${tm}" selected>Tomorrow</option><option value="${dkey(plusDays(new Date(), 3))}">In 3 days</option><option value="${dkey(plusDays(new Date(), 7))}">Next week</option></select>
-        <button class="btn primary sm" type="submit">${ic("plus")} Add</button>
-      </div></form>
-    ${groups.filter(([, xs]) => xs.length).map(([h, xs, c]) => `<h4 class="ws-h ${c}">${h} <small>${xs.length}</small></h4>${xs.map(row).join("")}`).join("") || `<div class="empty">You're all caught up. 🎉</div>`}
-    ${done.length ? `<details class="ws-done"><summary>Done (${done.length})</summary>${done.map(row).join("")}</details>` : ""}`;
-}
-function wsAddFollow(text, due, person) {
-  cfg.followups ||= [];
-  cfg.followups.push({ id: `f${Date.now().toString(36)}`, text, due: due || dkey(plusDays(new Date(), 1)), person: person || "", done: false });
-  save(); renderBrief();
-  if (wsTab() === "follow") wsRenderPane(); else renderCalendar();
-}
-
-// ---------- meeting prep (inside each calendar event)
-const FREE_MAIL = /@(gmail|googlemail|outlook|hotmail|live|msn|yahoo|icloud|me|mac|aol|proton|protonmail|rogers|bell|sympatico)\./i;
-const noteKey = (e) => `${e.uid || e.id || e.title}|${dkey(new Date(e.start))}`;
-function wsPrepHTML(e) {
-  const ppl = (e.people || []).filter((p, i, a) => a.findIndex((q) => q.email === p.email && q.name === p.name) === i).slice(0, 12);
-  const known = ppl.map((a) => ({ a, p: (cfg.people || []).find((p) => p.email && a.email && p.email.toLowerCase() === a.email.toLowerCase()) }));
-  const note = cfg.meetingNotes?.[noteKey(e)] || "";
-  return `<div class="ws-prep">
-    <h4 class="ws-h">${ic("clipboard-list")} Meeting prep</h4>
-    ${ppl.length ? `<div class="ws-att">${known.map(({ a, p }) => `<div class="ws-att-r"><span class="ws-av sm" style="--pc:${personColor(a)}">${esc(initials(a.name))}</span><span>${esc(a.name)}${a.org ? " <small>(organizer)</small>" : ""}</span>${p ? `<div class="ws-pacts mini">${wsContactBtns(p, true)}</div>` : a.email ? `<button class="ws-c" data-ws-mailto="${esc(a.email)}">${ic("mail")}</button>` : ""}</div>`).join("")}</div>` : `<p class="hint">Attendees aren't included in this calendar's feed.</p>`}
-    <div id="wsPrepNews"></div>
-    <label class="fld">Your notes<textarea data-ws-note="${esc(noteKey(e))}" rows="3" placeholder="Agenda, talking points, what to ask…">${esc(note)}</textarea></label>
-    <div class="ev-acts">
-      <button class="btn" data-ws-fu-ev="${esc(e.title || "meeting")}">${ic("list-checks")} Follow up tomorrow</button>
-      ${ppl.some((a) => a.email) ? `<button class="btn" data-ws-mailall="${esc(ppl.filter((a) => a.email && !a.self).map((a) => a.email).join(","))}" data-ws-subj="${esc(e.title || "")}">${ic("mail")} Email everyone</button>` : ""}
-    </div></div>`;
-}
-async function wsPrepNews(e) {
-  const doms = [...new Set((e.people || []).map((a) => a.email).filter((m) => m && !FREE_MAIL.test(m)).map((m) => m.split("@")[1]))].slice(0, 2);
-  const box = $("#wsPrepNews");
-  if (!box || !doms.length) return;
-  const name = (d) => d.replace(/\.(com|ca|net|org|io|co|us|ai)(\.[a-z]{2})?$/, "").split(".").pop();
-  try {
-    const out = await Promise.all(doms.map(async (d) => {
-      const items = parseFeed(await api(`/api/feed?url=${encodeURIComponent(`https://news.google.com/rss/search?q=${encodeURIComponent(`"${name(d)}"`)}+when:30d&hl=en-US&gl=US&ceid=US:en`)}`, true), { name: "News" }).slice(0, 3);
-      return items.length ? `<div class="ws-news"><small>${ic("newspaper")} In the news: ${esc(name(d))}</small>${items.map((i) => `<a href="${esc(i.link)}" target="_blank" rel="noopener">${esc(i.title)} <span>· ${esc(i.source)}</span></a>`).join("")}</div>` : "";
-    }));
-    if ($("#wsPrepNews")) $("#wsPrepNews").innerHTML = out.join("");
-  } catch {}
-}
-
-// ---------- events
-document.addEventListener("click", (ev) => {
-  const t = ev.target;
-  const tb = t.closest("[data-ws-tab]");
-  if (tb) { wsSetTab(tb.dataset.wsTab); renderCalendar(); return; }
-  const cp = t.closest("[data-ws-compose]");
-  if (cp) { wsCompose(cp.dataset.wsCompose); return; }
-  if (t.closest("[data-ws-meet]")) { wsMeet(); return; }
-  const to = t.closest("[data-ws-to]");
-  if (to) { const [k, id] = to.dataset.wsTo.split("|"); wsCompose(k, (cfg.people || []).find((p) => p.id === id)); return; }
-  const mt = t.closest("[data-ws-mailto]");
-  if (mt) { wsCompose("email", null, { to: mt.dataset.wsMailto }); return; }
-  const ma = t.closest("[data-ws-mailall]");
-  if (ma) { wsCompose("email", null, { to: ma.dataset.wsMailall, subject: ma.dataset.wsSubj ? `Re: ${ma.dataset.wsSubj}` : "" }); return; }
-  const app = t.closest("[data-ws-mailapp]");
-  if (app) { cfg.mailApp = app.dataset.wsMailapp; save(); app.parentNode.querySelectorAll("button").forEach((b) => b.classList.toggle("on", b === app)); const sb = app.closest("form").querySelector('button[type="submit"]'); sb.innerHTML = `${ic("send")} Open in ${MAIL_APPS.find(([k]) => k === cfg.mailApp)[1]}`; return; }
-  if (t.closest("[data-ws-padd]")) { wsPersonForm(); return; }
-  const pe = t.closest("[data-ws-pedit]");
-  if (pe) { wsPersonForm((cfg.people || []).find((p) => p.id === pe.dataset.wsPedit)); return; }
-  const pd = t.closest("[data-ws-pdel]");
-  if (pd) {
-    const p = (cfg.people || []).find((x) => x.id === pd.dataset.wsPdel);
-    askConfirm({ title: `Remove ${p?.name || "this person"}?`, body: "Their number and email will be removed from Daily HQ. Your phone's contacts aren't affected.", ok: "Remove" }).then((ok) => {
-      if (!ok) return;
-      const before = JSON.stringify(cfg.people);
-      cfg.people = cfg.people.filter((x) => x.id !== p.id); save(); closeModal(); renderCalendar();
-      undoToast(`Removed ${p.name}`, () => { cfg.people = JSON.parse(before); save(); renderCalendar(); });
-    });
-    return;
-  }
-  const fd = t.closest("[data-ws-fdone]");
-  if (fd) {
-    const x = (cfg.followups || []).find((f) => f.id === fd.dataset.wsFdone);
-    if (x) { x.done = !x.done; save(); renderCalendar(); renderBrief(); if (x.done) undoToast("Marked done", () => { x.done = false; save(); renderCalendar(); renderBrief(); }); }
-    return;
-  }
-  const fx = t.closest("[data-ws-fdel]");
-  if (fx) { const before = JSON.stringify(cfg.followups); cfg.followups = cfg.followups.filter((f) => f.id !== fx.dataset.wsFdel); save(); renderCalendar(); undoToast("Deleted", () => { cfg.followups = JSON.parse(before); save(); renderCalendar(); }); return; }
-  const fe = t.closest("[data-ws-fu-ev]");
-  if (fe) { wsAddFollow(`Follow up: ${fe.dataset.wsFuEv}`, dkey(plusDays(new Date(), 1))); toast("Added to Follow-ups for tomorrow"); return; }
-  if (t.closest("[data-brief-fu]")) { wsSetTab("follow"); renderCalendar(); goToSection("calendar"); return; }
-  if (t.closest("[data-ws-jumpcal]")) { ev.preventDefault(); wsSetTab("calendar"); renderCalendar(); goToSection("calendar", "Home"); return; }
-});
-document.addEventListener("submit", (ev) => {
-  const pf = ev.target.closest("[data-ws-pform]");
-  if (pf) { ev.preventDefault(); wsSavePerson(pf); return; }
-  const cf = ev.target.closest("[data-ws-cform]");
-  if (cf) { ev.preventDefault(); wsSendForm(cf); return; }
-  const ff = ev.target.closest("[data-ws-fform]");
-  if (ff) { ev.preventDefault(); const f = new FormData(ff); const text = (f.get("text") || "").trim(); if (text) { wsAddFollow(text, f.get("due"), f.get("person")); toast("Follow-up added"); } }
-});
-document.addEventListener("input", (ev) => {
-  const n = ev.target.dataset?.wsNote;
-  if (!n) return;
-  cfg.meetingNotes ||= {};
-  if (ev.target.value.trim()) cfg.meetingNotes[n] = ev.target.value; else delete cfg.meetingNotes[n];
-  clearTimeout(wsNoteT); wsNoteT = setTimeout(save, 500);
-});
-let wsNoteT;
-
-// ---------- assistant: people and follow-ups
-function asContact(verb, rest) {
-  const kind = /^(call|phone|ring)$/.test(verb) ? "call" : /facetime/.test(verb) ? "facetime" : /mail/.test(verb) ? "email" : /whatsapp/.test(verb) ? "whatsapp" : /teams/.test(verb) ? "teams" : "text";
-  const m = rest.match(/^(.+?)(?:\s+(?:about|re|regarding|saying|that|to say)\s+(.+))?$/i);
-  let who = (m?.[1] || rest).trim(), msg = (m?.[2] || "").trim();
-  let p = findPerson(who);
-  if (!p) { const w = who.split(/\s+/); for (let k = w.length - 1; k > 0 && !p; k--) { p = findPerson(w.slice(0, k).join(" ")); if (p) { msg = (w.slice(k).join(" ") + " " + msg).trim(); who = w.slice(0, k).join(" "); } } }
-  if (!p) return asSay(`I don't have <b>${esc(who)}</b> in your People yet.`, { actions: [{ label: `Add ${who}`, icon: "user-plus", run: () => { wsPersonForm({ name: who.replace(/\b\w/g, (c) => c.toUpperCase()) }); } }] });
-  if (kind === "call" || kind === "facetime") {
-    const num = digits(p.phone) || (kind === "facetime" ? p.email : "");
-    if (!num) return asSay(`I don't have a number for ${esc(p.name)}.`, { actions: [{ label: "Edit contact", icon: "pencil", run: () => wsPersonForm(p) }] });
-    return asSay(`${kind === "call" ? "Calling" : "FaceTime with"} <b>${esc(p.name)}</b>…`, { actions: [{ label: kind === "call" ? "Call" : "FaceTime", icon: kind === "call" ? "phone" : "video", primary: true, once: false, run: () => (location.href = `${kind === "call" ? "tel" : "facetime"}:${num}`) }] });
-  }
-  const has = kind === "email" ? p.email : kind === "teams" ? p.teams || p.email : p.whatsapp || p.phone;
-  if (!has) return asSay(`I don't have ${kind === "email" || kind === "teams" ? "an email" : "a number"} for ${esc(p.name)}.`, { actions: [{ label: "Edit contact", icon: "pencil", run: () => wsPersonForm(p) }] });
-  const subj = kind === "email" && msg ? msg.charAt(0).toUpperCase() + msg.slice(1) : "";
-  wsCompose(kind, p, { subject: subj, body: kind === "email" ? "" : msg });
-  asSay(`Here's a ${kind === "email" ? "draft email" : kind === "text" ? "text" : kind === "whatsapp" ? "WhatsApp message" : "Teams message"} to <b>${esc(p.name)}</b> — check it and tap Open.`, { quiet: true });
-}
-function asFollowups() {
-  const open = (cfg.followups || []).filter((x) => !x.done).sort((a, b) => a.due.localeCompare(b.due));
-  if (!open.length) return asSay("You have no follow-ups. 🎉 Say \"Follow up with Jen tomorrow\" to add one.");
-  const t = todayKey();
-  asSay(`You have <b>${open.length}</b> follow-up${open.length > 1 ? "s" : ""}:<ul class="as-list">${open.slice(0, 6).map((x) => `<li>${x.due < t ? "⚠️ " : ""}<b>${esc(x.text)}</b> <small>${x.due < t ? "overdue" : x.due === t ? "today" : esc(new Date(x.due + "T12:00").toLocaleDateString([], { weekday: "short", month: "short", day: "numeric" }))}</small></li>`).join("")}</ul>`, { actions: [{ label: "Open Follow-ups", icon: "list-checks", once: false, run: () => { wsSetTab("follow"); renderCalendar(); asToggle(false); goToSection("calendar", "HQ Assistant"); } }] });
-}
-function asNewFollow(rest) {
-  const day = asDay(rest.toLowerCase());
-  const txt = rest.replace(/\b(today|tomorrow|tonight|next week|on (mon|tue|wed|thu|fri|sat|sun)[a-z]*|(mon|tue|wed|thu|fri|sat|sun)[a-z]*)\b/gi, "").replace(/\s+/g, " ").trim();
-  const p = findPerson(txt.split(/\s+(about|re|on|regarding)\s+/i)[0]);
-  const due = /next week/i.test(rest) ? dkey(plusDays(new Date(), 7)) : /\b(today|tonight)\b/i.test(rest) ? todayKey() : day > sod(new Date()) ? dkey(day) : dkey(plusDays(new Date(), 1));
-  const rest2 = p ? txt.replace(new RegExp("^" + txt.split(/\s+(about|re|on|regarding)\s+/i)[0].replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i"), p.name) : txt;
-  const label2 = `Follow up with ${rest2}`;
-  asConfirm(`Add follow-up <b>${esc(label2)}</b> for ${esc(calDayLabel(new Date(due + "T12:00")))}?`, "Add follow-up", () => { wsAddFollow(label2, due, p?.id); asSay(`Added. It'll show in Your brief ${due === todayKey() ? "today" : "on the day"}.`); }, "list-checks");
-}
-function asJoinNext() {
-  const now = new Date();
-  const n = calEventsBetween(plusDays(now, -0.1), plusDays(now, 2)).find((e) => !e.allDay && e.end > now && joinLink(e));
-  if (!n) return asSay("I don't see an upcoming meeting with a Zoom, Teams or Meet link.");
-  asSay(`<b>${esc(n.title)}</b> ${n.start <= now ? "is on now" : `starts ${untilText(n.start - now)}`}.`, { actions: [{ label: "Join now", icon: "video", primary: true, once: false, run: () => window.open(joinLink(n), "_blank") }] });
-}
