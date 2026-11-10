@@ -185,7 +185,7 @@ const DEFAULTS = {
   calendars: [],
   saved: [],
   collapsed: {},
-  alerts: { gameStart: true, finals: true, weather: true, movePct: 3, prices: [] },
+  alerts: { gameStart: true, finals: true, pregame: false, weather: true, rainToday: false, movePct: 3, prices: [], eventMins: 10, quiet: { on: false, from: 22, to: 7 }, mute: [] },
   ticker: {
     on: false,
     symbols: ["^GSPC", "^DJI", "^IXIC", "^RUT", "^VIX", "^GSPTSE", "^TNX", "BTC-USD", "GC=F", "CL=F", "CAD=X", "NVDA", "MSFT", "AAPL"],
@@ -1447,6 +1447,7 @@ async function loadCalendar() {
   refreshCalData();
   renderCalendar();
   renderBrief();
+  updateBadges();
   stamp("calendar", !!data.calErrors.length);
 }
 const CAL_COLORS = ["#5b8cff", "#22c27a", "#f5b041", "#ff5c6c", "#a78bfa", "#38bdf8"];
@@ -1740,7 +1741,7 @@ function goToSection(id, from = "Your brief") {
   const el = $(`#sec-${id}`);
   if (!el) return;
   if (matchMedia("(max-width: 680px)").matches) {
-    if (["sports", "weather", "news", "markets"].includes(id)) { setView(id); backSpot = spot; showBackPill(from); return; }
+    if (["sports", "weather", "news", "markets", "calendar"].includes(id)) { setView(id); backSpot = spot; showBackPill(from); return; }
     if (document.body.dataset.view && document.body.dataset.view !== "home") setView("home");
   }
   el.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -1904,19 +1905,33 @@ function checkAlerts(kind) {
   const A = cfg.alerts || {};
   const cands = [];
   const etDay = new Date().toLocaleDateString("en-CA", { timeZone: "America/New_York" });
-  if (A.gameStart || A.finals) for (const { L, events } of data.sports) for (const e of events || []) {
-    if (!isMine(L, e)) continue;
+  const muted = new Set(A.mute || []);
+  if (A.gameStart || A.finals || A.pregame) for (const { L, events } of data.sports) for (const e of events || []) {
+    if (!isMine(L, e) || muted.has(`lg:${L.key}`)) continue;
+    if ((L.teams || []).filter((ab) => e.teams.some((t) => t.abbr === ab)).every((ab) => muted.has(`tm:${L.key}:${ab}`))) continue;
     const [a, b] = [e.teams.find((t) => t.homeAway === "away"), e.teams.find((t) => t.homeAway === "home")];
     if (!a || !b) continue;
     const lgName = LEAGUES[L.key]?.name || "";
     const mineT = [a, b].find((t) => (L.teams || []).includes(t.abbr)) || a;
     const tm = (t) => ({ abbr: t.abbr, logo: t.logo, name: t.name, score: t.score, record: t.record, winner: t.winner, mine: (L.teams || []).includes(t.abbr) });
     const vis = { t: "game", lg: L.key, a: tm(a), b: tm(b), path: LEAGUES[L.key]?.path, id: e.id, icon: mineT.logo, state: e.state, detail: e.detail, tv: (e.broadcasts || []).slice(0, 2).join(", ") };
+    const mins = (new Date(e.date) - Date.now()) / 6e4;
+    if (A.pregame && e.state === "pre" && mins > 0 && mins <= 30) cands.push({ id: `pre-${e.id}`, title: `${lgName} · Starting soon: ${a.name} @ ${b.name}`, body: `${hm(e.date)}${e.broadcasts?.length ? ` on ${e.broadcasts.slice(0, 2).join(", ")}` : ""}`, vis: { ...vis, state: "pre", detail: hm(e.date) } });
     if (A.gameStart && e.state === "in") cands.push({ id: `start-${e.id}`, title: `${lgName} · Game on: ${a.name} @ ${b.name}`, body: e.broadcasts?.length ? `Watch on ${e.broadcasts.slice(0, 2).join(", ")}` : e.detail, vis: { ...vis, live: true } });
     if (A.finals && e.state === "post" && Date.now() - new Date(e.date) < 8 * 3600e3) cands.push({ id: `final-${e.id}`, title: `${lgName} · Final: ${a.name} ${a.score}, ${b.name} ${b.score}`, body: e.detail, vis });
   }
-  if (A.weather) for (const w of data.weather) for (const al of w.alerts || []) cands.push({ id: `wx-${w.c.name}-${al.event}-${al.ends}`, title: `${al.event}`, body: `${w.c.name}${al.ends ? ` until ${when(al.ends)}` : ""}`, vis: { t: "wx", ev: al.event } });
-  if (+A.movePct) for (const s of new Set(cfg.markets.groups.flatMap((g) => g.symbols))) {
+  if (A.rainToday) for (const w of data.weather) {
+    if (muted.has(`city:${w.c.name}`) || !w.d) continue;
+    const pop = w.d.daily?.precipitation_probability_max?.[0] ?? 0, code = w.d.daily?.weather_code?.[0];
+    if (pop >= 60 && new Date().getHours() >= 6) cands.push({ id: `rain-${w.c.name}-${etDay}`, title: `${[71, 73, 75, 77, 85, 86].includes(code) ? "Snow" : "Rain"} likely today · ${w.c.name.split(",")[0]}`, body: `${pop}% chance — high ${Math.round(w.d.daily.temperature_2m_max[0])}°`, vis: { t: "wx", ev: [71, 73, 75, 77, 85, 86].includes(code) ? "snow" : "rain" } });
+  }
+  if (A.weather) for (const w of data.weather) for (const al of w.alerts || []) if (!muted.has(`city:${w.c.name}`)) cands.push({ id: `wx-${w.c.name}-${al.event}-${al.ends}`, title: `${al.event}`, body: `${w.c.name}${al.ends ? ` until ${when(al.ends)}` : ""}`, vis: { t: "wx", ev: al.event } });
+  if (+A.eventMins && data.calendar) for (const e of data.calendar.events || []) {
+    if (e.allDay || muted.has(`cal:${e.cal}`)) continue;
+    const mins = (e.start - Date.now()) / 6e4;
+    if (mins > 0 && mins <= +A.eventMins) cands.push({ id: `ev-${e.uid || e.id || e.title}-${+e.start}`, title: `${e.title || "Event"} in ${Math.max(1, Math.round(mins))} min`, body: [hm(e.start), placeOf(e), joinLink(e) ? "Tap to join" : ""].filter(Boolean).join(" · "), vis: { t: "cal", color: e.color, join: joinLink(e) } });
+  }
+  if (+A.movePct) for (const s of new Set(cfg.markets.groups.filter((g) => !muted.has(`board:${g.name}`)).flatMap((g) => g.symbols))) {
     const q = data.quotes[s];
     if (!q || q.error || q.pct == null || Math.abs(q.pct) < +A.movePct) continue;
     cands.push({ id: `move-${s}-${etDay}-${Math.floor(Math.abs(q.pct) / +A.movePct)}-${q.pct > 0 ? "u" : "d"}`, title: `${label(s)} ${q.pct > 0 ? "up" : "down"} ${fmtNum(Math.abs(q.pct), 1)}% today`, body: `${fmtNum(q.price, priceDigits(q.price))} · ${q.name}`, vis: { t: "mk", sym: s, up: q.pct > 0, icon: stockLogo(s) } });
@@ -1959,6 +1974,7 @@ function alertVis(v) {
   if (!v) return `<span class="nv nv-plain">${ic("bell")}</span>`;
   if (v.t === "game") return `<span class="nv nv-game ${v.live ? "live" : ""}">${LEAGUES[v.lg] ? leagueBadge(v.lg, "nv-lg") : ""}<span class="nv-teams">${imgOr(v.a?.logo, v.a?.abbr, "nv-team")}${imgOr(v.b?.logo, v.b?.abbr, "nv-team")}</span></span>`;
   if (v.t === "wx") return `<span class="nv nv-wxw">${wxAlertIcon(v.ev)}</span>`;
+  if (v.t === "cal") return `<span class="nv nv-cal" style="--evc:${esc(v.color || "#ec4899")}">${ic(v.join ? "video" : "calendar-days")}</span>`;
   if (v.t === "mk") return `<span class="nv nv-mk">${v.icon ? imgOr(v.icon, label(v.sym).slice(0, 4), "nv-stock") : `<span class="nv-fb nv-stock">${esc(INDEX_ICON[v.sym] || label(v.sym).slice(0, 4))}</span>`}<span class="nv-dir ${v.up ? "up" : "down"}">${ic(v.up ? "trending-up" : "trending-down", "xs")}</span></span>`;
   return `<span class="nv nv-plain">${ic("bell")}</span>`;
 }
@@ -1978,6 +1994,7 @@ function alertTarget(v) {
   if (!v) return "";
   if (v.t === "game" && v.path && v.id) return `data-game="${esc(v.id)}" data-path="${esc(v.path)}"`;
   if (v.t === "wx") return `data-goto="weather"`;
+  if (v.t === "cal") return v.join ? `data-open-url="${esc(v.join)}"` : `data-goto="calendar"`;
   if (v.t === "mk") return `data-goto="markets"`;
   return "";
 }
@@ -2039,7 +2056,21 @@ function toggleBell(force) {
   pop.hidden = !open;
   if (open) setUnread(0);
 }
+function inQuiet() {
+  const q = cfg.alerts?.quiet;
+  if (!q?.on) return false;
+  const h = new Date().getHours();
+  return q.from > q.to ? h >= q.from || h < q.to : h >= q.from && h < q.to;
+}
+function logAlertOnly(c) {
+  setUnread(unreadCount() + 1);
+  let log = [];
+  try { log = JSON.parse(store.get(LOG_KEY)) || []; } catch {}
+  log.unshift({ ...c, t: Date.now(), quiet: true });
+  store.set(LOG_KEY, JSON.stringify(log.slice(0, 15)));
+}
 function notify(c) {
+  if (inQuiet()) { logAlertOnly(c); return; }
   const t = $("#toast");
   t.innerHTML = c.vis?.t === "game" && c.vis.a?.name ? alertGameCard({ ...c, t: Date.now() }, false) : `${alertVis(c.vis)}<span class="toast-txt"><b>${esc(c.title)}</b>${c.body ? `<span>${esc(c.body)}</span>` : ""}</span>`;
   t.classList.add("alert-toast"); t.hidden = false;
@@ -2586,7 +2617,12 @@ function renderApps() {
 
 function renderMore() {
   const seg = (key, opts, cur) => `<span class="seg">${opts.map(([v, l]) => `<button data-quick="${key}" data-v="${v}" class="${cur === v ? "on" : ""}">${l}</button>`).join("")}</span>`;
+  const sp = data.quotes?.["^GSPC"];
   $("#more").innerHTML = `
+    <h3>Sections</h3>
+    <div class="more-secs">
+      <button class="more-sec" data-more-view="markets"><span class="ms-ic" style="--c:#22c27a">${ic("trending-up")}</span><span><b>Markets</b><small>${sp && !sp.error ? `S&amp;P ${sp.pct >= 0 ? "▲" : "▼"} ${fmtNum(Math.abs(sp.pct), 2)}%` : "Indexes, boards, real estate, mortgage"}</small></span>${ic("chevron-right", "xs")}</button>
+    </div>
     <h3>Your apps</h3>
     <div class="apps-grid">${(cfg.apps || []).map((a) => `<a class="app-tile" href="${esc(a.url)}" target="_blank" rel="noopener">${appIcon(a)}<span>${esc(a.name)}</span></a>`).join("")}
       <button class="app-tile" data-config="apps"><span class="app-ico plus">${ic("plus")}</span><span>Add / edit</span></button></div>
@@ -2665,6 +2701,8 @@ function updateBadges() {
   $("#tb-weather").hidden = !alerts;
   const fresh = Object.values(data.news).reduce((n, d) => n + d.items.filter((i) => i.ts > prevVisit).length, 0);
   const b3 = $("#tb-news"); b3.hidden = !fresh; b3.textContent = fresh > 99 ? "99+" : fresh || "";
+  const now = new Date(), left = (data.calendar?.events || []).filter((e) => !e.allDay && e.end > now && sameDay(e.start, now)).length;
+  const b4 = $("#tb-calendar"); if (b4) { b4.hidden = !left; b4.textContent = left || ""; }
 }
 
 // ============================================================ refresh orchestration
@@ -2695,6 +2733,7 @@ function schedule() {
     if (due("weather", 10 * 60e3)) todo.push("weather");
     if ((cfg.calendars || []).length && due("calendar", 15 * 60e3)) todo.push("calendar");
     if ($("#calendar-body")) { refreshCalData(); renderCalendar(); }
+    if (+cfg.alerts?.eventMins || cfg.alerts?.pregame) checkAlerts();
     if (todo.length) refresh(todo);
     tickClock();
   }, 15e3);
@@ -2715,7 +2754,9 @@ function toggleFlag(obj, key, id, box, btn) {
 // ============================================================ main page events
 document.addEventListener("click", async (e) => {
   const t = e.target;
-  if (t.closest("#bellPop [data-game], #bellPop [data-goto]")) $("#bellPop").hidden = true;
+  if (t.closest("#bellPop [data-game], #bellPop [data-goto], #bellPop [data-open-url]")) $("#bellPop").hidden = true;
+  const ou = t.closest("[data-open-url]");
+  if (ou) { window.open(ou.dataset.openUrl, "_blank", "noopener"); return; }
   if (t.closest("[data-modal-close]") || t.id === "modal") { closeModal(); return; }
   const bev = t.closest("[data-brief-ev]");
   if (bev) { const ev = briefEvents[+bev.dataset.briefEv]; if (ev) { calUI.sel = sod(new Date()); calUI.month = new Date(calUI.sel.getFullYear(), calUI.sel.getMonth(), 1); renderCalendar(); showEvent(ev); } return; }
@@ -2799,6 +2840,8 @@ document.addEventListener("click", async (e) => {
   if (!t.closest("#appsPop")) $("#appsPop").hidden = true;
   const vl = t.closest("[data-view-link]");
   if (vl && matchMedia("(max-width: 680px)").matches) { e.preventDefault(); setView(vl.dataset.viewLink); return; }
+  const mv2 = t.closest("[data-more-view]");
+  if (mv2) { hideBackPill(); setView(mv2.dataset.moreView); $$("#tabbar button").forEach((b) => b.classList.toggle("on", b.dataset.view === "more")); return; }
   const tabBtn = t.closest("#tabbar [data-view]");
   if (tabBtn) { hideBackPill(); setView(tabBtn.dataset.view); return; }
   const stg = t.closest("[data-sec-toggle]");
@@ -2929,6 +2972,7 @@ document.addEventListener("focusout", (e) => {
 });
 document.addEventListener("toggle", (e) => {
   const d = e.target;
+  if (d.dataset?.alCat) { cfg.alertsOpen = { ...(cfg.alertsOpen || {}), [d.dataset.alCat]: d.open }; save(); return; }
   if (!d.dataset?.moreGrp) return;
   cfg.moreClosed = { ...(cfg.moreClosed || {}) };
   if (d.open) delete cfg.moreClosed[d.dataset.moreGrp]; else cfg.moreClosed[d.dataset.moreGrp] = true;
@@ -3178,17 +3222,37 @@ function setAlerts() {
       : perm === "unsupported" ? `<p class="hint">This browser doesn't support notifications. On iPhone, add Daily HQ to your Home Screen first.</p>`
       : `<button class="btn primary" data-act="notif-on">${ic("bell-ring")} Allow notifications on this device</button>`}
   </div>
-  <div class="set"><h4>Your teams</h4>
+  ${alertCat("sports", "trophy", "Sports", "Your teams' games", A.gameStart || A.finals || A.pregame, `
+    <div class="row"><span class="grow">30 minutes before a game</span>${sw("al-pregame", A.pregame)}</div>
     <div class="row"><span class="grow">When a game starts</span>${sw("al-gameStart", A.gameStart)}</div>
     <div class="row"><span class="grow">Final scores</span>${sw("al-finals", A.finals)}</div>
-  </div>
-  <div class="set"><h4>Weather</h4><div class="row"><span class="grow">Official weather alerts for your cities</span>${sw("al-weather", A.weather)}</div></div>
-  <div class="set"><h4>Markets</h4>
+    ${cfg.sports.leagues.filter((L) => (L.teams || []).length && !LEAGUES[L.key]?.kind).length ? `<p class="hint al-sub">Tap to turn alerts off for a league or team</p>
+    ${cfg.sports.leagues.filter((L) => (L.teams || []).length && !LEAGUES[L.key]?.kind).map((L) => `<div class="al-group">${muteChip(`lg:${L.key}`, `${LEAGUES[L.key].icon} ${LEAGUES[L.key].name}`, true)}${L.teams.map((t) => muteChip(`tm:${L.key}:${t}`, t, false, isMutedK(`lg:${L.key}`))).join("")}</div>`).join("")}` : ""}`)}
+  ${alertCat("calendar", "calendar-days", "Calendar", "Reminders before your events", +A.eventMins > 0, `
+    <div class="row"><span class="grow">Remind me before events</span><select data-act="al-eventMins" style="width:auto">${[[0, "Off"], [5, "5 min before"], [10, "10 min before"], [15, "15 min before"], [30, "30 min before"], [60, "1 hour before"]].map(([v, l]) => `<option value="${v}" ${+A.eventMins === v ? "selected" : ""}>${l}</option>`).join("")}</select></div>
+    ${[...(cfg.calendars || []).map((c) => c.name), LOCAL_CAL].length > 1 ? `<p class="hint al-sub">Tap to turn reminders off for a calendar</p><div class="al-group">${[...(cfg.calendars || []).map((c) => c.name), LOCAL_CAL].map((n) => muteChip(`cal:${n}`, n)).join("")}</div>` : ""}
+    <p class="hint">Daily HQ needs to be open (or recently used) to remind you. All-day events aren't included.</p>`)}
+  ${alertCat("weather", "cloud-sun", "Weather", "Warnings and rain or snow heads-up", A.weather || A.rainToday, `
+    <div class="row"><span class="grow">Official weather warnings</span>${sw("al-weather", A.weather)}</div>
+    <div class="row"><span class="grow">Morning heads-up when rain or snow is likely</span>${sw("al-rainToday", A.rainToday)}</div>
+    ${cfg.weather.cities.length > 1 ? `<p class="hint al-sub">Tap to turn alerts off for a city</p><div class="al-group">${cfg.weather.cities.map((c) => muteChip(`city:${c.name}`, c.name.split(",")[0])).join("")}</div>` : ""}`)}
+  ${alertCat("markets", "trending-up", "Markets", "Big moves and price targets", +A.movePct > 0 || (A.prices || []).length, `
     <div class="row"><span class="grow">When a stock on your boards moves</span><select data-act="al-move" style="width:auto">${[[0, "Off"], [2, "2% or more"], [3, "3% or more"], [5, "5% or more"]].map(([v, l]) => `<option value="${v}" ${+A.movePct === v ? "selected" : ""}>${l}</option>`).join("")}</select></div>
+    ${cfg.markets.groups.length > 1 ? `<p class="hint al-sub">Tap to turn big-move alerts off for a board</p><div class="al-group">${cfg.markets.groups.map((g) => muteChip(`board:${g.name}`, g.name)).join("")}</div>` : ""}
     <p class="hint" style="margin-top:10px">Price targets</p>
     ${(A.prices || []).map((p, i) => `<div class="row"><span class="grow"><b>${esc(label(p.symbol))}</b> ${p.above ? `above ${esc(p.above)}` : ""}${p.above && p.below ? " · " : ""}${p.below ? `below ${esc(p.below)}` : ""}</span><button class="btn sm" data-act="pt-del" data-i="${i}" aria-label="Remove">${ic("x", "xs")}</button></div>`).join("")}
-    <div class="inline"><input id="ptSym" placeholder="Symbol, e.g. NVDA" autocapitalize="characters"><select id="ptDir" style="flex:0 0 96px"><option value="above">above</option><option value="below">below</option></select><input id="ptVal" type="number" inputmode="decimal" placeholder="Price"><button class="btn sm" data-act="pt-add">Add</button></div>
+    <div class="inline"><input id="ptSym" placeholder="Symbol, e.g. NVDA" autocapitalize="characters"><select id="ptDir" style="flex:0 0 96px"><option value="above">above</option><option value="below">below</option></select><input id="ptVal" type="number" inputmode="decimal" placeholder="Price"><button class="btn sm" data-act="pt-add">Add</button></div>`)}
+  <div class="set"><h4>${ic("moon")} Quiet hours</h4>
+    <div class="row"><span class="grow">Don't pop up or notify during quiet hours</span>${sw("al-quiet", A.quiet?.on)}</div>
+    ${A.quiet?.on ? `<div class="row"><span class="grow">From</span><select data-act="al-qfrom" style="width:auto">${hourOpts(A.quiet.from)}</select><span>to</span><select data-act="al-qto" style="width:auto">${hourOpts(A.quiet.to)}</select></div>` : ""}
+    <p class="hint">Alerts during quiet hours still collect under the bell — you just won't be interrupted.</p>
   </div>`;
+}
+const isMutedK = (k) => (cfg.alerts.mute || []).includes(k);
+const muteChip = (k, label2, strong = false, parentOff = false) => `<button class="chip al-chip ${isMutedK(k) || parentOff ? "off" : "on"} ${strong ? "strong" : ""}" data-act="al-mute" data-k="${esc(k)}" ${parentOff ? "disabled" : ""} aria-pressed="${!isMutedK(k)}">${isMutedK(k) || parentOff ? ic("bell-off", "xs") : ic("bell", "xs")} ${esc(label2)}</button>`;
+const hourOpts = (v) => Array.from({ length: 24 }, (_, h) => `<option value="${h}" ${+v === h ? "selected" : ""}>${new Date(2000, 0, 1, h).toLocaleTimeString([], { hour: "numeric" })}</option>`).join("");
+function alertCat(id, icon, title, sub, on, body) {
+  return `<details class="set al-cat" ${cfg.alertsOpen?.[id] === false ? "" : "open"} data-al-cat="${id}"><summary><span class="al-ico ${on ? "on" : ""}">${ic(icon)}</span><span class="al-t"><b>${title}</b><small>${on ? sub : "Off"}</small></span>${ic("chevron-down", "chev")}</summary><div class="al-body">${body}</div></details>`;
 }
 
 function setApps() {
@@ -3338,6 +3402,7 @@ $("#drawerBody").addEventListener("click", async (e) => {
     case "textSize": cfg.textSize = a.dataset.v; applyTheme(); commit(); renderMore(); break;
     case "mkview": cfg.markets.view = a.dataset.v; commit(); renderMarkets(); renderMore(); break;
     case "app-move": move(cfg.apps, i, d); commit(); renderApps(); break;
+    case "al-mute": { const k = a.dataset.k, m = new Set(cfg.alerts.mute || []); m.has(k) ? m.delete(k) : m.add(k); cfg.alerts.mute = [...m]; commit(); break; }
     case "app-del": cfg.apps.splice(i, 1); commit(); renderApps(); break;
     case "app-sugg": cfg.apps.push({ name: a.dataset.name, url: a.dataset.url, icon: a.dataset.icon }); commit(); renderApps(); break;
     case "app-add": {
@@ -3443,7 +3508,11 @@ $("#drawerBody").addEventListener("change", (e) => {
   switch (act) {
     case "ticker-on": cfg.ticker.on = a.checked; commit("markets", "layout"); break;
     case "apps-on": cfg.showApps = a.checked; commit(); renderApps(); break;
-    case "al-gameStart": case "al-finals": case "al-weather": cfg.alerts[act.slice(3)] = a.checked; commit(); break;
+    case "al-gameStart": case "al-finals": case "al-weather": case "al-pregame": case "al-rainToday": cfg.alerts[act.slice(3)] = a.checked; commit(); break;
+    case "al-eventMins": cfg.alerts.eventMins = +a.value; commit(); break;
+    case "al-quiet": cfg.alerts.quiet = { from: 22, to: 7, ...(cfg.alerts.quiet || {}), on: a.checked }; commit(); break;
+    case "al-qfrom": cfg.alerts.quiet.from = +a.value; commit(); break;
+    case "al-qto": cfg.alerts.quiet.to = +a.value; commit(); break;
     case "al-move": cfg.alerts.movePct = +a.value; commit(); break;
     case "conv-on": cfg.markets.converter = a.checked; commit("markets"); break;
     case "re-on": cfg.markets.realestate = a.checked; commit("markets"); break;
