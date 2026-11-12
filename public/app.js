@@ -1087,6 +1087,61 @@ const wmo = (c, day = 1) => {
   return [`<img class="wxi" src="${wxSrc(name)}" alt="${w[2]}" title="${w[2]}" loading="lazy">`, w[2]];
 };
 
+// ---------- "right now" = what's actually happening, not just the forecast model
+// 1) a nearby official station's observation (NWS / Environment Canada) if it's recent,
+// 2) otherwise rain or snow the radar-driven 15-minute data says is falling now,
+// 3) otherwise the forecast model.
+function obsToCode(t) {
+  t = (t || "").toLowerCase();
+  if (/thunder|t-storm|tstorm/.test(t)) return 95;
+  if (/freezing (rain|drizzle)|ice pellets|sleet/.test(t)) return /drizzle/.test(t) ? 56 : 66;
+  if (/snow|flurr|blizzard/.test(t)) return /heavy|blizzard/.test(t) ? 75 : /light|flurr/.test(t) ? 71 : 73;
+  if (/drizzle/.test(t)) return /heavy/.test(t) ? 55 : /light/.test(t) ? 51 : 53;
+  if (/rain|shower|precip/.test(t)) return /heavy/.test(t) ? 65 : /light/.test(t) ? 61 : 63;
+  if (/fog|mist|haze|smoke/.test(t)) return 45;
+  if (/overcast/.test(t)) return 3;
+  if (/mostly cloudy|cloudy/.test(t)) return /partly/.test(t) ? 2 : 3;
+  if (/partly|mostly sunny|mostly clear|few clouds|scattered clouds/.test(t)) return /mostly (sunny|clear)|few/.test(t) ? 1 : 2;
+  if (/clear|sunny|fair/.test(t)) return 0;
+  return null;
+}
+function wxApplyNow(d, obs, F) {
+  const cur = d.current;
+  if (!cur) return;
+  cur._model = { code: cur.weather_code, temp: cur.temperature_2m };
+  const m = d.minutely_15;
+  // precipitation falling now (mm in the current 15-min block / last hour)
+  let nowMm = cur.precipitation || 0, nowSnow = cur.snowfall || 0;
+  if (m?.time?.length) {
+    const ni = Math.max(0, m.time.findIndex((t) => t > cur.time) - 1);
+    nowMm = Math.max(nowMm, m.precipitation[ni] || 0);
+    nowSnow = Math.max(nowSnow, m.snowfall?.[ni] || 0);
+  }
+  const fresh = obs?.text && obs.time && Date.now() - new Date(obs.time) < 100 * 60e3;
+  const oc = fresh ? obsToCode(obs.text) : null;
+  if (oc != null) {
+    cur.weather_code = oc; cur._src = `Observed${obs.station ? ` at ${obs.station}` : ""} ${hm(obs.time)}`; cur._obs = obs.text;
+    if (obs.tempC != null && Number.isFinite(+obs.tempC)) cur.temperature_2m = F ? +obs.tempC * 9 / 5 + 32 : +obs.tempC;
+  }
+  // radar-driven precip beats a "cloudy" reading from either source
+  if (nowMm >= 0.1 && ![51, 53, 55, 56, 57, 61, 63, 65, 66, 67, 71, 73, 75, 77, 80, 81, 82, 85, 86, 95, 96, 99].includes(cur.weather_code)) {
+    cur.weather_code = nowSnow > 0 ? (nowSnow >= 1 ? 75 : 73) : nowMm >= 2 ? 65 : nowMm >= 0.5 ? 63 : 61;
+    cur._src ||= "Live rain data";
+  }
+  cur._src ||= "Forecast model";
+  // what's next in the coming 2-3 hours
+  if (m?.time?.length) {
+    const ni = Math.max(0, m.time.findIndex((t) => t > cur.time) - 1);
+    const wet = (k) => (m.precipitation[k] || 0) >= 0.1;
+    const raining = wet(ni) || [61, 63, 65, 80, 81, 82, 51, 53, 55, 71, 73, 75].includes(cur.weather_code);
+    const kind = (k) => ((m.snowfall?.[k] || 0) > 0 ? "Snow" : "Rain");
+    let note = "";
+    if (raining) { const stop = m.time.findIndex((t, k) => k > ni && !wet(k) && !wet(k + 1)); note = stop > 0 ? `${kind(ni)} easing around ${hm(m.time[stop])}` : `${kind(ni)} continuing for the next few hours`; }
+    else { const start = m.time.findIndex((t, k) => k > ni && wet(k)); if (start > 0) note = `${kind(start)} starting around ${hm(m.time[start])}`; }
+    cur._next = note;
+  }
+}
+
 async function loadWeather() {
   const body = $("#weather-body");
   if (!body) return;
@@ -1100,13 +1155,15 @@ async function loadWeather() {
       const u = new URL("https://api.open-meteo.com/v1/forecast");
       Object.entries({
         latitude: c.lat, longitude: c.lon, timezone: "auto", forecast_days: 7,
-        current: "temperature_2m,apparent_temperature,weather_code,wind_speed_10m,relative_humidity_2m,is_day",
+        current: "temperature_2m,apparent_temperature,weather_code,wind_speed_10m,relative_humidity_2m,is_day,precipitation,rain,showers,snowfall",
+        minutely_15: "precipitation,snowfall", forecast_minutely_15: 12, past_minutely_15: 1,
         hourly: "temperature_2m,precipitation_probability,weather_code,is_day",
         daily: "weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max,sunrise,sunset,uv_index_max",
         temperature_unit: F ? "fahrenheit" : "celsius", wind_speed_unit: F ? "mph" : "kmh",
       }).forEach(([k, v]) => u.searchParams.set(k, v));
       const aqP = api(`https://air-quality-api.open-meteo.com/v1/air-quality?latitude=${c.lat}&longitude=${c.lon}&current=us_aqi`).then((d) => d.current?.us_aqi ?? null).catch(() => prevW[c.name]?.aqi ?? null);
-      try { return { c, d: await api(u), alerts: await alertsP, aqi: await aqP }; }
+      const obsP = api(`/api/obs?lat=${c.lat}&lon=${c.lon}`).then((d) => d.obs).catch(() => prevW[c.name]?.obs || null);
+      try { const d = await api(u), obs = await obsP; wxApplyNow(d, obs, F); return { c, d, obs, alerts: await alertsP, aqi: await aqP }; }
       catch (e) { const p = prevW[c.name]; return p?.d ? { ...p, c, stale: true, alerts: await alertsP } : { c, error: e.message }; }
     })
   );
@@ -1132,7 +1189,7 @@ function renderWeather() {
         const j = nowIdx + i;
         const hh = Number(t.slice(11, 13));
         const lbl = i === 0 ? "Now" : `${hh % 12 || 12}${hh < 12 ? "a" : "p"}`;
-        return `<div class="wx-h">${lbl}${wmo(hr.weather_code[j], hr.is_day[j])[0]}<b>${Math.round(i === 0 ? cur.temperature_2m : hr.temperature_2m[j])}°</b>${hr.precipitation_probability[j] >= 20 ? `<span class="rp">${hr.precipitation_probability[j]}%</span>` : "&nbsp;"}</div>`;
+        return `<div class="wx-h">${lbl}${wmo(i === 0 ? cur.weather_code : hr.weather_code[j], hr.is_day[j])[0]}<b>${Math.round(i === 0 ? cur.temperature_2m : hr.temperature_2m[j])}°</b>${hr.precipitation_probability[j] >= 20 ? `<span class="rp">${hr.precipitation_probability[j]}%</span>` : "&nbsp;"}</div>`;
       });
       const lo = Math.min(...dl.temperature_2m_min), hi = Math.max(...dl.temperature_2m_max);
       const days = dl.time.map((t, i) => {
@@ -1152,13 +1209,14 @@ function renderWeather() {
         <div class="wx-top"><div class="wx-ico">${ico}</div>
           <span class="wx-chev" aria-hidden="true">${ic("chevron-down")}</span>
           <div><div class="wx-city">${esc(c.name)}</div><div class="wx-temp">${Math.round(cur.temperature_2m)}°</div></div>
-          <div class="wx-right"><div><b>${esc(desc)}</b></div>
+          <div class="wx-right"><div><b>${esc(cur._obs && obsToCode(cur._obs) === cur.weather_code ? cur._obs : desc)}</b></div>
+            ${cur._next ? `<div class="wx-next">${ic(/starting/.test(cur._next) ? "umbrella" : "clock")} ${esc(cur._next)}</div>` : ""}
             <div>H ${Math.round(dl.temperature_2m_max[0])}° · L ${Math.round(dl.temperature_2m_min[0])}° · Feels ${Math.round(cur.apparent_temperature)}°</div>
             <div class="wx-stats"><span title="Wind">${ic("wind")}${Math.round(cur.wind_speed_10m)} ${wind}</span><span title="Humidity">${ic("droplets")}${cur.relative_humidity_2m}%</span><span title="Chance of rain today">${ic("umbrella")}${dl.precipitation_probability_max[0] ?? 0}%</span></div>
             <div class="wx-stats">${aqi != null ? `<span class="aq ${aqiCls(aqi)}" title="US Air Quality Index: ${aqiLabel(aqi)}">AQI ${Math.round(aqi)}</span>` : ""}${dl.uv_index_max?.[0] != null ? `<span class="uv" title="UV index today: ${uvLabel(dl.uv_index_max[0])}">UV ${Math.round(dl.uv_index_max[0])}</span>` : ""}</div>
           </div></div>
         <div class="wx-hours">${hours.join("")}</div>
-        <div class="wx-days">${days.join("")}<div class="meta">${ic("sunrise")} ${sun(dl.sunrise[0])} · ${ic("sunset")} ${sun(dl.sunset[0])}</div></div>
+        <div class="wx-days">${days.join("")}<div class="meta">${ic("sunrise")} ${sun(dl.sunrise[0])} · ${ic("sunset")} ${sun(dl.sunset[0])}${cur._src ? ` · <span class="wx-src">Now: ${esc(cur._src)}</span>` : ""}</div></div>
       </div>`;
     })
     .join("")}</div><div class="meta" style="justify-content:center;margin-top:8px">Tap a city to expand or collapse its 7-day forecast · Alerts: NWS (US) & Environment Canada</div>`;
@@ -1764,7 +1822,7 @@ function renderBrief() {
     for (let j = nowIdx; j < hr.time.length && hr.time[j].startsWith(today); j++)
       if (hr.precipitation_probability[j] >= 50) { const hh = +hr.time[j].slice(11, 13); rain = ` ${[51,53,55,56,57,61,63,65,66,67,80,81,82].includes(hr.weather_code[j]) || true ? "Rain" : "Precipitation"} likely around ${hh % 12 || 12} ${hh < 12 ? "AM" : "PM"}.`; break; }
     const aq = w.aqi != null ? ` Air quality ${aqiLabel(w.aqi).toLowerCase()}.` : "";
-    rows.push(`<div class="br-row">${icon}<div><button class="br-link" data-goto="weather"><b>${Math.round(cur.temperature_2m)}° and ${esc(desc.toLowerCase())}</b> in ${esc(w.c.name.split(",")[0])} ${ic("chevron-right", "xs")}</button> High ${Math.round(dl.temperature_2m_max[0])}°, low ${Math.round(dl.temperature_2m_min[0])}°.${rain}${aq}</div></div>`);
+    rows.push(`<div class="br-row">${icon}<div><button class="br-link" data-goto="weather"><b>${Math.round(cur.temperature_2m)}° and ${esc(desc.toLowerCase())}</b> in ${esc(w.c.name.split(",")[0])} ${ic("chevron-right", "xs")}</button>${cur._next ? ` <b>${esc(cur._next)}.</b>` : ""} High ${Math.round(dl.temperature_2m_max[0])}°, low ${Math.round(dl.temperature_2m_min[0])}°.${rain}${aq}</div></div>`);
     for (const a of data.weather.flatMap((x) => (x.alerts || []).map((al) => ({ al, city: x.c.name.split(",")[0] }))).slice(0, 2))
       rows.push(`<div class="br-row warn">${ic("triangle-alert")}<div><button class="br-link" data-goto="weather"><b>${esc(a.al.event)}</b> for ${esc(a.city)}${a.al.ends ? ` until ${esc(when(a.al.ends))}` : ""}. ${ic("chevron-right", "xs")}</button></div></div>`);
   }

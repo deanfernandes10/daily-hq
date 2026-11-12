@@ -1101,3 +1101,6 @@ body.drawer-open .as-launcher { display: none; }
 .nv-cal { background: color-mix(in srgb, var(--evc) 20%, var(--panel-2)); }
 .nv-cal .ic { color: var(--evc); }
 .al-body .row .grow, .set .row .grow { white-space: normal; overflow: visible; text-overflow: clip; line-height: 1.3; }
+.wx-next { display: inline-flex; align-items: center; gap: 5px; font-size: 13.5px; font-weight: 650; color: #38bdf8; }
+.wx-next .ic { width: 14px; height: 14px; }
+.wx-src { color: var(--muted); }
