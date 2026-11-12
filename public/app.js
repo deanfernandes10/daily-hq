@@ -1116,6 +1116,9 @@ function wxApplyNow(d, obs, F) {
     const ni = Math.max(0, m.time.findIndex((t) => t > cur.time) - 1);
     nowMm = Math.max(nowMm, m.precipitation[ni] || 0);
     nowSnow = Math.max(nowSnow, m.snowfall?.[ni] || 0);
+    // heavy rain due within ~30 min usually arrives early or the timing is off by a block — treat it as here
+    const soon = Math.max(m.precipitation[ni + 1] || 0, m.precipitation[ni + 2] || 0);
+    if (soon >= 1 && nowMm < 0.1) { nowMm = soon; nowSnow = Math.max(m.snowfall?.[ni + 1] || 0, m.snowfall?.[ni + 2] || 0); cur._arriving = true; }
   }
   const fresh = obs?.text && obs.time && Date.now() - new Date(obs.time) < 100 * 60e3;
   const oc = fresh ? obsToCode(obs.text) : null;
@@ -1126,17 +1129,18 @@ function wxApplyNow(d, obs, F) {
   // radar-driven precip beats a "cloudy" reading from either source
   if (nowMm >= 0.1 && ![51, 53, 55, 56, 57, 61, 63, 65, 66, 67, 71, 73, 75, 77, 80, 81, 82, 85, 86, 95, 96, 99].includes(cur.weather_code)) {
     cur.weather_code = nowSnow > 0 ? (nowSnow >= 1 ? 75 : 73) : nowMm >= 2 ? 65 : nowMm >= 0.5 ? 63 : 61;
-    cur._src ||= "Live rain data";
+    cur._src = cur._arriving ? "Live rain data (moving in now)" : "Live rain data";
   }
   cur._src ||= "Forecast model";
   // what's next in the coming 2-3 hours
   if (m?.time?.length) {
     const ni = Math.max(0, m.time.findIndex((t) => t > cur.time) - 1);
     const wet = (k) => (m.precipitation[k] || 0) >= 0.1;
+    const heavy = Math.max(...m.precipitation.slice(ni, ni + 6).map((x) => x || 0)) >= 2.5;
     const raining = wet(ni) || [61, 63, 65, 80, 81, 82, 51, 53, 55, 71, 73, 75].includes(cur.weather_code);
     const kind = (k) => ((m.snowfall?.[k] || 0) > 0 ? "Snow" : "Rain");
     let note = "";
-    if (raining) { const stop = m.time.findIndex((t, k) => k > ni && !wet(k) && !wet(k + 1)); note = stop > 0 ? `${kind(ni)} easing around ${hm(m.time[stop])}` : `${kind(ni)} continuing for the next few hours`; }
+    if (raining || cur._arriving) { const k0 = cur._arriving ? ni + 1 : ni; const stop = m.time.findIndex((t, k) => k > k0 && !wet(k) && !wet(k + 1)); note = `${heavy ? "Heavy " + kind(k0).toLowerCase() : kind(k0)}${cur._arriving ? " moving in now" : ""}${stop > 0 ? ` — easing around ${hm(m.time[stop])}` : ", continuing for the next few hours"}`; }
     else { const start = m.time.findIndex((t, k) => k > ni && wet(k)); if (start > 0) note = `${kind(start)} starting around ${hm(m.time[start])}`; }
     cur._next = note;
   }
