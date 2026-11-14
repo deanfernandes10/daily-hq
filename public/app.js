@@ -3820,7 +3820,7 @@ async function asAsk(text) {
     if (AS.pending && asYes(q)) { const p = AS.pending; AS.pending = null; AS.msgs.forEach((m) => (m.done = true)); p(); return; }
     if (AS.pending && asNo(q)) { AS.pending = null; AS.msgs.forEach((m) => (m.done = true)); asSay("Okay, cancelled — nothing changed."); return; }
     AS.pending = null;
-    for (const [re, fn] of AS_INTENTS) { const m = q.match(re); if (m) { await fn(q, m, text); return; } }
+    for (const [re, fn, opt] of AS_INTENTS) { const m = q.match(re); if (m) { await fn(q, m, text); if (opt?.news) await asRelatedNews(q); return; } }
     await asFallback(q, text);
   } catch (e) { asSay(`Sorry, that didn't work: ${esc(e.message || "please try again")}.`); }
 }
@@ -3843,11 +3843,11 @@ const AS_INTENTS = [
   [/\b(unfollow|stop following)( the)? (.+)$/, (q, m) => asUnfollow(m[3])],
   [/\b(calendar|schedule|agenda|meetings?|events?|appointments?|busy|free)\b|\bwhat('s| is| do i have) (on )?(today|tomorrow|this|next)\b/, (q) => asCalendar(q)],
   [/\b(weather|rain|snow|umbrella|jacket|cold|hot|warm|temperature|forecast|sunny|storm|wind|aqi|air quality|uv)\b/, (q) => asWeather(q)],
-  [/\b(mortgage|rates?|prime rate|bank of canada|fed rate|stress test)\b(?!.*\bstock\b)/, (q) => asRates(q)],
-  [/\b(housing|real estate|home prices?|market report|benchmark|listings)\b|\b(\w+) (housing )?market$/, (q, m) => asRealEstate(q)],
-  [/\bstandings?\b|\btable\b/, (q) => asStandings(q)],
-  [/\b(score|play|playing|game|games|won|win|lose|lost|beat|match|next game|tonight|schedule)\b/, (q) => asSports(q)],
-  [/\b(markets?|stocks?|dow|nasdaq|s&p|tsx|price of|how('s| is) [a-z.]+ (doing|trading)|quote)\b|^[a-z.^=-]{1,6} (price|stock|quote)$|^\$?[a-z]{1,5}$/, (q) => asMarkets(q)],
+  [/\b(mortgage|rates?|prime rate|bank of canada|fed rate|stress test)\b(?!.*\bstock\b)/, (q) => asRates(q), { news: true }],
+  [/\b(housing|real estate|home prices?|market report|benchmark|listings)\b|\b(\w+) (housing )?market$/, (q, m) => asRealEstate(q), { news: true }],
+  [/\bstandings?\b|\btable\b/, (q) => asStandings(q), { news: true }],
+  [/\b(score|play|playing|game|games|won|win|lose|lost|beat|match|next game|tonight|schedule)\b/, (q) => asSports(q), { news: true }],
+  [/\b(markets?|stocks?|dow|nasdaq|s&p|tsx|price of|how('s| is) [a-z.]+ (doing|trading)|quote)\b|^[a-z.^=-]{1,6} (price|stock|quote)$|^\$?[a-z]{1,5}$/, (q) => asMarkets(q), { news: true }],
   [/\b(news|headlines?|stories|articles?|latest on|what's new with)\b/, (q) => asNews(q)],
   [/\b(time|date|day is it)\b/, () => asSay(`It's ${new Date().toLocaleString([], { weekday: "long", month: "long", day: "numeric", hour: "numeric", minute: "2-digit" })}.`)],
   [/\b(thank|thanks|cheers)\b/, () => asSay("Anytime! 👍")],
@@ -3862,7 +3862,7 @@ function asHelp() {
       <li><b>Weather</b> — "Will it rain tomorrow?", "Weather in Toronto", "Add Ottawa to weather"</li>
       <li><b>Markets</b> — "How are the markets?", "Price of NVDA", "Add AAPL to my watchlist", "Alert me if TSLA drops below 300", "100 USD to CAD"</li>
       <li><b>Real estate</b> — "Mississauga market", "Mortgage rates", "Payment on 900k with 20% down"</li>
-      <li><b>News</b> — "Headlines", "News about the Fed"</li>
+      <li><b>News</b> — "Headlines", "News about the Fed", or just ask about anything ("What's going on with Nvidia?") — I search every news tab for matching stories</li>
       <li><b>Go places</b> — "Open markets", "Open settings"</li>
     </ul>I'll always ask before I change anything.`);
 }
@@ -4141,29 +4141,90 @@ function asRealEstate(q) {
   asSay(`${RE_MARKETS[c].flag} National (${esc(s.source[0])}, ${esc(s.period)}):<ul class="as-list">${s.tiles.slice(0, 4).map(([l, v, sub]) => `<li><b>${esc(l)}:</b> ${esc(v)} <small>${esc(sub)}</small></li>`).join("")}</ul><small class="as-hint">Ask about a local market, e.g. "Mississauga market" or "Hamilton market".</small>`);
 }
 
-// news
-async function asNews(q) {
-  const topic = q.replace(/\b(news|headlines?|stories|articles?|latest|on|about|the|any|what's|whats|new|with|show|me|top|today|give|read|for|in|is|there)\b/g, " ").replace(/\s+/g, " ").trim();
-  const all = Object.values(data.news || {}).flatMap((d) => d?.items || []);
-  let items;
-  if (topic) {
-    const words = topic.split(" ").filter((w) => w.length > 1);
-    items = all.filter((i) => words.every((w) => (i.title + " " + i.desc).toLowerCase().includes(w)));
-    if (!items.length) {
-      try { items = parseFeed(await api(`/api/feed?url=${encodeURIComponent(`https://news.google.com/rss/search?q=${encodeURIComponent(topic)}&hl=en-US&gl=US&ceid=US:en`)}`, true), { name: "Google News" }); } catch { items = []; }
+// news — searches every headline Daily HQ has: all news tabs (loading any not fetched yet), saved stories and real-estate feeds
+const AS_STOP = new Set(("a an and any are about after again all also am anything as at be been before being but by can could did do does doing done for from get got had has have how i if in into is it its just know latest let like me more most my new news newest no not now of off on or our out over please read recent recently say see show should so some stories story tell than that the their them then there these they this those to today todays tonight up us was we were what whats when where which while who whom why will with would you your yesterday week weekend happened happening happen going on update updates headline headlines article articles info information find look search anything something everything give " +
+  "score scores game games play playing played win won lose lost beat match last night next tonight price prices stock stocks doing trading quote markets market how's what's").split(" "));
+const asStem = (w) => w.replace(/'s$/, "").replace(/(?<=[a-z]{2})ies$/, "y").replace(/(?<=[a-z]{3})(ing|ed)$/, "").replace(/(?<=[a-z]{3})s$/, "");
+function asKeywords(q) {
+  return [...new Set(q.toLowerCase().replace(/[’']/g, "'").replace(/[^a-z0-9&.' -]/g, " ").split(/\s+/).map((w) => w.replace(/^[.'-]+|[.'-]+$/g, "")).filter((w) => w && (w.length > 1 || /\d/.test(w)) && !AS_STOP.has(w)).map(asStem).filter(Boolean))];
+}
+function asNewsPool() {
+  const pool = [], seen = new Set();
+  const add = (i, tab, tabId) => { if (!i?.title) return; const k = i.title.toLowerCase().replace(/[^a-z0-9]/g, "").slice(0, 60); if (seen.has(k)) return; seen.add(k); pool.push({ ...i, tab, tabId }); };
+  for (const c of cfg.news.categories) for (const i of data.news?.[c.id]?.items || []) add(i, c.name, c.id);
+  for (const i of cfg.saved || []) add(i, "Saved", "__saved");
+  for (const [k, d] of Object.entries(data.reSub || {})) for (const i of d.items || []) add(i, `Real estate · ${k.split("|")[1] || ""}`.trim(), "realestate");
+  return pool;
+}
+async function asEnsureNews() {
+  const missing = cfg.news.categories.filter((c) => c.on && c.id !== "realestate" && !data.news?.[c.id]?.items?.length);
+  if (!missing.length) return;
+  await Promise.race([Promise.all(missing.map((c) => loadCategory(c).catch(() => {}))), new Promise((r) => setTimeout(r, 6000))]);
+}
+function asNewsSearch(q, { limit = 5, strict = false } = {}) {
+  const kws = asKeywords(q);
+  if (!kws.length) return { kws, items: [] };
+  const phrase = kws.join(" ");
+  const need = strict ? Math.max(1, Math.ceil(kws.length * 0.6)) : Math.max(1, Math.ceil(kws.length / 2));
+  const wordsOf = (s) => (s || "").toLowerCase().replace(/[’']/g, "'").replace(/[^a-z0-9&.' -]/g, " ").split(/\s+/).map((w) => asStem(w.replace(/^[.'-]+|[.'-]+$/g, "")));
+  const scored = asNewsPool().map((i) => {
+    const tw = new Set(wordsOf(i.title)), dw = new Set(wordsOf(i.desc)), tl = i.title.toLowerCase();
+    let score = 0, hits = 0, titleHits = 0;
+    for (const k of kws) {
+      const inT = tw.has(k) || (k.length > 3 && tl.includes(k)), inD = dw.has(k);
+      if (inT) { score += 3; titleHits++; } else if (inD) score += 1;
+      if (inT || inD) hits++;
     }
-  } else items = data.news?.[cfg.news.categories.find((c) => c.on)?.id]?.items || all;
-  const seen = new Set();
-  items = items.filter((i) => !seen.has(i.title) && seen.add(i.title)).sort((a, b) => b.ts - a.ts).slice(0, 5);
+    if (kws.length > 1 && tl.includes(phrase)) score += 4;
+    return { i, score, hits, titleHits };
+  }).filter((x) => x.titleHits > 0 && x.hits >= need);
+  scored.sort((a, b) => b.score - a.score || (b.i.ts || 0) - (a.i.ts || 0));
+  return { kws, items: scored.slice(0, limit).map((x) => x.i) };
+}
+function asNewsCards(items) {
+  return `<div class="as-news">${items.map((i) => `<a href="${esc(i.link)}" target="_blank" rel="noopener">${thumbHTML(i)}<span><b>${esc(i.title)}</b><small>${i.tab ? `${esc(i.tab)} · ` : ""}${esc(i.source || "")}${i.ts ? ` · ${ago(i.ts)}` : ""}</small></span></a>`).join("")}</div>`;
+}
+function asOpenNewsAction(items, kws) {
+  const tabId = items[0]?.tabId;
+  if (!tabId) return [];
+  return [{ label: `Open in News${items[0].tab ? ` · ${items[0].tab.split(" · ")[0]}` : ""}`, icon: "newspaper", once: false, run: () => {
+    activeNews = tabId; newsFilter = tabId === "__saved" || tabId === "realestate" ? "" : (kws.slice().sort((a, b) => b.length - a.length)[0] || ""); newsSource[tabId] = "";
+    renderNews(); asToggle(false); goToSection("news", "HQ Assistant");
+  } }];
+}
+async function asNews(q) {
+  await asEnsureNews();
+  const { kws, items: hits } = asNewsSearch(q);
+  const topic = kws.join(" ");
+  let items = hits, fromWeb = false;
+  if (topic && !items.length) {
+    try { items = parseFeed(await api(`/api/feed?url=${encodeURIComponent(`https://news.google.com/rss/search?q=${encodeURIComponent(topic)}&hl=en-US&gl=US&ceid=US:en`)}`, true), { name: "Google News" }).slice(0, 5); fromWeb = true; } catch { items = []; }
+  }
+  if (!topic) { const c = cfg.news.categories.find((c) => c.on && data.news?.[c.id]?.items?.length); items = (c ? data.news[c.id].items : []).slice(0, 5).map((i) => ({ ...i, tab: c.name, tabId: c.id })); }
   if (!items.length) return asSay(`I couldn't find news${topic ? ` about "${esc(topic)}"` : ""}.`);
-  asSay(`${topic ? `Latest on <b>${esc(topic)}</b>` : "Top headlines"}:`, { spoken: items.slice(0, 3).map((i) => i.title).join(". "), cards: `<div class="as-news">${items.map((i) => `<a href="${esc(i.link)}" target="_blank" rel="noopener">${thumbHTML(i)}<span><b>${esc(i.title)}</b><small>${esc(i.source)}${i.ts ? ` · ${ago(i.ts)}` : ""}</small></span></a>`).join("")}</div>` });
+  const head = !topic ? "Top headlines" : fromWeb ? `Nothing in your news tabs mentions <b>${esc(topic)}</b>, so here's the latest from Google News` : `From your news tabs — <b>${esc(topic)}</b>`;
+  asSay(`${head}:`, { spoken: items.slice(0, 3).map((i) => i.title).join(". "), cards: asNewsCards(items), actions: fromWeb ? [] : asOpenNewsAction(items, kws) });
+  setTimeout(fillArticleImages, 50);
+}
+// after answering a sports / markets / real-estate question, show matching headlines from the news tabs
+async function asRelatedNews(q) {
+  const { kws, items } = asNewsSearch(q, { limit: 3, strict: true });
+  if (!kws.length || !items.length) return;
+  asSay(`Related in your news:`, { quiet: true, cards: asNewsCards(items), actions: asOpenNewsAction(items, kws) });
   setTimeout(fillArticleImages, 50);
 }
 
 // fallback: try teams / stocks, then point to help
 async function asFallback(q) {
   const hits = asFindTeams(q);
-  if (hits.length) return asSports(q);
+  if (hits.length) { await asSports(q); return asRelatedNews(q); }
+  await asEnsureNews();
+  const found = asNewsSearch(q);
+  if (found.items.length) {
+    asSay(`I found this in your news${found.kws.length ? ` for <b>${esc(found.kws.join(" "))}</b>` : ""}:`, { spoken: found.items.slice(0, 3).map((i) => i.title).join(". "), cards: asNewsCards(found.items), actions: asOpenNewsAction(found.items, found.kws) });
+    setTimeout(fillArticleImages, 50);
+    return;
+  }
   if (/^[a-z.]{1,6}$/.test(q)) { const x = await asQuote(q.toUpperCase()).catch(() => null); if (x) return asMarkets(q); }
   if (/^(follow|add) /.test(q) && (await asFollow(q.replace(/^(follow|add) /, "")))) return;
   asSay(`I'm not sure how to help with that yet. I work best with things Daily HQ knows about — your brief, calendar, scores, weather, markets, real estate and news.`, { actions: [{ label: "What can you do?", icon: "sparkles", run: () => asHelp() }] });
