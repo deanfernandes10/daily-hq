@@ -101,6 +101,7 @@ export default async (req: Request) => {
       venue: c.venue?.fullName,
       note: c.notes?.[0]?.headline,
       broadcasts: [...nets],
+      odds: c.odds?.[0]?.details ? { details: c.odds[0].details, ou: c.odds[0].overUnder ?? null } : null,
       link: e.links?.find((l: any) => (l.rel || []).includes("summary"))?.href || e.links?.[0]?.href,
       teams: (c.competitors || []).map((t: any) => ({
         abbr: t.team?.abbreviation,

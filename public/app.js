@@ -33,6 +33,12 @@ const SUGGESTED_FEEDS = {
     ["CBC Top Stories", "https://www.cbc.ca/webfeed/rss/rss-topstories"],
     ["The Guardian – World", "https://www.theguardian.com/world/rss"],
     ["CBS News", "https://www.cbsnews.com/latest/rss/main"],
+    ["AP Top News", gnews("site:apnews.com")],
+    ["Axios", gnews("site:axios.com")],
+    ["The Guardian – US", "https://www.theguardian.com/us-news/rss"],
+    ["Global News (Canada)", "https://globalnews.ca/feed/"],
+    ["CTV News (Canada)", gnews("site:ctvnews.ca")],
+    ["The Globe and Mail", gnews("site:theglobeandmail.com")],
   ],
   sports: [
     ["CBS Sports", "https://www.cbssports.com/rss/headlines/"],
@@ -59,6 +65,10 @@ const SUGGESTED_FEEDS = {
     ["Google AI blog", "https://blog.google/technology/ai/rss/"],
     ["Anthropic news", gnews("Anthropic Claude")],
     ["OpenAI news", gnews("OpenAI")],
+    ["The Verge", "https://www.theverge.com/rss/index.xml"],
+    ["TechCrunch", "https://techcrunch.com/feed/"],
+    ["Wired", "https://www.wired.com/feed/rss"],
+    ["Engadget", "https://www.engadget.com/rss.xml"],
   ],
   markets: [
     ["CNBC Top News", "https://www.cnbc.com/id/100003114/device/rss/rss.html"],
@@ -68,6 +78,40 @@ const SUGGESTED_FEEDS = {
     ["Federal Reserve", "https://www.federalreserve.gov/feeds/press_all.xml"],
     ["Bank of Canada", gnews("Bank of Canada interest rate")],
     ["Earnings", gnews("earnings beat estimates")],
+    ["Morning Brew", gnews("site:morningbrew.com")],
+    ["Bloomberg", gnews("site:bloomberg.com markets")],
+    ["Globe and Mail – Business", gnews("site:theglobeandmail.com business")],
+  ],
+  science: [
+    ["ScienceDaily", "https://www.sciencedaily.com/rss/top.xml"],
+    ["NASA", "https://www.nasa.gov/news-release/feed/"],
+    ["Ars Technica – Science", "https://feeds.arstechnica.com/arstechnica/science"],
+    ["Google News – Science", "https://news.google.com/rss/headlines/section/topic/SCIENCE?hl=en-US&gl=US&ceid=US:en"],
+  ],
+  health: [
+    ["STAT News", "https://www.statnews.com/feed/"],
+    ["NPR Health", "https://feeds.npr.org/1128/rss.xml"],
+    ["Google News – Health", "https://news.google.com/rss/headlines/section/topic/HEALTH?hl=en-US&gl=US&ceid=US:en"],
+  ],
+  gaming: [
+    ["Polygon", "https://www.polygon.com/rss/index.xml"],
+    ["IGN", gnews("site:ign.com")],
+    ["Kotaku", "https://kotaku.com/rss"],
+  ],
+  travel: [
+    ["The Points Guy", "https://thepointsguy.com/feed/"],
+    ["Travel + Leisure", gnews("site:travelandleisure.com")],
+    ["Travel news", gnews("travel news airlines")],
+  ],
+  food: [
+    ["Eater", "https://www.eater.com/rss/index.xml"],
+    ["Serious Eats", gnews("site:seriouseats.com")],
+    ["Bon Appétit", gnews("site:bonappetit.com")],
+  ],
+  parenting: [
+    ["Parents", gnews("site:parents.com")],
+    ["Parenting news", gnews("parenting kids news")],
+    ["School news", gnews("schools education news")],
   ],
   entertainment: [
     ["Variety", "https://variety.com/feed/"],
@@ -103,14 +147,7 @@ const SUGGESTED_FEEDS = {
     ["MSSP Alert", gnews("site:msspalert.com")],
     ["Managed services M&A", gnews("managed services acquisition")],
   ],
-  local: [
-    ["Manalapan", gnews("Manalapan NJ")],
-    ["Monmouth County", gnews("Monmouth County NJ")],
-    ["NJ.com", gnews("site:nj.com")],
-    ["Mississauga", gnews("Mississauga")],
-    ["Toronto", "https://www.cbc.ca/webfeed/rss/rss-canada-toronto"],
-    ["NJ Transit", gnews("NJ Transit")],
-  ],
+  local: [],
   leadership: [
     ["CIO Dive", "https://www.ciodive.com/feeds/news/"],
     ["CIO.com", "https://www.cio.com/feed/"],
@@ -128,7 +165,7 @@ const RIDE_APPS = [
 const feedsFrom = (cat, n) => SUGGESTED_FEEDS[cat].slice(0, n).map(([name, url]) => ({ name, url, on: true }));
 
 const DEFAULTS = {
-  version: 10,
+  version: 11,
   realestate: { country: "CA", areas: { CA: ["Ontario", "GTA", "Mississauga", "Brampton", "Oakville", "Hamilton", "Ottawa", "Kitchener-Waterloo"], US: ["New Jersey", "Monmouth County"] }, area: { CA: "", US: "" } },
   name: "Dean",
   theme: "dark",
@@ -170,6 +207,12 @@ const DEFAULTS = {
       { id: "entertainment", name: "Entertainment", on: true, feeds: feedsFrom("entertainment", 3) },
       { id: "politics", name: "Politics", on: true, feeds: feedsFrom("politics", 4) },
       { id: "realestate", name: "Real Estate", on: true, feeds: feedsFrom("realestate", 5) },
+      { id: "science", name: "Science", on: false, feeds: feedsFrom("science", 3) },
+      { id: "health", name: "Health", on: false, feeds: feedsFrom("health", 3) },
+      { id: "gaming", name: "Gaming", on: false, feeds: feedsFrom("gaming", 3) },
+      { id: "travel", name: "Travel", on: false, feeds: feedsFrom("travel", 3) },
+      { id: "food", name: "Food", on: false, feeds: feedsFrom("food", 3) },
+      { id: "parenting", name: "Parenting", on: false, feeds: feedsFrom("parenting", 3) },
       { id: "industry", name: "Industry & Moves", on: true, feeds: feedsFrom("industry", 5) },
       { id: "local", name: "Local", on: true, feeds: feedsFrom("local", 5) },
       { id: "leadership", name: "Tech Leadership", on: true, feeds: feedsFrom("leadership", 3) },
@@ -246,7 +289,10 @@ function freshDefaults(name = "") {
   }
   d.realestate = { country: "US", areas: { CA: ["Ontario", "GTA", "Ottawa", "Hamilton"], US: [] }, area: { CA: "", US: "" } };
   d.markets.realestate = false;
-  for (const c of d.news.categories) if (c.id === "realestate") c.on = false;
+  // New people start with Top News, Sports, Tech, Business and Local; the rest come from the interests they pick
+  for (const c of d.news.categories) c.on = ["general", "sports", "ai", "markets", "local"].includes(c.id);
+  d.extras = { onThisDay: true, holidays: true, events: true, radius: 25 };
+  d.commute = { on: false, mode: "drive", arrive: "09:00", days: [1, 2, 3, 4, 5] };
   d.needsSetup = true;
   return d;
 }
@@ -316,6 +362,13 @@ function migrate(c) {
     }
     c.version = 10;
   }
+  if (c.version < 11) {
+    // v11: optional interest tabs (off until turned on), brief extras, commute, betting lines
+    for (const dc of DEFAULTS.news.categories) if (!c.news.categories.some((x) => x.id === dc.id)) c.news.categories.push({ ...clone(dc), on: false });
+    c.version = 11;
+  }
+  c.extras = { onThisDay: true, holidays: true, events: true, radius: 25, ...(c.extras || {}) };
+  c.commute ??= { on: false, mode: "drive", arrive: "09:00", days: [1, 2, 3, 4, 5] };
   c.calendars ??= []; c.saved ??= []; c.collapsed ??= {};
   c.alerts = { ...clone(DEFAULTS.alerts), ...(c.alerts || {}) };
   return c;
@@ -403,7 +456,7 @@ const markVisit = () => store.set(VISIT_KEY, String(Date.now()));
 addEventListener("pagehide", markVisit);
 document.addEventListener("visibilitychange", () => document.hidden && markVisit());
 
-const data = { sports: [], news: {}, weather: [], quotes: {}, updated: {} };
+const data = { sports: [], news: {}, weather: [], quotes: {}, updated: {}, extras: {}, commute: null };
 let newsSource = {};
 const CACHE_KEY = pkey("dailyhq.snapshot.v1");
 function saveSnapshot() {
@@ -636,6 +689,7 @@ function trimEvents(d) {
       id: e.id, date: e.date, name: e.shortName || e.name,
       state: st.type?.state, detail: st.type?.shortDetail || st.type?.detail || "", completed: !!st.type?.completed,
       venue: c.venue?.fullName, note: c.notes?.[0]?.headline, broadcasts: [...nets],
+      odds: c.odds?.[0]?.details ? { details: c.odds[0].details, ou: c.odds[0].overUnder ?? null } : null,
       link: e.links?.find((l) => (l.rel || []).includes("summary"))?.href || e.links?.[0]?.href,
       teams: (c.competitors || []).map((t) => ({
         abbr: t.team?.abbreviation, name: t.team?.shortDisplayName || t.team?.displayName, logo: t.team?.logo,
@@ -820,6 +874,7 @@ function gameHTML(e, watched) {
   const meta = [];
   if (e.broadcasts?.length) meta.push(`<span class="tv">${ic("tv")}${esc(e.broadcasts.slice(0, 4).join(", "))}</span>`);
   if (e.state === "pre" && e.venue) meta.push(esc(e.venue));
+  if (e.state === "pre" && e.odds && cfg.sports.odds !== false) meta.push(`<span class="odds" title="Betting line">${esc(e.odds.details)}${e.odds.ou != null ? ` · O/U ${esc(e.odds.ou)}` : ""}</span>`);
   if (e.note) meta.push(esc(e.note));
   if (e.link) meta.push(`<a href="${esc(e.link)}" target="_blank" rel="noopener">Game ${ic("external-link", "xs")}</a>`);
   return `<div class="game ${e.state === "in" ? "is-live" : e.state === "post" ? "is-final" : ""}" data-game="${esc(e.id)}" data-path="${esc(gameHTML.path || "")}" role="button" tabindex="0" title="Tap for game details"><div class="g-status">${pill}</div>${rows}${meta.length ? `<div class="g-meta">${meta.join("<span>·</span>")}</div>` : ""}</div>`;
@@ -1834,6 +1889,8 @@ function renderBrief() {
     for (const a of data.weather.flatMap((x) => (x.alerts || []).map((al) => ({ al, city: x.c.name.split(",")[0] }))).slice(0, 2))
       rows.push(`<div class="br-row warn">${ic("triangle-alert")}<div><button class="br-link" data-goto="weather"><b>${esc(a.al.event)}</b> for ${esc(a.city)}${a.al.ends ? ` until ${esc(when(a.al.ends))}` : ""}. ${ic("chevron-right", "xs")}</button></div></div>`);
   }
+  // commute
+  const cm = commuteRow(); if (cm) rows.push(cm);
   // calendar: every event is tappable; the summary jumps to today in the calendar
   if (data.calendar) {
     const now = new Date(), end = new Date(); end.setHours(23, 59, 59);
@@ -1873,7 +1930,10 @@ function renderBrief() {
   // headlines
   const cat = cfg.news.categories.find((c) => c.on && data.news[c.id]?.items?.length);
   if (cat) rows.push(`<div class="br-row">${ic("newspaper")}<div class="br-heads">${data.news[cat.id].items.slice(0, 3).map((i) => `<a href="${esc(i.link)}" target="_blank" rel="noopener">${esc(i.title)}</a>`).join("")}</div></div>`);
+  rows.push(...extrasRows());
   body.innerHTML = rows.length ? `<div class="brief">${rows.join("")}</div>` : skeleton(4);
+  loadExtras();
+  loadCommute();
 }
 
 // ============================================================ modal, game details, standings
@@ -1922,7 +1982,15 @@ function gameDetailHTML(d, path, id) {
   const nets = (comp.broadcasts || []).map((b) => b.media?.shortName || b.names?.join(", ")).filter(Boolean);
   const meta = [info.venue?.fullName, nets.length ? `${ic("tv")} ${nets.join(", ")}` : "", info.attendance ? `Attendance ${Number(info.attendance).toLocaleString()}` : ""].filter(Boolean).join(" · ");
   const link = (d.header?.links || []).find((l) => (l.rel || []).includes("summary"))?.href || `https://www.espn.com/${path.split("/")[1]}/game/_/gameId/${id}`;
-  return head + line + (meta ? `<div class="gd-meta">${meta}</div>` : "") +
+  const pick = d.pickcenter?.[0] || d.odds?.[0];
+  const odds = cfg.sports.odds !== false && pick?.details ? `<div class="gd-meta">${ic("trending-up")} Line: <b>${esc(pick.details)}</b>${pick.overUnder != null ? ` · Over/under <b>${esc(pick.overUnder)}</b>` : ""}${pick.provider?.name ? ` <small>(${esc(pick.provider.name)})</small>` : ""}</div>` : "";
+  const inj = (d.injuries || []).map((tm) => {
+    const list = (tm.injuries || []).filter((x) => x.athlete?.displayName).slice(0, 8);
+    if (!list.length) return "";
+    return `<div class="gd-inj"><b>${esc(tm.team?.abbreviation || tm.team?.displayName || "")}</b><ul>${list.map((x) => `<li>${esc(x.athlete.displayName)}${x.athlete.position?.abbreviation ? ` <small>${esc(x.athlete.position.abbreviation)}</small>` : ""} — <span class="inj-st">${esc(x.status || x.type?.description || "Out")}</span>${x.details?.type ? ` <small>(${esc(x.details.type)})</small>` : ""}</li>`).join("")}</ul></div>`;
+  }).join("");
+  return head + line + (meta ? `<div class="gd-meta">${meta}</div>` : "") + odds +
+    (inj ? `<h4 class="gd-h">Injuries</h4><div class="gd-injs">${inj}</div>` : "") +
     (plays ? `<h4 class="gd-h">Scoring</h4><ol class="gd-plays">${plays}</ol>` : "") +
     (leaders ? `<h4 class="gd-h">Leaders</h4>${leaders}` : "") +
     `<a class="btn wide" href="${esc(link)}" target="_blank" rel="noopener">Open full game on ESPN ${ic("external-link", "xs")}</a>`;
@@ -2154,6 +2222,145 @@ function notify(c) {
   }
 }
 
+// ============================================================ brief extras: on this day, holidays, things to do nearby
+const homeCC = () => cfg.homeCC || (cfg.units === "C" ? "CA" : "US");
+let extrasBusy = false;
+async function loadExtras(force = false) {
+  if (extrasBusy) return;
+  const X = (data.extras ||= {}), now = Date.now(), today = new Date().toDateString();
+  const need = [];
+  if (cfg.extras.onThisDay && (force || X.otd?.day !== today)) need.push("otd");
+  if (cfg.extras.holidays && (force || !X.hol || now - X.hol.t > 12 * 3600e3 || X.hol.cc !== homeCC())) need.push("hol");
+  const c0 = cfg.weather.cities[0];
+  if (cfg.extras.events && c0 && (force || !X.ev || now - X.ev.t > 3 * 3600e3 || X.ev.city !== c0.name)) need.push("ev");
+  if (!need.length) return;
+  extrasBusy = true;
+  const d = new Date();
+  await Promise.all(need.map(async (k) => {
+    try {
+      if (k === "otd") { const r = await api(`/api/extras?kind=onthisday&m=${d.getMonth() + 1}&d=${d.getDate()}`); X.otd = { day: today, items: r.items || [] }; }
+      if (k === "hol") { const r = await api(`/api/extras?kind=holidays&cc=${homeCC()}`); X.hol = { t: now, cc: homeCC(), items: r.items || [] }; }
+      if (k === "ev") { const r = await api(`/api/extras?kind=events&lat=${c0.lat}&lon=${c0.lon}&radius=${cfg.extras.radius || 25}`); X.ev = { t: now, city: c0.name, items: r.items || [], needsKey: !!r.needsKey }; }
+    } catch { if (k === "otd") X.otd = { day: today, items: [] }; if (k === "hol") X.hol = { t: now, cc: homeCC(), items: [] }; if (k === "ev") X.ev = { t: now, city: c0?.name, items: [] }; }
+  }));
+  extrasBusy = false;
+  renderBrief();
+}
+const dayDiff = (iso) => { const a = new Date(iso + "T12:00:00"), b = new Date(); b.setHours(12, 0, 0, 0); return Math.round((a - b) / 864e5); };
+function extrasRows() {
+  const X = data.extras || {}, rows = [];
+  if (cfg.extras.holidays && X.hol?.items?.length) {
+    const h = X.hol.items.find((x) => dayDiff(x.date) >= 0 && dayDiff(x.date) <= 30);
+    if (h) { const n = dayDiff(h.date); rows.push(`<div class="br-row">${ic("flag")}<div><b>${esc(h.name)}</b> ${n === 0 ? "is today" : n === 1 ? "is tomorrow" : `in ${n} days`} <small class="muted">· ${esc(new Date(h.date + "T12:00:00").toLocaleDateString([], { weekday: "long", month: "short", day: "numeric" }))}</small></div></div>`); }
+  }
+  if (cfg.extras.events && X.ev?.items?.length) {
+    const top = X.ev.items.slice(0, 3);
+    rows.push(`<div class="br-row">${ic("calendar-plus")}<div><button class="br-link" data-events><b>Things to do near ${esc(X.ev.city.split(",")[0])}</b> · ${X.ev.items.length} this week ${ic("arrow-right", "xs")}</button><div class="br-sub">${top.map((e) => `<a href="${esc(e.url)}" target="_blank" rel="noopener">${esc(e.name)}</a> <small class="muted">${esc(evWhen(e))}</small>`).join("<br>")}</div></div></div>`);
+  }
+  if (cfg.extras.onThisDay && X.otd?.items?.length) {
+    const i = X.otd.items[new Date().getDate() % X.otd.items.length];
+    rows.push(`<div class="br-row">${ic("clock")}<div><b>On this day in ${esc(i.year)}:</b> ${esc(i.text)}${i.link ? ` <a href="${esc(i.link)}" target="_blank" rel="noopener">More ${ic("external-link", "xs")}</a>` : ""}</div></div>`);
+  }
+  return rows;
+}
+const evWhen = (e) => { const n = dayDiff(e.date); const d = n === 0 ? "Today" : n === 1 ? "Tomorrow" : new Date(e.date + "T12:00:00").toLocaleDateString([], { weekday: "short", month: "short", day: "numeric" }); return `${d}${e.time && !e.tba ? " · " + hm(new Date(`${e.date}T${e.time}`)) : ""}${e.venue ? " · " + e.venue : ""}`; };
+function showEvents(filter = "All") {
+  const X = data.extras?.ev; if (!X?.items?.length) return;
+  const segs = ["All", ...new Set(X.items.map((e) => e.segment).filter((s) => s && s !== "Undefined"))];
+  const list = X.items.filter((e) => filter === "All" || e.segment === filter);
+  const byDay = {}; for (const e of list) (byDay[e.date] ||= []).push(e);
+  openModal(`${ic("calendar-plus")} Things to do near ${esc(X.city.split(",")[0])}`, `
+    <p class="hint">Concerts, games, shows and family events in the next 7 days within ${cfg.extras.radius || 25} miles. Change the distance in Customize → General.</p>
+    <div class="chips">${segs.map((s) => `<span class="chip add ${s === filter ? "sel" : ""}" data-ev-seg="${esc(s)}">${esc(s === "Arts & Theatre" ? "Arts & theatre" : s)}</span>`).join("")}</div>
+    ${Object.entries(byDay).map(([d, evs]) => `<h4 class="gd-h">${esc(dayDiff(d) === 0 ? "Today" : dayDiff(d) === 1 ? "Tomorrow" : new Date(d + "T12:00:00").toLocaleDateString([], { weekday: "long", month: "long", day: "numeric" }))}</h4>
+      <div class="ev-list">${evs.map((e) => `<a class="ev" href="${esc(e.url)}" target="_blank" rel="noopener">${e.img ? `<img src="${esc(e.img)}" alt="" loading="lazy">` : `<span class="ev-noimg">${ic("calendar-plus")}</span>`}<span><b>${esc(e.name)}</b><small>${e.time && !e.tba ? esc(hm(new Date(`${e.date}T${e.time}`))) + " · " : ""}${esc(e.venue)}${e.city ? ", " + esc(e.city) : ""}${e.price != null ? ` · from $${Math.round(e.price)}` : ""}</small></span></a>`).join("")}</div>`).join("") || `<div class="empty">Nothing in that category this week.</div>`}
+    <p class="hint" style="margin-top:12px">Event listings from Ticketmaster.</p>`);
+  $("#modalBody").onclick = (ev) => { const s = ev.target.closest("[data-ev-seg]"); if (s) showEvents(s.dataset.evSeg); };
+}
+
+// ============================================================ commute (typical drive time; live traffic opens in your maps app)
+const toMin = (hhmm) => { const [h, m] = String(hhmm || "09:00").split(":").map(Number); return h * 60 + (m || 0); };
+function commuteLeg() {
+  const C = cfg.commute;
+  if (!C?.on || !C.home || !C.work) return null;
+  const now = new Date(), day = now.getDay(), mins = now.getHours() * 60 + now.getMinutes();
+  if (!(C.days || []).includes(day)) return null;
+  const arrive = toMin(C.arrive);
+  if (mins >= 240 && mins <= arrive + 30) return { from: C.home, to: C.work, label: "To work", arrive };
+  if (mins >= 14 * 60 && mins <= 20 * 60) return { from: C.work, to: C.home, label: "Home" };
+  return null;
+}
+let commuteBusy = false;
+async function loadCommute() {
+  const C = cfg.commute;
+  if (!C?.on || !C.home || !C.work || C.mode === "transit" || commuteBusy) return;
+  const key = `${C.home.lat},${C.home.lon}|${C.work.lat},${C.work.lon}`;
+  if (data.commute?.key === key && Date.now() - data.commute.t < 12 * 3600e3) return;
+  commuteBusy = true;
+  try { const r = await api(`/api/extras?kind=route&from=${C.home.lat},${C.home.lon}&to=${C.work.lat},${C.work.lon}`); data.commute = { key, t: Date.now(), minutes: r.minutes, km: r.km }; }
+  catch { data.commute = { key, t: Date.now(), minutes: null }; }
+  commuteBusy = false;
+  renderBrief();
+}
+function commuteLinks(a, b, mode) {
+  const g = `https://www.google.com/maps/dir/?api=1&origin=${a.lat},${a.lon}&destination=${b.lat},${b.lon}&travelmode=${mode === "transit" ? "transit" : "driving"}`;
+  const ap = `https://maps.apple.com/?saddr=${a.lat},${a.lon}&daddr=${b.lat},${b.lon}&dirflg=${mode === "transit" ? "r" : "d"}`;
+  const wz = `https://waze.com/ul?ll=${b.lat},${b.lon}&navigate=yes`;
+  return `<span class="cm-links"><a href="${esc(g)}" target="_blank" rel="noopener">Google Maps</a> · <a href="${esc(ap)}" target="_blank" rel="noopener">Apple Maps</a>${mode === "transit" ? "" : ` · <a href="${esc(wz)}" target="_blank" rel="noopener">Waze</a>`}</span>`;
+}
+function commuteRow() {
+  const leg = commuteLeg(); if (!leg) return "";
+  const C = cfg.commute, mins = data.commute?.minutes;
+  let main;
+  if (C.mode === "transit") main = `<b>${leg.label}:</b> check your train or bus`;
+  else if (mins == null) main = `<b>${leg.label}</b>`;
+  else {
+    main = `<b>${leg.label}: about ${mins} min</b> drive <small class="muted">(typical, without traffic)</small>`;
+    if (leg.arrive != null) { const leave = leg.arrive - mins - 5; const d = new Date(); d.setHours(Math.floor(leave / 60), leave % 60, 0, 0); main += ` · leave by <b>${hm(d)}</b> to arrive ${hm(new Date(new Date().setHours(Math.floor(leg.arrive / 60), leg.arrive % 60, 0, 0)))}`; }
+  }
+  return `<div class="br-row">${ic("map-pin")}<div>${main}<div class="br-sub">Live traffic: ${commuteLinks(leg.from, leg.to, C.mode)}</div></div></div>`;
+}
+let cmResults = { home: [], work: [] };
+async function commuteSearch(which) {
+  const q = $(`#cm-q-${which}`)?.value.trim(); if (!q) return;
+  try { cmResults[which] = (await api(`/api/extras?kind=geocode&q=${encodeURIComponent(q)}`)).items || []; if (!cmResults[which].length) toast("No matches — try adding the town and state"); }
+  catch { toast("Address search isn't available right now"); }
+  renderSettings();
+}
+document.addEventListener("click", (e) => {
+  const b = e.target.closest("[data-cm]"); if (b) {
+    const [act, which, k] = b.dataset.cm.split(":");
+    if (act === "search") commuteSearch(which);
+    if (act === "pick") { const r = cmResults[which][+k]; cfg.commute[which] = { label: r.label.split(",").slice(0, 3).join(","), lat: +r.lat.toFixed(5), lon: +r.lon.toFixed(5) }; cmResults[which] = []; data.commute = null; if (cfg.commute.home && cfg.commute.work) cfg.commute.on = true; save(); renderSettings(); renderBrief(); }
+    if (act === "clear") { delete cfg.commute[which]; data.commute = null; save(); renderSettings(); renderBrief(); }
+    if (act === "day") { const d = +which, days = new Set(cfg.commute.days || []); days.has(d) ? days.delete(d) : days.add(d); cfg.commute.days = [...days].sort(); save(); renderSettings(); renderBrief(); }
+    if (act === "mode") { cfg.commute.mode = which; save(); renderSettings(); renderBrief(); }
+    return;
+  }
+  if (e.target.closest("[data-events]")) showEvents();
+});
+document.addEventListener("keydown", (e) => { if (e.key === "Enter" && e.target.id?.startsWith("cm-q-")) { e.preventDefault(); commuteSearch(e.target.id.slice(5)); } });
+function setCommuteHTML() {
+  const C = cfg.commute;
+  const place = (which, label) => `<div class="fld"><span>${label}</span>${C[which]
+    ? `<div class="row"><span class="grow">${ic("map-pin")} ${esc(C[which].label)}</span><button class="btn sm" data-cm="clear:${which}">Change</button></div>`
+    : `<div class="inline"><input id="cm-q-${which}" placeholder="Street address or place" autocomplete="street-address"><button class="btn" data-cm="search:${which}">Search</button></div>${cmResults[which].length ? `<div class="sugg">${cmResults[which].map((r, k) => `<button data-cm="pick:${which}:${k}">${esc(r.label.split(",").slice(0, 2).join(","))}<small>${esc(r.label.split(",").slice(2, 5).join(","))}</small></button>`).join("")}</div>` : ""}`}</div>`;
+  return `<div class="set"><h4>${ic("map-pin")} Commute</h4><p class="hint">On the days you pick, your brief shows the drive to work in the morning and home in the afternoon, when to leave, and one-tap live traffic in Google Maps, Apple Maps or Waze. Drive times are typical times without traffic.</p>
+    <div class="row"><span class="grow">Show my commute in the brief</span>${sw("cm-on", !!C.on)}</div>
+    ${place("home", "Home")}${place("work", "Work")}
+    <div class="row"><span class="grow">Arrive at work by</span><input type="time" data-act="cm-arrive" value="${esc(C.arrive || "09:00")}" style="width:auto"></div>
+    <div class="row"><span class="grow">How I get there</span><span class="seg">${[["drive", "Drive"], ["transit", "Transit"]].map(([v, l]) => `<button data-cm="mode:${v}" class="${(C.mode || "drive") === v ? "on" : ""}">${l}</button>`).join("")}</span></div>
+    <div class="chips">${["S", "M", "T", "W", "T", "F", "S"].map((l, d) => `<span class="chip add ${(C.days || []).includes(d) ? "sel" : ""}" data-cm="day:${d}">${["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"][d]}</span>`).join("")}</div></div>`;
+}
+function setExtrasHTML() {
+  const X = cfg.extras;
+  return `<div class="set"><h4>${ic("sparkles")} Brief extras</h4>
+    <div class="row"><span class="grow">On this day in history</span>${sw("ex-otd", X.onThisDay !== false)}</div>
+    <div class="row"><span class="grow">Upcoming public holidays</span>${sw("ex-hol", X.holidays !== false)}</div>
+    <div class="row"><span class="grow">Things to do nearby <small class="muted">(near ${esc(cfg.weather.cities[0]?.name || "your first weather city")})</small></span>${sw("ex-ev", X.events !== false)}</div>
+    <div class="row"><span class="grow">Distance for things to do</span><select data-act="ex-rad" style="width:auto">${[10, 25, 50, 75].map((n) => `<option value="${n}" ${+X.radius === n ? "selected" : ""}>${n} miles</option>`).join("")}</select></div></div>`;
+}
+
 // ============================================================ onboarding (first run / new person)
 function showWelcome() {
   const leagues = ["nhl", "nfl", "nba", "mlb", "mls", "epl", "pga", "cricket"];
@@ -2165,19 +2372,61 @@ function showWelcome() {
     <div id="wCities" class="chips">${cfg.weather.cities.map((c) => `<span class="chip">${esc(c.name)}</span>`).join("")}</div>
     <div id="wCityRes"></div>
     <div class="fld">Show on your home page<div class="chips">${cfg.sections.map((s) => `<span class="chip add ${s.on ? "sel" : ""}" data-w="section" data-k="${s.id}">${ic(SECTION_META[s.id].icon, "xs")} ${esc(s.id === "brief" ? "Brief" : SECTION_META[s.id].title)}</span>`).join("")}</div><p class="hint" style="margin:6px 0 0">Tap to turn on or off. You can change this any time.</p></div>
+    <div class="fld">News you're interested in<div class="chips">${INTERESTS.map(([id, label]) => `<span class="chip add ${(id === "realestate" ? cfg.markets.realestate : cfg.news.categories.find((c) => c.id === id)?.on) ? "sel" : ""}" data-w="interest" data-k="${id}">${label}</span>`).join("")}</div><p class="hint" style="margin:6px 0 0">Top news, sports and local news are always included.</p></div>
     <div class="fld">Leagues you follow<div class="chips">${leagues.map((k) => `<span class="chip add ${cfg.sports.leagues.some((l) => l.key === k) ? "sel" : ""}" data-w="league" data-k="${k}">${LEAGUES[k].icon} ${LEAGUES[k].name}</span>`).join("")}</div></div>
     <button class="btn primary wide" data-w="done">Start using Daily HQ</button>
     <details class="w-sync"><summary>Already set up on another device?</summary>
       <p class="hint">Enter the sync code from Customize → General on your other device.</p>
       <div class="inline"><input id="wCode" placeholder="XXXX-XXXX-XXXX"><button class="btn" data-w="code">Use code</button></div></details>`);
 }
+const INTERESTS = [["ai", "💻 Tech"], ["markets", "📈 Business"], ["politics", "🏛️ Politics"], ["entertainment", "🎬 Entertainment"], ["science", "🔬 Science"], ["health", "🩺 Health"], ["gaming", "🎮 Gaming"], ["travel", "✈️ Travel"], ["food", "🍳 Food"], ["parenting", "👪 Parenting"], ["realestate", "🏠 Real estate"]];
+const gnewsCC = (q, cc) => (cc === "CA" ? `https://news.google.com/rss/search?q=${encodeURIComponent(q)}&hl=en-CA&gl=CA&ceid=CA:en` : gnews(q));
+// Local news for a city the person chose: the city itself plus its state/province
+function addLocalNews(city, region, cc) {
+  const cat = cfg.news.categories.find((c) => c.id === "local");
+  if (!cat || !city) return;
+  const add = (name, q) => { const url = gnewsCC(q, cc); if (!cat.feeds.some((f) => f.url === url || f.name === name)) cat.feeds.push({ name, url, on: true }); };
+  add(city, region ? `"${city}" ${region}` : `"${city}"`);
+  if (region && region !== city) add(region, `${region} news`);
+  cat.on = true;
+}
+// News for every team the person follows, kept in step as they follow and unfollow teams
+let teamFeedT;
+function queueTeamFeeds() { clearTimeout(teamFeedT); teamFeedT = setTimeout(() => syncTeamFeeds().catch(() => {}), 1500); }
+async function syncTeamFeeds() {
+  const cat = cfg.news.categories.find((c) => c.id === "sports");
+  if (!cat) return;
+  const want = [];
+  for (const L of cfg.sports.leagues) {
+    if (!L.teams?.length || !LEAGUES[L.key] || L.key === "cricket") continue;
+    if (!teamCache[L.key]) { try { teamCache[L.key] = await fetchTeams(LEAGUES[L.key].path); } catch { continue; } }
+    const byAbbr = Object.fromEntries((teamCache[L.key] || []).map((t) => [t.abbr, t]));
+    for (const ab of L.teams) if (byAbbr[ab]?.name) want.push(byAbbr[ab].name);
+  }
+  const before = JSON.stringify(cat.feeds);
+  cat.feeds = cat.feeds.filter((f) => !f.auto || want.includes(f.team));
+  for (const name of want) {
+    const short = name.split(" ").slice(-1)[0].toLowerCase();
+    if (cat.feeds.some((f) => f.team === name || f.name.toLowerCase() === name.toLowerCase() || f.url.includes(encodeURIComponent(name)) || (!f.auto && f.name.toLowerCase() === short))) continue;
+    cat.feeds.push({ name, url: gnews(`"${name}"`), on: true, auto: "team", team: name });
+  }
+  if (JSON.stringify(cat.feeds) !== before) { save(); if (sectionOn("news")) loadCategory(cat).then(() => renderNews()).catch(() => {}); }
+}
 function setHomeCountry(cc) {
   if (!cc) return;
+  cfg.homeCC = cc;
   cfg.units = cc === "US" || cc === "LR" || cc === "MM" ? "F" : "C";
   if (cc === "US" || cc === "CA") cfg.realestate.country = cc;
 }
+const lastGeo = { region: "" };
 async function welcomeAction(a) {
   const w = a.dataset.w;
+  if (w === "interest") {
+    const k = a.dataset.k, on = !a.classList.contains("sel");
+    if (k === "realestate") cfg.markets.realestate = on;
+    const c = cfg.news.categories.find((x) => x.id === k); if (c) c.on = on;
+    a.classList.toggle("sel", on); save(); return;
+  }
   if (w === "section") {
     const s = cfg.sections.find((x) => x.id === a.dataset.k); if (!s) return;
     if (s.on && cfg.sections.filter((x) => x.on).length === 1) return toast("Keep at least one section");
@@ -2193,10 +2442,11 @@ async function welcomeAction(a) {
         const g = await api(`https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=${lat}&longitude=${lon}&localityLanguage=en`);
         cc = g.countryCode || "";
         const region = cc === "US" || cc === "CA" ? abbrevRegion(g.principalSubdivision || "") : g.countryName;
+        lastGeo.region = g.principalSubdivision || "";
         name = [g.city || g.locality, region].filter(Boolean).join(", ") || name;
       } catch {}
       if (!cfg.weather.cities.some((c) => c.name === name)) cfg.weather.cities.unshift({ name, lat: +lat.toFixed(4), lon: +lon.toFixed(4) });
-      setHomeCountry(cc); save();
+      setHomeCountry(cc); addLocalNews((name.split(",")[0] || "").trim(), cc === "US" || cc === "CA" ? (await Promise.resolve(lastGeo.region)) : "", cc); save();
       $("#wCities").innerHTML = cfg.weather.cities.map((c) => `<span class="chip">${esc(c.name)}</span>`).join("");
       a.innerHTML = `${ic("check")} ${esc(name)}`;
     }, () => { a.disabled = false; a.innerHTML = `${ic("map-pin")} Use my location`; toast("Couldn't get your location — search for your city instead"); }, { timeout: 12000, maximumAge: 600000 });
@@ -2217,7 +2467,7 @@ async function welcomeAction(a) {
     const r = welcomeAction.res[+a.dataset.k];
     const region = r.country_code === "US" || r.country_code === "CA" ? abbrevRegion(r.admin1) : r.country;
     cfg.weather.cities.push({ name: [r.name, region].filter(Boolean).join(", "), lat: r.latitude, lon: r.longitude });
-    if (cfg.weather.cities.length === 1) setHomeCountry(r.country_code);
+    if (cfg.weather.cities.length === 1) { setHomeCountry(r.country_code); addLocalNews(r.name, r.admin1 || "", r.country_code); }
     $("#wCities").innerHTML = cfg.weather.cities.map((c) => `<span class="chip">${esc(c.name)}</span>`).join("");
     $("#wCityRes").innerHTML = ""; $("#wCity").value = ""; save();
   } else if (w === "code") {
@@ -2268,6 +2518,7 @@ function maybeInstallTip(force = false) {
   $("[data-close-install]").onclick = closeModal;
   const b = $("#installNow"); if (b) b.onclick = async () => { closeModal(); installEvt.prompt(); installEvt = null; };
 }
+setTimeout(() => { if (!cfg.needsSetup) syncTeamFeeds().catch(() => {}); }, 8000);
 if (BETA && $("#betaPill")) { $("#betaPill").hidden = false; $("#betaPill").onclick = () => openFeedback(); }
 if (BETA) setTimeout(() => { if (!cfg.needsSetup && !store.get("dailyhq.installTip")) maybeInstallTip(); }, 20000);
 
@@ -3237,6 +3488,8 @@ function setGeneral() {
   return `
   ${BETA ? `<div class="set beta-set"><h4>${ic("sparkles")} Daily HQ beta</h4><p class="hint">${esc(BETA.version)}${BETA.name ? ` · invite for ${esc(BETA.name)}` : ""}${BETA.expires ? ` · access until ${new Date(BETA.expires).toLocaleDateString([], { month: "long", day: "numeric", year: "numeric" })}` : ""}</p><div class="inline"><button class="btn primary" data-quick="feedback">${ic("send")} Send feedback</button><button class="btn" data-quick="installtip">${ic("smartphone")} Add to home screen</button></div></div>` : ""}
   <div class="set"><h4>Your name</h4><p class="hint">Used in the greeting.</p><input data-bind="name" value="${esc(cfg.name)}"></div>
+  ${setExtrasHTML()}
+  ${setCommuteHTML()}
   <div class="set"><h4>Appearance</h4>
     <div class="row"><span class="grow">Theme</span><span class="seg">${["dark", "light", "auto"].map((t) => `<button data-act="theme" data-v="${t}" class="${cfg.theme === t ? "on" : ""}">${t[0].toUpperCase() + t.slice(1)}</button>`).join("")}</span></div>
     <div class="row"><span class="grow">Temperature</span><span class="seg">${["F", "C"].map((u) => `<button data-act="units" data-v="${u}" class="${cfg.units === u ? "on" : ""}">°${u}</button>`).join("")}</span></div>
@@ -3276,6 +3529,7 @@ function setSports() {
   const used = new Set(cfg.sports.leagues.map((l) => l.key));
   const avail = Object.entries(LEAGUES).filter(([k]) => !used.has(k));
   return `
+  <div class="set"><h4>Game details</h4><div class="row"><span class="grow">Show betting lines (spread and over/under) on upcoming games</span>${sw("odds-on", cfg.sports.odds !== false)}</div><p class="hint">Injury reports show in each game's details. Team news for every team you follow is added to your Sports news tab automatically.</p></div>
   <div class="set"><h4>Leagues & teams</h4><p class="hint">For each league, pick the teams you follow. You'll see their live game, last result and next game with TV/streaming info. Turn on "All of today's games" to see the whole slate.</p>
   ${cfg.sports.leagues
     .map((L, i) => {
@@ -3315,12 +3569,13 @@ function setNews() {
   <div class="set"><h4>News categories</h4><p class="hint">Each category is a tab. Mix any RSS feeds into a tab — or add a <b>topic</b> (e.g. "NWN", "AI regulation") to track it via Google News.</p>
   ${cats
     .map((c, i) => {
-      const sugg = (SUGGESTED_FEEDS[c.id] || []).filter(([, url]) => !c.feeds.some((f) => f.url === url));
+      const base = c.id === "local" ? cfg.weather.cities.map((x) => { const nm = x.name.split(",")[0].trim(); return [nm, gnewsCC(`"${nm}"`, cfg.homeCC)]; }) : SUGGESTED_FEEDS[c.id] || [];
+      const sugg = base.filter(([n, url]) => !c.feeds.some((f) => f.url === url || f.name === n));
       return `<div class="box">
         <div class="box-h">${ord("cat-move", i, cats.length)}<input data-act="cat-name" data-i="${i}" value="${esc(c.name)}">${sw("cat-on", c.on, `data-i="${i}"`)}</div>
         ${c.feeds
           .map(
-            (f, j) => `<div class="row">${sw("feed-on", f.on, `data-i="${i}" data-j="${j}"`)}<span class="grow">${esc(f.name)} <span class="host">${esc(hostOf(f.url))}</span></span>
+            (f, j) => `<div class="row">${sw("feed-on", f.on, `data-i="${i}" data-j="${j}"`)}<span class="grow">${esc(f.name)} <span class="host">${f.auto === "team" ? "your team" : esc(hostOf(f.url))}</span></span>
             <button class="btn sm" data-act="feed-del" data-i="${i}" data-j="${j}" aria-label="Remove">${ic("x", "xs")}</button></div>`
           )
           .join("") || `<div class="hint" style="color:var(--muted);font-size:12.5px;padding:6px 0">No feeds yet.</div>`}
@@ -3592,7 +3847,7 @@ $("#drawerBody").addEventListener("click", async (e) => {
       const lg = L.find((x) => x.key === a.dataset.key);
       const v = a.dataset.v;
       lg.teams = lg.teams.includes(v) ? lg.teams.filter((t) => t !== v) : [...lg.teams, v];
-      save(); dirty.add("sports");
+      save(); dirty.add("sports"); queueTeamFeeds();
       a.classList.toggle("sel");
       // update selected chips row without losing the picker filter
       const filter = $('[data-act="team-filter"]')?.value || "";
@@ -3649,6 +3904,13 @@ $("#drawerBody").addEventListener("change", (e) => {
   switch (act) {
     case "ticker-on": cfg.ticker.on = a.checked; commit("markets", "layout"); break;
     case "apps-on": cfg.showApps = a.checked; commit(); renderApps(); break;
+    case "odds-on": cfg.sports.odds = a.checked; commit("sports"); renderSports(); break;
+    case "ex-otd": cfg.extras.onThisDay = a.checked; commit(); renderBrief(); break;
+    case "ex-hol": cfg.extras.holidays = a.checked; commit(); renderBrief(); break;
+    case "ex-ev": cfg.extras.events = a.checked; commit(); renderBrief(); break;
+    case "ex-rad": cfg.extras.radius = +a.value; data.extras.ev = null; commit(); loadExtras(true); break;
+    case "cm-on": cfg.commute.on = a.checked; commit(); renderBrief(); break;
+    case "cm-arrive": cfg.commute.arrive = a.value || "09:00"; commit(); renderBrief(); break;
     case "al-gameStart": case "al-finals": case "al-weather": case "al-pregame": case "al-rainToday": cfg.alerts[act.slice(3)] = a.checked; commit(); break;
     case "al-eventMins": cfg.alerts.eventMins = +a.value; commit(); break;
     case "al-quiet": cfg.alerts.quiet = { from: 22, to: 7, ...(cfg.alerts.quiet || {}), on: a.checked }; commit(); break;
@@ -4110,7 +4372,7 @@ async function asFollow(name) {
     let lg = cfg.sports.leagues.find((l) => l.key === t.key);
     if (!lg) { lg = { key: t.key, teams: [], showAll: false }; cfg.sports.leagues.push(lg); }
     lg.teams = [...(lg.teams || []), t.abbr];
-    save(); refresh(["sports"]);
+    save(); refresh(["sports"]); queueTeamFeeds();
     asSay(`Done — you're following the ${esc(t.name)}. Their games will show in Scores and Your brief.`, { actions: [asOpen("sports", "Open Scores")] });
   }, "plus");
   return true;
