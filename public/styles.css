@@ -1104,3 +1104,11 @@ body.drawer-open .as-launcher { display: none; }
 .wx-next { display: inline-flex; align-items: center; gap: 5px; font-size: 13.5px; font-weight: 650; color: #38bdf8; }
 .wx-next .ic { width: 14px; height: 14px; }
 .wx-src { color: var(--muted); }
+
+/* beta */
+.greet-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.beta-pill { border: 1px solid color-mix(in srgb, var(--accent) 55%, var(--line)); background: color-mix(in srgb, var(--accent) 14%, transparent); color: var(--accent); border-radius: 999px; padding: 1px 9px; font: 600 11px/1.6 var(--font, Inter, system-ui, sans-serif); cursor: pointer; white-space: nowrap; }
+.beta-pill:hover { background: color-mix(in srgb, var(--accent) 24%, transparent); }
+.install-steps { margin: 6px 0 4px; padding-left: 20px; line-height: 1.6; }
+.install-steps li { margin: 4px 0; }
+.beta-set { border: 1px solid color-mix(in srgb, var(--accent) 40%, var(--line)); border-radius: 12px; padding: 12px 14px; }

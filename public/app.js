@@ -244,7 +244,9 @@ function freshDefaults(name = "") {
     if (c.id === "local") c.feeds = [];
     if (c.id === "industry" || c.id === "leadership") c.on = false;
   }
-  d.realestate = { country: "CA", areas: { CA: ["Ontario", "GTA", "Ottawa", "Hamilton"], US: [] }, area: { CA: "", US: "" } };
+  d.realestate = { country: "US", areas: { CA: ["Ontario", "GTA", "Ottawa", "Hamilton"], US: [] }, area: { CA: "", US: "" } };
+  d.markets.realestate = false;
+  for (const c of d.news.categories) if (c.id === "realestate") c.on = false;
   d.needsSetup = true;
   return d;
 }
@@ -463,8 +465,10 @@ const hashStr = (str) => { let h = 7; for (const c of String(str)) h = (h * 31 +
 async function api(url, asText = false) {
   const r = await fetch(url);
   if (!r.ok) {
-    let msg = `${r.status}`;
-    try { msg = asText ? await r.text() : (await r.json()).error || msg; } catch {}
+    let msg = "";
+    try { msg = asText ? await r.text() : (await r.json()).error || ""; } catch {}
+    // Never show a raw web page or a long technical message to the person
+    if (!msg || msg.length > 140 || /<[a-z!/]/i.test(msg)) msg = r.status === 404 ? "not found" : r.status === 429 ? "busy — try again shortly" : r.status >= 500 ? "temporarily unavailable" : "couldn't load";
     throw new Error(msg);
   }
   return asText ? r.text() : r.json();
@@ -972,7 +976,7 @@ async function loadCategory(cat) {
         const xml = await api(`/api/feed?url=${encodeURIComponent(f.url)}`, true);
         return { items: parseFeed(xml, f) };
       } catch (e) {
-        return { error: `${f.name}: ${e.message}`, items: [] };
+        return { error: f.name, items: [] };
       }
     })
   );
@@ -1046,7 +1050,7 @@ function renderNews() {
       `</div>` +
       (items.length > limit ? `<div class="more"><button class="btn sm" data-more="1">Show more (${items.length - limit})</button></div>` : "") +
       (!items.length ? `<div class="empty">${q ? "No headlines match your filter." : "No headlines right now."}</div>` : "") +
-      (d.errors.length ? `<div class="err">Some feeds didn't load: ${esc(d.errors.join(" · "))}</div>` : "");
+      (d.errors.length ? `<div class="err">${d.errors.length === 1 ? "One source" : `${d.errors.length} sources`} didn't load just now (${esc(d.errors.slice(0, 4).join(", "))}${d.errors.length > 4 ? "…" : ""}). Daily HQ will try again on the next refresh.</div>` : "");
   }
   const hadFocus = document.activeElement?.id === "newsFilter";
   const catCfg = activeNews === "__saved" ? null : cats.find((c) => c.id === activeNews);
@@ -1656,7 +1660,7 @@ function renderCalendar() {
 
   const connect = !(cfg.calendars || []).length ? `<div class="cal-connect">${ic("link")} Show your Outlook, Google or iCloud events here. <button class="linkish" data-config="calendar">Connect a calendar</button></div>` : "";
   body.innerHTML = `
-    <form class="cal-quick" data-cal-quick><span class="cal-quick-ic">${ic("sparkles")}</span><input name="q" placeholder="Quick add: Lunch with Jen Tue 12:30" autocomplete="off" enterkeyhint="done"><button class="btn sm primary" type="submit" aria-label="Add">${ic("plus")}</button></form>
+    <form class="cal-quick" data-cal-quick><span class="cal-quick-ic">${ic("sparkles")}</span><input name="q" placeholder="Quick add: Lunch with Alex Tue 12:30" autocomplete="off" enterkeyhint="done"><button class="btn sm primary" type="submit" aria-label="Add">${ic("plus")}</button></form>
     ${nextHTML}
     <div class="cal-top">
       <div class="cal-nav"><button class="icon-btn sm" data-cal-nav="-1" aria-label="Previous">${ic("chevron-left")}</button><b>${esc(title)}</b><button class="icon-btn sm" data-cal-nav="1" aria-label="Next">${ic("chevron-right")}</button></div>
@@ -1669,7 +1673,7 @@ function renderCalendar() {
     ${data.calErrors?.length ? `<div class="err">${esc(data.calErrors.join(" · "))}</div>` : ""}`;
 }
 
-// ---------- quick add: "Lunch with Jen Tue 12:30", "Dentist Nov 12 3pm for 45m", "Gym tomorrow 6am"
+// ---------- quick add: "Lunch with Alex Tue 12:30", "Dentist Nov 12 3pm for 45m", "Gym tomorrow 6am"
 const MONTHS3 = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"];
 function parseQuick(text, base) {
   let s = ` ${text.trim()} `;
@@ -1727,7 +1731,7 @@ function eventForm(e = {}) {
   const en = e.end ? new Date(e.end) : new Date(st.getTime() + 3600e3);
   openModal(`${ic(e.id ? "pencil" : "calendar-plus")} ${e.id ? "Edit event" : "New event"}`, `
     <form class="ev-form" data-ev-form="${esc(e.id || "")}">
-      <label class="fld">What<input name="title" value="${esc(e.title || "")}" placeholder="e.g. Lunch with Jen" required></label>
+      <label class="fld">What<input name="title" value="${esc(e.title || "")}" placeholder="e.g. Lunch with Alex" required></label>
       <label class="chk"><input type="checkbox" name="allDay" ${e.allDay ? "checked" : ""}> All day</label>
       <div class="ev-when">
         <label class="fld">Starts<input type="${e.allDay ? "date" : "datetime-local"}" name="start" value="${e.allDay ? dkey(st) : toLocalInput(st)}" required></label>
@@ -2156,17 +2160,48 @@ function showWelcome() {
   openModal(`${ic("sparkles")} Welcome to Daily HQ`, `
     <p class="hint">Scores, news, weather, markets and your calendar on one screen. Set the basics now, then fine-tune any time from Customize.</p>
     <label class="fld">Your first name<input id="wName" value="${esc(cfg.name || "")}" placeholder="e.g. Alex" autocomplete="given-name"></label>
-    <label class="fld">Your city<div class="inline" style="margin-top:4px"><input id="wCity" placeholder="Search a city…"><button class="btn" data-w="city">Search</button></div></label>
+    <label class="fld">Your city<div class="inline" style="margin-top:4px"><input id="wCity" placeholder="Search a city…" enterkeyhint="search"><button class="btn" data-w="city">Search</button></div></label>
+    <button class="btn wide" data-w="locate" style="margin-top:-4px">${ic("map-pin")} Use my location</button>
     <div id="wCities" class="chips">${cfg.weather.cities.map((c) => `<span class="chip">${esc(c.name)}</span>`).join("")}</div>
     <div id="wCityRes"></div>
+    <div class="fld">Show on your home page<div class="chips">${cfg.sections.map((s) => `<span class="chip add ${s.on ? "sel" : ""}" data-w="section" data-k="${s.id}">${ic(SECTION_META[s.id].icon, "xs")} ${esc(s.id === "brief" ? "Brief" : SECTION_META[s.id].title)}</span>`).join("")}</div><p class="hint" style="margin:6px 0 0">Tap to turn on or off. You can change this any time.</p></div>
     <div class="fld">Leagues you follow<div class="chips">${leagues.map((k) => `<span class="chip add ${cfg.sports.leagues.some((l) => l.key === k) ? "sel" : ""}" data-w="league" data-k="${k}">${LEAGUES[k].icon} ${LEAGUES[k].name}</span>`).join("")}</div></div>
     <button class="btn primary wide" data-w="done">Start using Daily HQ</button>
     <details class="w-sync"><summary>Already set up on another device?</summary>
       <p class="hint">Enter the sync code from Customize → General on your other device.</p>
       <div class="inline"><input id="wCode" placeholder="XXXX-XXXX-XXXX"><button class="btn" data-w="code">Use code</button></div></details>`);
 }
+function setHomeCountry(cc) {
+  if (!cc) return;
+  cfg.units = cc === "US" || cc === "LR" || cc === "MM" ? "F" : "C";
+  if (cc === "US" || cc === "CA") cfg.realestate.country = cc;
+}
 async function welcomeAction(a) {
   const w = a.dataset.w;
+  if (w === "section") {
+    const s = cfg.sections.find((x) => x.id === a.dataset.k); if (!s) return;
+    if (s.on && cfg.sections.filter((x) => x.on).length === 1) return toast("Keep at least one section");
+    s.on = !s.on; a.classList.toggle("sel", s.on); save(); return;
+  }
+  if (w === "locate") {
+    if (!navigator.geolocation) return toast("Location isn't available here — search for your city instead");
+    a.disabled = true; a.innerHTML = `${ic("map-pin")} Finding you…`;
+    navigator.geolocation.getCurrentPosition(async (pos) => {
+      const { latitude: lat, longitude: lon } = pos.coords;
+      let name = "My location", cc = "";
+      try {
+        const g = await api(`https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=${lat}&longitude=${lon}&localityLanguage=en`);
+        cc = g.countryCode || "";
+        const region = cc === "US" || cc === "CA" ? abbrevRegion(g.principalSubdivision || "") : g.countryName;
+        name = [g.city || g.locality, region].filter(Boolean).join(", ") || name;
+      } catch {}
+      if (!cfg.weather.cities.some((c) => c.name === name)) cfg.weather.cities.unshift({ name, lat: +lat.toFixed(4), lon: +lon.toFixed(4) });
+      setHomeCountry(cc); save();
+      $("#wCities").innerHTML = cfg.weather.cities.map((c) => `<span class="chip">${esc(c.name)}</span>`).join("");
+      a.innerHTML = `${ic("check")} ${esc(name)}`;
+    }, () => { a.disabled = false; a.innerHTML = `${ic("map-pin")} Use my location`; toast("Couldn't get your location — search for your city instead"); }, { timeout: 12000, maximumAge: 600000 });
+    return;
+  }
   if (w === "league") {
     const k = a.dataset.k, i = cfg.sports.leagues.findIndex((l) => l.key === k);
     if (i >= 0) cfg.sports.leagues.splice(i, 1); else cfg.sports.leagues.push({ key: k, teams: [], showAll: true });
@@ -2182,6 +2217,7 @@ async function welcomeAction(a) {
     const r = welcomeAction.res[+a.dataset.k];
     const region = r.country_code === "US" || r.country_code === "CA" ? abbrevRegion(r.admin1) : r.country;
     cfg.weather.cities.push({ name: [r.name, region].filter(Boolean).join(", "), lat: r.latitude, lon: r.longitude });
+    if (cfg.weather.cities.length === 1) setHomeCountry(r.country_code);
     $("#wCities").innerHTML = cfg.weather.cities.map((c) => `<span class="chip">${esc(c.name)}</span>`).join("");
     $("#wCityRes").innerHTML = ""; $("#wCity").value = ""; save();
   } else if (w === "code") {
@@ -2191,9 +2227,49 @@ async function welcomeAction(a) {
     cfg.name = $("#wName").value.trim();
     delete cfg.needsSetup; save(); renameProfileEntry();
     closeModal(); tickClock(); buildShell(); refresh();
+    setTimeout(maybeInstallTip, 45000);
     if (cfg.sports.leagues.length) { openPicker = cfg.sports.leagues[0].key; openSettings("sports"); ensureTeams(openPicker).then(renderSettings); toast("Pick your teams — or skip to see every game"); }
   }
 }
+
+// ============================================================ beta: feedback + install tip
+const BETA = window.DHQ_BETA || null;
+function openFeedback(kind = "") {
+  if (!BETA) return toast("Feedback isn't available here");
+  const kinds = [["idea", "💡 Idea"], ["problem", "🐞 Something's wrong"], ["confusing", "🤔 Confusing"], ["like", "👍 I like this"]];
+  openModal(`${ic("send")} Send feedback to Dean`, `
+    <p class="hint">What's working, what's broken, what's confusing — anything helps. It goes straight to Dean with the app version (${esc(BETA.version)}).</p>
+    <div class="chips" id="fbKinds">${kinds.map(([k, l]) => `<span class="chip add ${k === kind ? "sel" : ""}" data-k="${k}">${l}</span>`).join("")}</div>
+    <label class="fld">Your note<textarea id="fbText" rows="6" placeholder="e.g. The weather for my city was wrong this morning…" style="width:100%"></textarea></label>
+    <button class="btn primary wide" id="fbSend">${ic("send")} Send</button>`);
+  let k = kind;
+  $("#fbKinds").onclick = (e) => { const c = e.target.closest("[data-k]"); if (!c) return; k = c.dataset.k; [...$("#fbKinds").children].forEach((x) => x.classList.toggle("sel", x === c)); };
+  $("#fbSend").onclick = async () => {
+    const text = $("#fbText").value.trim(); if (!text) return toast("Write a short note first");
+    $("#fbSend").disabled = true;
+    try { const r = await BETA.feedback(text, k, (location.hash || "home").slice(0, 40)); if (!r.ok) throw new Error(); closeModal(); toast("Thanks — Dean will see this"); }
+    catch { $("#fbSend").disabled = false; toast("Couldn't send — check your connection"); }
+  };
+}
+const isStandalone = () => matchMedia("(display-mode: standalone)").matches || navigator.standalone === true;
+let installEvt = null;
+addEventListener("beforeinstallprompt", (e) => { e.preventDefault(); installEvt = e; });
+function maybeInstallTip(force = false) {
+  const shown = +(store.get("dailyhq.installTip") || 0);
+  const phone = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent) || matchMedia("(max-width: 820px)").matches;
+  if (!force && (isStandalone() || !phone || shown >= 2 || !$("#modal").hidden || cfg.needsSetup)) return;
+  store.set("dailyhq.installTip", String(shown + 1));
+  const ios = /iPhone|iPad|iPod/i.test(navigator.userAgent), chromeIOS = ios && /CriOS/i.test(navigator.userAgent);
+  const steps = ios
+    ? `<ol class="install-steps"><li>Tap the <b>Share</b> button ${chromeIOS ? "(top right, next to the address bar)" : "(the square with an arrow, at the bottom)"}.</li><li>Scroll down and tap <b>Add to Home Screen</b>.</li><li>Tap <b>Add</b>. Daily HQ now opens full-screen from its own icon.</li></ol>`
+    : installEvt ? `<p class="hint">Your browser can install Daily HQ as an app.</p><button class="btn primary wide" id="installNow">${ic("smartphone")} Install Daily HQ</button>`
+    : `<ol class="install-steps"><li>Open your browser's <b>⋮</b> menu.</li><li>Tap <b>Install app</b> or <b>Add to Home screen</b>.</li></ol>`;
+  openModal(`${ic("smartphone")} Put Daily HQ on your home screen`, `<p class="hint">It opens like a regular app — full screen, one tap, no browser bars.</p>${steps}<button class="btn wide" data-close-install style="margin-top:10px">Maybe later</button>`);
+  $("[data-close-install]").onclick = closeModal;
+  const b = $("#installNow"); if (b) b.onclick = async () => { closeModal(); installEvt.prompt(); installEvt = null; };
+}
+if (BETA && $("#betaPill")) { $("#betaPill").hidden = false; $("#betaPill").onclick = () => openFeedback(); }
+if (BETA) setTimeout(() => { if (!cfg.needsSetup && !store.get("dailyhq.installTip")) maybeInstallTip(); }, 20000);
 
 // ============================================================ real estate (agent briefing + markets)
 // Official monthly snapshot — update after each release (CREA mid-month, NAR around the 2nd week).
@@ -2741,7 +2817,7 @@ function alertLogHTML() {
 function profilesHTML() {
   const list = listProfiles();
   return `<div class="quick">${list.map((p) => `<div class="row">${ic(p.id === profileId ? "circle-check" : "users")}<span class="grow">${esc(p.name || "Unnamed")}${p.id === profileId ? ` <span class="host">· you're here</span>` : ""}</span>${p.id === profileId ? "" : `<button class="btn sm" data-profile="${p.id}">Switch</button>`}${p.id !== "main" && p.id !== profileId ? `<button class="btn sm" data-profile-del="${p.id}" aria-label="Remove">${ic("x", "xs")}</button>` : ""}</div>`).join("")}
-    <div class="inline"><input id="newProfile" placeholder="Add a person, e.g. Jen"><button class="btn sm" data-quick="addprofile">${ic("user-plus")} Add</button></div></div>`;
+    <div class="inline"><input id="newProfile" placeholder="Add a person, e.g. Sam"><button class="btn sm" data-quick="addprofile">${ic("user-plus")} Add</button></div></div>`;
 }
 
 function setView(v) {
@@ -2984,6 +3060,8 @@ document.addEventListener("click", async (e) => {
   if (qk) {
     const k = qk.dataset.quick, v = qk.dataset.v;
     if (k === "refresh") { refresh(); toast("Refreshing…"); return; }
+    if (k === "feedback") { closeSettings?.(); openFeedback(); return; }
+    if (k === "installtip") { closeSettings?.(); maybeInstallTip(true); return; }
     if (k === "notif") {
       try { const r = await Notification.requestPermission(); toast(r === "granted" ? "Alerts will also show on this device" : "Notifications weren't allowed"); setUnread(unreadCount()); } catch { toast("Notifications aren't available here"); }
       renderBellPop(); return;
@@ -3157,6 +3235,7 @@ function renderSettings() {
 function setGeneral() {
   const n = cfg.sections.length;
   return `
+  ${BETA ? `<div class="set beta-set"><h4>${ic("sparkles")} Daily HQ beta</h4><p class="hint">${esc(BETA.version)}${BETA.name ? ` · invite for ${esc(BETA.name)}` : ""}${BETA.expires ? ` · access until ${new Date(BETA.expires).toLocaleDateString([], { month: "long", day: "numeric", year: "numeric" })}` : ""}</p><div class="inline"><button class="btn primary" data-quick="feedback">${ic("send")} Send feedback</button><button class="btn" data-quick="installtip">${ic("smartphone")} Add to home screen</button></div></div>` : ""}
   <div class="set"><h4>Your name</h4><p class="hint">Used in the greeting.</p><input data-bind="name" value="${esc(cfg.name)}"></div>
   <div class="set"><h4>Appearance</h4>
     <div class="row"><span class="grow">Theme</span><span class="seg">${["dark", "light", "auto"].map((t) => `<button data-act="theme" data-v="${t}" class="${cfg.theme === t ? "on" : ""}">${t[0].toUpperCase() + t.slice(1)}</button>`).join("")}</span></div>
@@ -3246,7 +3325,7 @@ function setNews() {
           )
           .join("") || `<div class="hint" style="color:var(--muted);font-size:12.5px;padding:6px 0">No feeds yet.</div>`}
         ${sugg.length ? `<div class="chips">${sugg.map(([n, u]) => `<span class="chip add" data-act="feed-sugg" data-i="${i}" data-name="${esc(n)}" data-url="${esc(u)}">+ ${esc(n)}</span>`).join("")}</div>` : ""}
-        <div class="inline"><input id="topic-${i}" placeholder="Track a topic, e.g. Devils trade"><button class="btn sm" data-act="topic-add" data-i="${i}">+ Topic</button></div>
+        <div class="inline"><input id="topic-${i}" placeholder="Track a topic, e.g. Fed rate decision"><button class="btn sm" data-act="topic-add" data-i="${i}">+ Topic</button></div>
         <div class="inline"><input id="fname-${i}" placeholder="Feed name" style="flex:.6"><input id="furl-${i}" placeholder="RSS URL https://…"><button class="btn sm" data-act="feed-add" data-i="${i}">+ Feed</button></div>
         <div style="text-align:right;margin-top:8px"><button class="btn sm danger" data-act="cat-del" data-i="${i}">Delete category</button></div>
       </div>`;
@@ -3680,7 +3759,7 @@ if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").cat
 // Like Alex in Executive Search: launcher bubble, chat, suggestions, task cards and confirm-before-change.
 // It understands everyday phrasing for the things Daily HQ knows about and answers from the data on screen.
 const AS = { open: false, msgs: [], pending: null, speak: store.get(pkey("dhq-as-speak")) === "1", rec: null, listening: false, teamIdx: null };
-const AS_SUGGEST = ["Brief me", "What's on my calendar today?", "Will it rain tomorrow?", "When do my teams play next?", "How are the markets?", "Price of NVDA", "Add lunch with Jen Tue 12:30", "Mississauga market", "Mortgage rates", "News about AI", "Follow the Raptors", "Alert me if TSLA drops below 300", "100 USD to CAD", "What can you do?"];
+const AS_SUGGEST = ["Brief me", "What's on my calendar today?", "Will it rain tomorrow?", "When do my teams play next?", "How are the markets?", "Price of NVDA", "Add lunch with Alex Tue 12:30", "Toronto market", "Mortgage rates", "News about AI", "Follow the Raptors", "Alert me if TSLA drops below 300", "100 USD to CAD", "What can you do?"];
 
 function asInit() {
   if ($("#asLauncher")) return;
@@ -3858,10 +3937,10 @@ function asHelp() {
     <ul class="as-list">
       <li><b>Brief me</b> — weather, today's events, your games and markets</li>
       <li><b>Calendar</b> — "What's on tomorrow?", "Next meeting", "Add dentist Nov 12 3pm"</li>
-      <li><b>Sports</b> — "Did the Devils win?", "When do the Leafs play?", "NHL standings", "Follow the Raptors"</li>
+      <li><b>Sports</b> — "Did my team win?", "When does Toronto play next?", "NHL standings", "Follow the Yankees"</li>
       <li><b>Weather</b> — "Will it rain tomorrow?", "Weather in Toronto", "Add Ottawa to weather"</li>
       <li><b>Markets</b> — "How are the markets?", "Price of NVDA", "Add AAPL to my watchlist", "Alert me if TSLA drops below 300", "100 USD to CAD"</li>
-      <li><b>Real estate</b> — "Mississauga market", "Mortgage rates", "Payment on 900k with 20% down"</li>
+      <li><b>Real estate</b> — "Toronto market", "Mortgage rates", "Payment on 900k with 20% down"</li>
       <li><b>News</b> — "Headlines", "News about the Fed", or just ask about anything ("What's going on with Nvidia?") — I search every news tab for matching stories</li>
       <li><b>Go places</b> — "Open markets", "Open settings"</li>
     </ul>I'll always ask before I change anything.`);
@@ -3907,7 +3986,7 @@ function asCalendar(q) {
   }
   const day = asDay(q), evs = calEventsBetween(day, plusDays(day, 1), false);
   const lbl = calDayLabel(day);
-  if (!(cfg.calendars || []).length && !(cfg.events || []).length) return asSay(`Your calendar is empty. Say "Add lunch with Jen Tuesday 12:30", or connect Outlook/Google in Customize → Calendar.`, { actions: [{ label: "Connect a calendar", icon: "link", run: () => { asToggle(false); openSettings("calendar"); } }] });
+  if (!(cfg.calendars || []).length && !(cfg.events || []).length) return asSay(`Your calendar is empty. Say "Add lunch with Alex Tuesday 12:30", or connect Outlook/Google in Customize → Calendar.`, { actions: [{ label: "Connect a calendar", icon: "link", run: () => { asToggle(false); openSettings("calendar"); } }] });
   if (!evs.length) return asSay(`Nothing on your calendar ${lbl === "Today" || lbl === "Tomorrow" ? lbl.toLowerCase() : `on ${esc(lbl)}`}. 🎉`);
   const list = evs.map((e) => `<li><b>${e.allDay ? "All day" : hm(e.start)}</b> — ${esc(e.title || "Busy")}${placeOf(e) ? ` <small>· ${esc(placeOf(e))}</small>` : ""}</li>`).join("");
   asSay(`${esc(lbl)} you have <b>${evs.length}</b> event${evs.length > 1 ? "s" : ""}:<ul class="as-list">${list}</ul>`, { actions: [{ label: "Open Calendar", icon: "calendar-days", once: false, run: () => { calUI.sel = day; calUI.month = new Date(day.getFullYear(), day.getMonth(), 1); renderCalendar(); asToggle(false); goToSection("calendar", "HQ Assistant"); } }] });
@@ -3929,7 +4008,7 @@ function asAddEvent(text) {
 function asWeather(q) {
   const ws = (data.weather || []).filter((x) => x.d);
   if (/\badd\b/.test(q) && /\b(weather|city)\b/.test(q)) return asAddCity(q);
-  if (!ws.length) return asSay(`You don't have a weather city yet. Say "Add Manalapan to weather".`);
+  if (!ws.length) return asSay(`You don't have a weather city yet. Say "Add Chicago to weather", or add your city in Customize → Weather.`);
   const w = ws.find((x) => q.includes(x.c.name.split(",")[0].toLowerCase())) || ws[0];
   const day = asDay(q), i = Math.max(0, Math.round((day - sod(new Date())) / 864e5));
   const d = w.d.daily, c = w.d.current, city = esc(w.c.name.split(",")[0]);
