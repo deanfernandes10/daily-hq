@@ -1340,18 +1340,22 @@ function renderMarkets(force = false) {
   }
   const body = $("#markets-body");
   if (!body) return;
-  if (!cfg.markets.groups.length) { body.innerHTML = emptyState("No watchlists yet.", "markets"); return; }
+  if (!cfg.markets.groups.length) { body.innerHTML = `<div class="mk-grid"><a class="q" href="/economy.html">🇺🇸 US Economic Watch →</a><a class="q" href="/economy-canada.html">🇨🇦 Canadian Economic Watch →</a></div>` + emptyState("No watchlists yet.", "markets"); return; }
   const tabsList = marketTabs();
   let tab = cfg.markets.tab || "all";
   if (!tabsList.some(([k]) => k === tab)) tab = "all";
+  const economicTiles = `<div class="mk-grid" style="margin:12px 0 18px;grid-template-columns:repeat(auto-fit,minmax(180px,1fr))">
+    <a class="q" href="/economy.html" style="text-decoration:none;display:block;padding:18px"><div class="q-top"><span class="sym">🇺🇸 US Economic Watch</span></div><div class="nm" style="margin-top:12px">GDP · Jobs · Inflation · Housing</div><div class="nm" style="margin-top:10px;color:var(--accent,#80c6ff)">Open US dashboard →</div></a>
+    <a class="q" href="/economy-canada.html" style="text-decoration:none;display:block;padding:18px"><div class="q-top"><span class="sym">🇨🇦 Canadian Economic Watch</span></div><div class="nm" style="margin-top:12px">GDP · Jobs · Inflation · Housing</div><div class="nm" style="margin-top:10px;color:var(--accent,#80c6ff)">Open Canada dashboard →</div></a>
+  </div>`;
   const tabBar = `<div class="tabs mk-tabs" role="tablist">${tabsList.map(([k, l, i]) => `<button data-mktab="${esc(k)}" class="${k === tab ? "on" : ""}">${i ? ic(i, "xs") + " " : ""}${l}</button>`).join("")}</div>`;
   const err = data.marketsError ? `<div class="err">Some quotes are delayed — showing the last prices received.</div>` : "";
-  if (tab.startsWith("re:")) { body.innerHTML = tabBar + reMarketTabHTML(tab.slice(3)); return; }
-  if (tab === "fx") { body.innerHTML = tabBar + converterHTML(true) + fxGroupHTML(); return; }
+  if (tab.startsWith("re:")) { body.innerHTML = economicTiles + tabBar + reMarketTabHTML(tab.slice(3)); return; }
+  if (tab === "fx") { body.innerHTML = economicTiles + tabBar + converterHTML(true) + fxGroupHTML(); return; }
   const groups = tab.startsWith("grp:") ? cfg.markets.groups.filter((g) => g.name === tab.slice(4)) : cfg.markets.groups;
   const extras = tab === "all" ? realEstateMarketsHTML() + converterHTML() : "";
   const viewSeg = `<div class="seg mk-view">${[["tiles", "layout-grid", "Tiles"], ["list", "list", "List"]].map(([v, i, l]) => `<button data-mkview="${v}" class="${cfg.markets.view === v ? "on" : ""}">${ic(i)} ${l}</button>`).join("")}</div>`;
-  body.innerHTML = tabBar + viewSeg + groups.map((g) => groupHTML(g, tab !== "all")).join("") + extras + err;
+  body.innerHTML = economicTiles + tabBar + viewSeg + groups.map((g) => groupHTML(g, tab !== "all")).join("") + extras + err;
 }
 function marketTabs() {
   const t = [["all", "All"]];
