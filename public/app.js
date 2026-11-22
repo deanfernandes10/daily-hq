@@ -922,8 +922,10 @@ function renderSports() {
   const seg = `<div class="sp-bar sp-views"><div class="seg" role="tablist">${SP_VIEWS.map(([v, l, i]) => `<button data-spview="${v}" class="${view === v ? "on" : ""}">${ic(i)} ${l}</button>`).join("")}</div></div>` +
     (view === "scores" ? `<div class="sp-bar"><div class="seg" role="tablist">${SP_MODES.map(([v, l]) => `<button data-spmode="${v}" class="${mode === v ? "on" : ""}">${l}</button>`).join("")}</div></div>` : "");
   ensureTeamNames();
-  const hubBar = teamHubBar();
-  if (hubCurrent()) return renderTeamHub(body, hubBar);
+  const main = sportsMain();
+  const mainBar = sportsMainBar(main);
+  if (main === "fav") return renderTeamHub(body, mainBar + teamHubBar());
+  const hubBar = mainBar;
   if (view !== "scores") return renderSportsAlt(body, hubBar + seg, view);
 
   const upnext = "";
@@ -1140,7 +1142,7 @@ document.addEventListener("change", (e) => {
     cfg.sports.schedSel = { ...(cfg.sports.schedSel || {}), [k]: ss.value }; save(); renderSports(); return;
   }
   const hb = e.target.closest?.("[data-hub]");
-  if (hb) { cfg.sports.hub = hb.value || ""; save(); renderSports(); $("#sec-sports")?.scrollIntoView({ block: "start" }); return; }
+  if (hb) { cfg.sports.hub = hb.value; cfg.sports.main = "fav"; save(); renderSports(); return; }
   const ns = e.target.closest?.("[data-news-sel]");
   if (ns) {
     const k = ns.dataset.newsSel;
@@ -1300,15 +1302,24 @@ function hubTeams() {
   for (const L of cfg.sports.leagues) {
     const m = LEAGUES[L.key];
     if (!m || m.kind) continue;
-    for (const ab of schedTeams(L)) out.push({ key: L.key, ab, fav: (L.teams || []).includes(ab) });
+    for (const ab of L.teams || []) out.push({ key: L.key, ab, fav: true });
   }
-  return out.sort((a, b) => (b.fav ? 1 : 0) - (a.fav ? 1 : 0));
+  return out;
 }
 function hubCurrent() {
-  const h = cfg.sports.hub;
-  if (!h) return null;
-  const [key, ab] = h.split("|");
-  return hubTeams().find((t) => t.key === key && t.ab === ab) || null;
+  const list = hubTeams();
+  const [key, ab] = (cfg.sports.hub || "").split("|");
+  return list.find((t) => t.key === key && t.ab === ab) || list[0] || null;
+}
+// Top switch: Favorites (your teams, one page each) or Leagues (scores, schedules, standings and news by league)
+function sportsMain() {
+  if (!hubTeams().length) return "leagues";
+  return cfg.sports.main === "leagues" ? "leagues" : "fav";
+}
+function sportsMainBar(main) {
+  const n = hubTeams().length;
+  if (!n) return "";
+  return `<div class="sp-main seg" role="tablist"><button data-spmain="fav" class="${main === "fav" ? "on" : ""}">★ Favorites <small>${n}</small></button><button data-spmain="leagues" class="${main === "leagues" ? "on" : ""}">${ic("trophy", "xs")} Leagues</button></div>`;
 }
 const teamName = (key, ab, short) => { const t = (teamCache[key] || []).find((x) => x.abbr === ab); return (short ? t?.short : t?.name) || ab; };
 function teamHubBar() {
@@ -1318,13 +1329,13 @@ function teamHubBar() {
   const v = cur ? `${cur.key}|${cur.ab}` : "";
   const opt = (t) => `<option value="${esc(t.key)}|${esc(t.ab)}" ${v === `${t.key}|${t.ab}` ? "selected" : ""}>${t.fav ? "★ " : ""}${esc(teamName(t.key, t.ab))}</option>`;
   const byLeague = [...new Set(list.map((t) => t.key))].map((k) => `<optgroup label="${esc(LEAGUES[k].name)}">${list.filter((t) => t.key === k).map(opt).join("")}</optgroup>`).join("");
-  const logo = cur ? (teamCache[cur.key] || []).find((x) => x.abbr === cur.ab)?.logo : "";
-  return `<div class="hub-bar"><button class="hub-nav" data-hub-step="-1" aria-label="Previous team" ${cur && list.length > 1 ? "" : "disabled"}>${ic("chevron-left")}</button>
-    <label class="sch-sel hub-sel">${logo ? `<img src="${esc(logo)}" alt="">` : ic(cur ? "trophy" : "layout-grid", "xs")}<select data-hub aria-label="My teams">
-      <option value="" ${v ? "" : "selected"}>All my sports</option>
+  if (!cur) return "";
+  const logo = (teamCache[cur.key] || []).find((x) => x.abbr === cur.ab)?.logo;
+  return `<div class="hub-bar"><button class="hub-nav" data-hub-step="-1" aria-label="Previous team" ${list.length > 1 ? "" : "disabled"}>${ic("chevron-left")}</button>
+    <label class="sch-sel hub-sel">${logo ? `<img src="${esc(logo)}" alt="">` : ic(cur ? "trophy" : "layout-grid", "xs")}<select data-hub aria-label="Favorites">
       ${byLeague}
     </select>${ic("chevron-down", "xs")}</label>
-    <button class="hub-nav" data-hub-step="1" aria-label="Next team" ${list.length > (cur ? 1 : 0) ? "" : "disabled"}>${ic("chevron-right")}</button></div>`;
+    <button class="hub-nav" data-hub-step="1" aria-label="Next team" ${list.length > 1 ? "" : "disabled"}>${ic("chevron-right")}</button></div>`;
 }
 const hubInfoCache = {};
 async function loadTeamInfo(key, ab) {
@@ -1345,7 +1356,7 @@ function renderTeamHub(body, hubBar) {
   const tab = HUB_TABS.some(([v]) => v === cfg.sports.hubTab) ? cfg.sports.hubTab : "home";
   const t = (teamCache[key] || []).find((x) => x.abbr === ab);
   const head = `<div class="hub-head" id="hubHead">${t?.logo ? `<img src="${esc(t.logo)}" alt="">` : `<span class="hub-ph">${esc(ab)}</span>`}<div><b>${esc(t?.name || ab)}</b><small id="hubSub">${leagueBadge(key)} ${esc(meta.name)}</small></div>
-    ${cur.fav ? `<span class="hub-fav" title="Favourite">★</span>` : ""}</div>`;
+    <button class="hub-lg" data-hub-league="${esc(key)}" title="Open ${esc(meta.name)} in Leagues">${esc(meta.name)} ${ic("chevron-right", "xs")}</button></div>`;
   const tabs = `<div class="hub-tabs" role="tablist">${HUB_TABS.map(([v, l]) => `<button role="tab" data-hub-tab="${v}" class="${tab === v ? "on" : ""}">${l}</button>`).join("")}</div>`;
   let inner = "";
   if (tab === "home") inner = `<div id="hubGames">${hubGamesHTML(key, ab)}</div>
@@ -3855,6 +3866,17 @@ document.addEventListener("click", async (e) => {
   if (lbc) { const [k, v] = lbc.dataset.lbcat.split("|"); cfg.sports.lbCat = { ...(cfg.sports.lbCat || {}), [k]: v }; save(); renderSports(); return; }
   const spv = t.closest("[data-spview]");
   if (spv) { cfg.sports.view = spv.dataset.spview; save(); renderSports(); return; }
+  const smain = t.closest("[data-spmain]");
+  if (smain) { cfg.sports.main = smain.dataset.spmain; save(); renderSports(); $("#sec-sports")?.scrollIntoView({ block: "start" }); return; }
+  const hlg = t.closest("[data-hub-league]");
+  if (hlg) {
+    const k = hlg.dataset.hubLeague;
+    cfg.sports.main = "leagues";
+    cfg.sports.collapsed = { ...(cfg.sports.collapsed || {}), [k]: false };
+    save(); renderSports();
+    requestAnimationFrame(() => (document.querySelector(`[data-league-toggle="${k}"]`) || $("#sec-sports"))?.scrollIntoView({ block: "start", behavior: "smooth" }));
+    return;
+  }
   const hstep = t.closest("[data-hub-step]");
   if (hstep) {
     const list = hubTeams(); if (!list.length) return;

@@ -1394,3 +1394,18 @@ body.drawer-open .as-launcher { display: none; }
   .hub-sel { padding: 0 10px; gap: 6px; }
   .hub-sel select { font-size: 16px; padding-right: 14px; }
 }
+
+/* Favorites | Leagues switch */
+.sp-main { display: flex; width: 100%; margin: 0 0 10px; border-radius: 12px; }
+.sp-main button { flex: 1; min-height: 44px; font-size: 15px; font-weight: 700; display: inline-flex; align-items: center; justify-content: center; gap: 6px; }
+.sp-main button small { font-size: 11.5px; font-weight: 700; min-width: 20px; padding: 1px 6px; border-radius: 999px; background: color-mix(in srgb, currentColor 18%, transparent); }
+.sp-main button .ic { width: 15px; height: 15px; }
+.hub-lg { flex: none; border: 1px solid color-mix(in srgb, #fff 35%, transparent); background: color-mix(in srgb, #000 22%, transparent); color: #fff; border-radius: 999px; padding: 6px 8px 6px 12px; font: inherit; font-size: 12.5px; font-weight: 700; display: inline-flex; align-items: center; gap: 2px; min-height: 34px; }
+.hub-lg .ic { width: 13px; height: 13px; }
+@media (max-width: 400px) {
+  .hub-head { gap: 10px; padding: 12px; }
+  .hub-head img, .hub-ph { width: 44px; height: 44px; }
+  .hub-head b { font-size: 17px; }
+  .hub-head small { font-size: 12.5px; }
+  .hub-lg { padding: 5px 6px 5px 10px; font-size: 12px; }
+}
