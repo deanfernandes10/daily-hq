@@ -20,6 +20,7 @@ export default async (req: Request) => {
   if (kind === "summary" && !/^\d{1,12}$/.test(event)) return json({ error: "Bad event" }, 400);
   if (kind === "raw" && !/^(golf\/(pga|lpga|eur|liv)|cricket\/scorepanel)$/.test(path)) return json({ error: "Unknown feed" }, 400);
   if (kind === "leaders") return leaders(path);
+  if (kind === "news") return news(path, p.get("team") || "");
   const team = p.get("team") || "";
   if (kind === "schedule" && !/^[a-z0-9]{1,12}$/i.test(team)) return json({ error: "Bad team" }, 400);
   if (kind === "summary" || kind === "standings" || kind === "raw" || kind === "schedule") {
@@ -174,4 +175,29 @@ async function leaders(path: string) {
   } catch (e: any) { errs.push(`core: ${e?.message || e}`); }
   console.log(`ESPN leaders ${path} failed:`, errs.join(" | "));
   return json({ error: "Leaders unavailable" }, 502);
+}
+
+
+// ESPN league / team news, trimmed. GET /api/sports?path=hockey/nhl&kind=news[&team=11]
+export function trimNews(d: any) {
+  return (d?.articles || []).map((a: any) => ({
+    id: a.id || a.dataSourceIdentifier || a.headline,
+    title: a.headline || a.title,
+    desc: a.description || "",
+    date: a.published || a.lastModified,
+    img: a.images?.find((i: any) => i.url && (i.type === "header" || i.type === "Media" || !i.type))?.url || a.images?.[0]?.url || "",
+    link: a.links?.web?.href || a.links?.mobile?.href || "",
+    plus: !!a.premium,
+    video: a.type === "Media" || a.type === "video",
+    teams: (a.categories || []).filter((c: any) => c.type === "team" && c.teamId).map((c: any) => String(c.teamId)),
+  })).filter((a: any) => a.title && a.link);
+}
+async function news(path: string, team: string) {
+  if (team && !/^\d{1,8}$/.test(team)) return json({ error: "Bad team" }, 400);
+  const url = `https://site.api.espn.com/apis/site/v2/sports/${path}/news?limit=25${team ? `&team=${team}` : ""}`;
+  try {
+    const r = await fetch(url, { headers: { "user-agent": UA, accept: "application/json" }, signal: AbortSignal.timeout(7000) });
+    if (!r.ok) { console.log(`ESPN news ${path} ${team} -> ${r.status}`); return json({ error: `ESPN ${r.status}` }, 502); }
+    return json({ articles: trimNews(await r.json()) }, 200, 600);
+  } catch { return json({ error: "ESPN unavailable" }, 502); }
 }

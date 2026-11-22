@@ -1327,3 +1327,26 @@ body.drawer-open .as-launcher { display: none; }
   .greet { font-size: 14.5px; }
   .greet-row { gap: 6px; }
 }
+
+/* Sports news (ESPN) */
+.spn-list { display: flex; flex-direction: column; }
+.spn { display: grid; grid-template-columns: 96px minmax(0, 1fr); gap: 12px; align-items: center; padding: 10px 2px; border-bottom: 1px solid var(--line); color: var(--text); text-decoration: none; -webkit-tap-highlight-color: transparent; }
+.spn:last-child { border-bottom: 0; }
+.spn:active { background: color-mix(in srgb, var(--accent) 10%, transparent); }
+.spn img, .spn-noimg { width: 96px; height: 60px; object-fit: cover; border-radius: 8px; background: var(--panel-2); display: grid; place-items: center; color: var(--muted); }
+.spn-t { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.spn-t b { font-weight: 600; font-size: 14.5px; line-height: 1.3; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+.spn-t small { color: var(--muted); font-size: 12px; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.spn-t small .ic { width: 13px; height: 13px; }
+.spn-tag { color: var(--accent); font-weight: 600; }
+.spn-plus { font-size: 10.5px; font-weight: 800; padding: 1px 5px; border-radius: 4px; background: #facc15; color: #111; letter-spacing: .02em; }
+.league.fy { border-color: color-mix(in srgb, var(--accent) 45%, var(--line)); }
+.fy-h { cursor: default; }
+.fy-h .lg-name .ic { width: 16px; height: 16px; color: var(--accent); }
+@media (max-width: 400px) {
+  .sp-views .seg button { font-size: 13px; gap: 3px; }
+  .sp-views .seg button .ic { width: 13px; height: 13px; }
+  .spn { grid-template-columns: 84px minmax(0, 1fr); gap: 10px; }
+  .spn img, .spn-noimg { width: 84px; height: 54px; }
+}
+.spn-noimg { border: 1px solid var(--line); background: color-mix(in srgb, var(--accent) 8%, var(--panel-2)); }
