@@ -734,10 +734,12 @@ async function fetchRaw(path) {
   try { return await espnJSON(`${ESPN}${path}${path.startsWith("golf/") ? "/scoreboard" : ""}`); }
   catch { return api(`/api/sports?path=${path}&kind=raw`); }
 }
+const golfCal = {};
 const toPar = (v) => (v == null || v === "" ? "–" : String(v));
 async function fetchGolf(path) {
   const d = await fetchRaw(path);
   captureLeague(path, d.leagues?.[0]?.logos);
+  golfCal[path] = (d.leagues?.[0]?.calendar || []).filter((c) => c && c.startDate).map((c) => ({ name: c.label, start: c.startDate, end: c.endDate }));
   return (d.events || []).map((e) => {
     const c = e.competitions?.[0] || {};
     const st = c.status || e.status || {};
@@ -902,6 +904,7 @@ function cricketHTML(e, watched) {
   if (e.link) meta.push(`<a href="${esc(e.link)}" target="_blank" rel="noopener">Scorecard ${ic("external-link", "xs")}</a>`);
   return `<div class="game cricket ${e.state === "in" ? "is-live" : e.state === "post" ? "is-final" : ""}"><div class="g-status">${pill}</div>${rows}<div class="g-meta">${meta.join("<span>·</span>")}</div></div>`;
 }
+const SP_VIEWS = [["scores", "Scores", "trophy"], ["sched", "Schedule", "calendar"], ["table", "Standings", "list-ordered"]];
 const SP_MODES = [["mine", "My teams"], ["-1", "Yesterday"], ["0", "Today"], ["1", "Tomorrow"]];
 const isMine = (L, e) => (L.teams || []).some((ab) => e.teams.some((t) => t.abbr === ab));
 const matchup = (e) => {
@@ -914,7 +917,10 @@ function renderSports() {
   if (!body) return;
   if (!data.sports.length) return;
   const mode = cfg.sports.mode || "mine";
-  const seg = `<div class="sp-bar"><div class="seg" role="tablist">${SP_MODES.map(([v, l]) => `<button data-spmode="${v}" class="${mode === v ? "on" : ""}">${l}</button>`).join("")}</div></div>`;
+  const view = cfg.sports.view || "scores";
+  const seg = `<div class="sp-bar sp-views"><div class="seg" role="tablist">${SP_VIEWS.map(([v, l, i]) => `<button data-spview="${v}" class="${view === v ? "on" : ""}">${ic(i)} ${l}</button>`).join("")}</div></div>` +
+    (view === "scores" ? `<div class="sp-bar"><div class="seg" role="tablist">${SP_MODES.map(([v, l]) => `<button data-spmode="${v}" class="${mode === v ? "on" : ""}">${l}</button>`).join("")}</div></div>` : "");
+  if (view !== "scores") return renderSportsAlt(body, seg, view);
 
   const upnext = "";
   const tiles = data.sports
@@ -961,6 +967,163 @@ function renderSports() {
     .join("");
   body.innerHTML = seg + upnext + `<div class="leagues">${tiles}</div>`;
   updateBadges();
+}
+
+
+// ---------- Schedule & Standings views
+const schedCache = {}; // `${path}|${teamId}` -> { at, events }
+const tableCache = {}; // leagueKey -> { at, groups }
+async function teamIdFor(key, abbr) {
+  if (!teamCache[key]) { try { teamCache[key] = await fetchTeams(LEAGUES[key].path); } catch { teamCache[key] = []; } }
+  return (teamCache[key] || []).find((t) => t.abbr === abbr)?.id;
+}
+function trimSchedule(d) {
+  return (d?.events || []).map((e) => {
+    const c = e.competitions?.[0] || {};
+    const st = c.status?.type || e.status?.type || {};
+    const nets = new Set();
+    for (const b of c.broadcasts || []) { if (b.media?.shortName) nets.add(b.media.shortName); for (const n of b.names || []) nets.add(n); }
+    return {
+      id: e.id, date: e.date, state: st.state, detail: st.shortDetail || st.detail || "", venue: c.venue?.fullName, broadcasts: [...nets],
+      teams: (c.competitors || []).map((t) => ({ abbr: t.team?.abbreviation, name: t.team?.shortDisplayName || t.team?.displayName, logo: t.team?.logos?.[0]?.href || t.team?.logo, homeAway: t.homeAway, score: espnScore(t.score), winner: t.winner === true })),
+    };
+  });
+}
+async function loadTeamSchedule(key, abbr) {
+  const path = LEAGUES[key].path;
+  const id = await teamIdFor(key, abbr);
+  if (!id) throw new Error("no team");
+  const ck = `${path}|${id}`;
+  if (schedCache[ck] && Date.now() - schedCache[ck].at < 10 * 60e3) return schedCache[ck].events;
+  const d = await espnOrProxy(`${ESPN}${path}/teams/${id}/schedule`, `/api/sports?path=${path}&kind=schedule&team=${id}`);
+  const events = trimSchedule(d);
+  schedCache[ck] = { at: Date.now(), events };
+  return events;
+}
+async function loadTable(key) {
+  if (tableCache[key] && Date.now() - tableCache[key].at < 15 * 60e3) return tableCache[key].groups;
+  const L = LEAGUES[key];
+  const d = await espnOrProxy(`https://site.api.espn.com/apis/v2/sports/${L.path}/standings`, `/api/sports?path=${L.path}&kind=standings`);
+  const groups = [];
+  const walk = (n) => { if (n?.standings?.entries?.length) groups.push({ name: n.name || n.abbreviation || L.name, entries: n.standings.entries }); (n?.children || []).forEach(walk); };
+  walk(d);
+  tableCache[key] = { at: Date.now(), groups };
+  return groups;
+}
+const schedDay = (iso) => new Date(iso).toLocaleDateString([], { weekday: "short", month: "short", day: "numeric" });
+const schedTime = (iso) => new Date(iso).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+function schedRow(e, abbr, path) {
+  const me = e.teams.find((t) => t.abbr === abbr), opp = e.teams.find((t) => t.abbr !== abbr);
+  if (!me || !opp) return "";
+  const home = me.homeAway === "home";
+  let right;
+  if (e.state === "post") {
+    const res = me.winner ? "W" : opp.winner ? "L" : "T";
+    right = `<span class="sch-res ${res === "W" ? "w" : res === "L" ? "l" : ""}">${res}</span> ${esc(me.score ?? "")}–${esc(opp.score ?? "")}${/OT|SO/.test(e.detail) ? ` <small>${esc(e.detail.replace(/^Final\/?/, ""))}</small>` : ""}`;
+  } else if (e.state === "in") right = `<span class="pill live">LIVE</span> ${esc(me.score ?? "")}–${esc(opp.score ?? "")}`;
+  else right = esc(schedTime(e.date));
+  return `<div class="sch-row ${e.state === "post" ? "past" : ""}" data-game="${esc(e.id)}" data-path="${esc(path)}" role="button" tabindex="0">
+    <span class="sch-d">${esc(sameDay(new Date(e.date), new Date()) ? "Today" : sameDay(new Date(e.date), addDays(1)) ? "Tomorrow" : schedDay(e.date))}</span>
+    <span class="sch-o">${home ? "vs" : "@"} ${opp.logo ? `<img src="${esc(opp.logo)}" alt="" loading="lazy">` : ""}${esc(opp.name)}</span>
+    <span class="sch-r">${right}</span>
+    ${e.state === "pre" && e.broadcasts.length ? `<span class="sch-tv">${esc(e.broadcasts.slice(0, 2).join(", "))}</span>` : ""}
+  </div>`;
+}
+function leagueTile(L, body, sub, liveN = 0) {
+  const meta = LEAGUES[L.key];
+  const collapsed = !!cfg.sports.collapsed?.[L.key];
+  return `<div class="league ${collapsed ? "collapsed" : ""}">
+    <button class="league-h" data-league-toggle="${L.key}" aria-expanded="${!collapsed}">
+      ${ic("chevron-down", "chev")}<span class="lg-name">${leagueBadge(L.key)} ${meta.name}</span>
+      ${liveN ? `<span class="pill live">${liveN} LIVE</span>` : ""}<small>${esc(sub)}</small>
+    </button><div class="league-body" id="alt-${L.key}">${body}</div></div>`;
+}
+function leagueSchedHTML(L, events) {
+  const meta = LEAGUES[L.key];
+  const path = meta.path;
+  if (meta.kind === "golf") {
+    const now = Date.now();
+    const cal = (golfCal[path] || []).filter((c) => new Date(c.end || c.start).getTime() >= now - 864e5).slice(0, cfg.sports.schedFull?.[L.key] ? 40 : 8);
+    if (!cal.length) return `<div class="empty">No upcoming tournaments listed.</div>`;
+    return `<div class="sch-list">${cal.map((c, i) => `<div class="sch-row golf-sch ${i === 0 && new Date(c.start).getTime() <= now ? "cur" : ""}"><span class="sch-d">${esc(new Date(c.start).toLocaleDateString([], { month: "short", day: "numeric" }))}–${esc(new Date(c.end || c.start).toLocaleDateString([], { month: "short", day: "numeric" }))}</span><span class="sch-o">${esc(c.name)}</span>${i === 0 && new Date(c.start).getTime() <= now ? `<span class="sch-r"><span class="pill live">This week</span></span>` : ""}</div>`).join("")}</div>
+      <button class="lg-more" data-sched-more="${L.key}">${cfg.sports.schedFull?.[L.key] ? "Show fewer" : "Show full season"}</button>`;
+  }
+  // Leagues: next 7 days of all games, grouped by day (team schedules are loaded separately)
+  const up = (events || []).filter((e) => e.state !== "post" && new Date(e.date) >= addDays(-1)).sort((a, b) => new Date(a.date) - new Date(b.date));
+  const days = [];
+  for (const e of up) { const k = new Date(e.date).toDateString(); let g = days.find((d) => d.k === k); if (!g) days.push((g = { k, date: e.date, list: [] })); g.list.push(e); }
+  const shown = days.slice(0, cfg.sports.schedFull?.[L.key] ? 7 : 3);
+  const mine = L.teams || [];
+  const games = shown.map((g) => `<h5 class="sch-day">${esc(dayLabel(g.date))}</h5>${g.list.map((e) => {
+      const a = e.teams.find((t) => t.homeAway === "away") || e.teams[0], h = e.teams.find((t) => t.homeAway === "home") || e.teams[1];
+      if (!a || !h) return "";
+      const isM = e.teams.some((t) => mine.includes(t.abbr));
+      return `<div class="sch-row ${isM ? "mine" : ""}" ${meta.kind === "cricket" ? "" : `data-game="${esc(e.id)}" data-path="${esc(path)}" role="button" tabindex="0"`}><span class="sch-d">${e.state === "in" ? `<span class="pill live">LIVE</span>` : esc(schedTime(e.date))}</span><span class="sch-o">${a.logo ? `<img src="${esc(a.logo)}" alt="" loading="lazy">` : ""}${esc(a.name)} <i>@</i> ${h.logo ? `<img src="${esc(h.logo)}" alt="" loading="lazy">` : ""}${esc(h.name)}</span>${e.broadcasts?.length ? `<span class="sch-tv">${esc(e.broadcasts.slice(0, 2).join(", "))}</span>` : ""}</div>`;
+    }).join("")}`).join("");
+  const teamBlocks = meta.kind === "cricket" ? "" : mine.map((ab) => `<div class="sch-team" data-sched-team="${esc(L.key)}|${esc(ab)}"><h5 class="sch-day">${esc(ab)} schedule</h5>${skeleton(3)}</div>`).join("");
+  return teamBlocks + (mine.length && meta.kind !== "cricket" ? `<h5 class="sch-day sch-all">All ${esc(meta.name)} games</h5>` : "") +
+    (games || `<div class="empty">No ${esc(meta.name)} games in the next week.</div>`) +
+    (days.length > 3 ? `<button class="lg-more" data-sched-more="${L.key}">${cfg.sports.schedFull?.[L.key] ? "Show fewer days" : "Show the whole week"}</button>` : "");
+}
+async function fillTeamSchedules() {
+  for (const el of document.querySelectorAll("[data-sched-team]")) {
+    const [key, ab] = el.dataset.schedTeam.split("|");
+    const path = LEAGUES[key].path;
+    try {
+      const evs = (await loadTeamSchedule(key, ab)).sort((a, b) => new Date(a.date) - new Date(b.date));
+      if (!el.isConnected) continue;
+      const full = !!cfg.sports.schedFull?.[`${key}-${ab}`];
+      const past = evs.filter((e) => e.state === "post"), next = evs.filter((e) => e.state !== "post");
+      const rows = [...past.slice(full ? 0 : -3), ...next.slice(0, full ? 200 : 8)];
+      const rec = (() => { let w = 0, l = 0; for (const e of past) { const me = e.teams.find((t) => t.abbr === ab); if (me?.winner) w++; else if (e.teams.some((t) => t.abbr !== ab && t.winner)) l++; } return past.length ? `${w}–${l}${past.length - w - l ? `–${past.length - w - l}` : ""}` : ""; })();
+      el.innerHTML = `<h5 class="sch-day">${esc((teamCache[key] || []).find((t) => t.abbr === ab)?.short || ab)} schedule${rec ? ` <small>${esc(rec)} so far</small>` : ""}</h5>` +
+        (rows.length ? `<div class="sch-list">${rows.map((e) => schedRow(e, ab, path)).join("")}</div>` : `<div class="empty">No games on the schedule yet.</div>`) +
+        (evs.length > rows.length || full ? `<button class="lg-more" data-sched-more="${esc(key)}-${esc(ab)}">${full ? "Show fewer" : `Full season (${evs.length} games)`}</button>` : "");
+    } catch { if (el.isConnected) el.innerHTML = `<h5 class="sch-day">${esc(ab)} schedule</h5><div class="err">Couldn't load this schedule right now.</div>`; }
+  }
+}
+function tableHTML(key, groups) {
+  const L = LEAGUES[key];
+  const mineTeams = cfg.sports.leagues.find((x) => x.key === key)?.teams || [];
+  const sport = L.path.split("/")[0];
+  const cols = STANDING_COLS[sport] || STANDING_COLS.basketball;
+  const stat = (e, n) => e.stats?.find((s) => s.name === n || s.type === n.toLowerCase())?.displayValue ?? "";
+  const num = (e, n) => Number(e.stats?.find((s) => s.name === n)?.value ?? 0);
+  const sortKey = sport === "hockey" || sport === "soccer" ? "points" : "winPercent";
+  const full = !!cfg.sports.schedFull?.[`t-${key}`];
+  let show = groups.filter((g) => g.entries.some((e) => mineTeams.includes(e.team?.abbreviation)));
+  if (!show.length || full) show = full ? groups : groups.slice(0, 1);
+  const tbl = (g) => {
+    const rows = [...g.entries].sort((a, b) => num(b, sortKey) - num(a, sortKey));
+    return `<h5 class="sch-day">${esc(g.name)}</h5><table class="st-table"><thead><tr><th>#</th><th class="tl">Team</th>${cols.map(([, h]) => `<th>${h}</th>`).join("")}</tr></thead><tbody>${rows.map((e, i) => `<tr class="${mineTeams.includes(e.team?.abbreviation) ? "mine" : ""}"><td>${i + 1}</td><td class="tl">${e.team?.logos?.[0]?.href ? `<img src="${esc(e.team.logos[0].href)}" alt="">` : ""}${esc(e.team?.shortDisplayName || e.team?.displayName)}</td>${cols.map(([n]) => `<td>${esc(stat(e, n))}</td>`).join("")}</tr>`).join("")}</tbody></table>`;
+  };
+  return show.map(tbl).join("") + (groups.length > show.length || full ? `<button class="lg-more" data-sched-more="t-${key}">${full ? "Show my division only" : `Show all ${groups.length} groups`}</button>` : "");
+}
+async function fillTables() {
+  for (const el of document.querySelectorAll("[data-table-key]")) {
+    const key = el.dataset.tableKey;
+    try {
+      const groups = await loadTable(key);
+      if (el.isConnected) el.innerHTML = groups.length ? tableHTML(key, groups) : `<div class="empty">Standings aren't available right now.</div>`;
+    } catch { if (el.isConnected) el.innerHTML = `<div class="err">Couldn't load standings right now.</div>`; }
+  }
+}
+function renderSportsAlt(body, seg, view) {
+  const tiles = data.sports.map(({ L, events, error }) => {
+    const meta = LEAGUES[L.key];
+    if (!meta) return "";
+    const liveN = (events || []).filter((e) => e.state === "in").length;
+    if (view === "sched") {
+      const sub = meta.kind === "golf" ? "Tournament calendar" : (L.teams || []).length && meta.kind !== "cricket" ? `${L.teams.join(" · ")} · upcoming` : "Next 7 days";
+      return leagueTile(L, error && meta.kind !== "golf" ? `<div class="err">Couldn't load ${meta.name} right now.</div>` : leagueSchedHTML(L, events), sub, liveN);
+    }
+    if (meta.kind === "golf") return leagueTile(L, events?.length ? events.map(golfHTML).join("") : `<div class="empty">No ${meta.name} event this week.</div>`, "Leaderboard", liveN);
+    if (meta.kind === "cricket") return leagueTile(L, `<div class="empty">Cricket standings vary by series — open a match scorecard from Scores for the table.</div>`, "Standings", liveN);
+    return leagueTile(L, `<div data-table-key="${L.key}">${skeleton(5)}</div>`, (L.teams || []).length ? "Your division" : "Standings", liveN);
+  }).join("");
+  body.innerHTML = seg + `<div class="leagues">${tiles}</div>`;
+  updateBadges();
+  if (view === "sched") fillTeamSchedules(); else fillTables();
 }
 
 // ============================================================ news
@@ -3295,6 +3458,10 @@ document.addEventListener("click", async (e) => {
     renderMarkets(true); if (!inRE) renderNews();
     return;
   }
+  const spv = t.closest("[data-spview]");
+  if (spv) { cfg.sports.view = spv.dataset.spview; save(); renderSports(); return; }
+  const smore = t.closest("[data-sched-more]");
+  if (smore) { const k = smore.dataset.schedMore; cfg.sports.schedFull = { ...(cfg.sports.schedFull || {}), [k]: !cfg.sports.schedFull?.[k] }; save(); renderSports(); return; }
   const sp = t.closest("[data-spmode]");
   if (sp) { cfg.sports.mode = sp.dataset.spmode; save(); renderSports(); return; }
   const src = t.closest("[data-src]");
