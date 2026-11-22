@@ -22,11 +22,12 @@ export default async (req: Request) => {
   if (kind === "leaders") return leaders(path);
   if (kind === "news") return news(path, p.get("team") || "");
   const team = p.get("team") || "";
-  if (kind === "schedule" && !/^[a-z0-9]{1,12}$/i.test(team)) return json({ error: "Bad team" }, 400);
-  if (kind === "summary" || kind === "standings" || kind === "raw" || kind === "schedule") {
+  const teamKinds = ["schedule", "team", "roster"];
+  if (teamKinds.includes(kind) && !/^[a-z0-9]{1,12}$/i.test(team)) return json({ error: "Bad team" }, 400);
+  if (kind === "summary" || kind === "standings" || kind === "raw" || teamKinds.includes(kind)) {
     const url =
-      kind === "schedule"
-        ? `https://site.api.espn.com/apis/site/v2/sports/${path}/teams/${team}/schedule`
+      teamKinds.includes(kind)
+        ? `https://site.api.espn.com/apis/site/v2/sports/${path}/teams/${team}${kind === "team" ? "" : `/${kind}`}`
         : kind === "raw"
         ? `https://site.api.espn.com/apis/site/v2/sports/${path}${path.startsWith("golf/") ? "/scoreboard" : ""}`
         : kind === "summary"
@@ -35,7 +36,7 @@ export default async (req: Request) => {
     try {
       const r = await fetch(url, { headers: { "user-agent": UA, accept: "application/json" }, signal: AbortSignal.timeout(8000) });
       if (!r.ok) { console.log(`ESPN ${kind} ${path} -> ${r.status}`); return json({ error: `ESPN ${r.status}` }, 502); }
-      return json(await r.json(), 200, kind === "summary" || kind === "raw" ? 30 : kind === "schedule" ? 600 : 900);
+      return json(await r.json(), 200, kind === "summary" || kind === "raw" ? 30 : kind === "schedule" || kind === "team" ? 600 : kind === "roster" ? 21600 : 900);
     } catch (e: any) {
       return json({ error: "ESPN unavailable" }, 502);
     }
