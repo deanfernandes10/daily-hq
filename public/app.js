@@ -1060,10 +1060,48 @@ function leagueSchedHTML(L, events) {
       const isM = e.teams.some((t) => mine.includes(t.abbr));
       return `<div class="sch-row ${isM ? "mine" : ""}" ${meta.kind === "cricket" ? "" : `data-game="${esc(e.id)}" data-path="${esc(path)}" role="button" tabindex="0"`}><span class="sch-d">${e.state === "in" ? `<span class="pill live">LIVE</span>` : esc(schedTime(e.date))}</span><span class="sch-o">${a.logo ? `<img src="${esc(a.logo)}" alt="" loading="lazy">` : ""}${esc(a.name)} <i>@</i> ${h.logo ? `<img src="${esc(h.logo)}" alt="" loading="lazy">` : ""}${esc(h.name)}</span>${e.broadcasts?.length ? `<span class="sch-tv">${esc(e.broadcasts.slice(0, 2).join(", "))}</span>` : ""}</div>`;
     }).join("")}`).join("");
-  const teamBlocks = meta.kind === "cricket" ? "" : mine.map((ab) => `<div class="sch-team" data-sched-team="${esc(L.key)}|${esc(ab)}"><h5 class="sch-day">${esc(ab)} schedule</h5>${skeleton(3)}</div>`).join("");
-  return teamBlocks + (mine.length && meta.kind !== "cricket" ? `<h5 class="sch-day sch-all">All ${esc(meta.name)} games</h5>` : "") +
+  const chosen = schedTeams(L);
+  const chips = meta.kind === "cricket" ? "" : `<div class="sch-pick">${chosen.map((ab) => `<button class="sch-chip ${mine.includes(ab) ? "fav" : ""}" data-sched-rm="${esc(L.key)}|${esc(ab)}" title="Hide this schedule">${mine.includes(ab) ? "★ " : ""}${esc(ab)} ${ic("x", "xs")}</button>`).join("")}<button class="sch-chip add" data-sched-pick="${esc(L.key)}">${ic("plus", "xs")} Teams</button></div>`;
+  const teamBlocks = meta.kind === "cricket" ? "" : chips + chosen.map((ab) => `<div class="sch-team" data-sched-team="${esc(L.key)}|${esc(ab)}"><h5 class="sch-day">${esc(ab)} schedule</h5>${skeleton(3)}</div>`).join("");
+  return teamBlocks + (chosen.length && meta.kind !== "cricket" ? `<h5 class="sch-day sch-all">All ${esc(meta.name)} games</h5>` : "") +
     (games || `<div class="empty">No ${esc(meta.name)} games in the next week.</div>`) +
     (days.length > 3 ? `<button class="lg-more" data-sched-more="${L.key}">${cfg.sports.schedFull?.[L.key] ? "Show fewer days" : "Show the whole week"}</button>` : "");
+}
+// Which teams' schedules to show: chosen in the Schedule view, starting with the teams you follow.
+function schedTeams(L) {
+  const st = cfg.sports.schedTeams?.[L.key];
+  return st ? st : [...(L.teams || [])];
+}
+function setSchedTeams(key, list) { cfg.sports.schedTeams = { ...(cfg.sports.schedTeams || {}), [key]: list }; save(); }
+async function openSchedPicker(key) {
+  const meta = LEAGUES[key];
+  const L = cfg.sports.leagues.find((x) => x.key === key);
+  openModal(`${leagueBadge(key)} ${esc(meta.name)} schedules`, skeleton(6));
+  if (!teamCache[key]) { try { teamCache[key] = await fetchTeams(meta.path); } catch { teamCache[key] = []; } }
+  const draw = (filter = "") => {
+    const chosen = new Set(schedTeams(L));
+    const favs = L.teams || [];
+    const all = (teamCache[key] || []).filter((t) => !filter || `${t.name} ${t.abbr}`.toLowerCase().includes(filter.toLowerCase()));
+    const row = (t) => `<label class="sp-team-row"><input type="checkbox" data-sched-tog="${esc(key)}|${esc(t.abbr)}" ${chosen.has(t.abbr) ? "checked" : ""}>${t.logo ? `<img src="${esc(t.logo)}" alt="" loading="lazy">` : ""}<span>${esc(t.name)}</span>${favs.includes(t.abbr) ? `<small class="fav-tag">★ Favourite</small>` : ""}</label>`;
+    const favRows = all.filter((t) => favs.includes(t.abbr)), rest = all.filter((t) => !favs.includes(t.abbr));
+    $("#schedList").innerHTML = (favRows.length ? `<h5 class="sch-day">Your favourites</h5>${favRows.map(row).join("")}` : "") +
+      `<h5 class="sch-day">${favRows.length ? "Other teams" : "All teams"}</h5>${rest.map(row).join("") || `<div class="empty">No teams match.</div>`}`;
+  };
+  $("#modalBody").innerHTML = `<p class="hint">Pick whose schedules to show. Favourites (★) are the teams you follow for scores.</p>
+    <input id="schedFind" class="input" type="search" placeholder="Find a team…" autocomplete="off">
+    <div id="schedList" class="sp-team-list"></div>
+    <div class="row-btns"><button class="btn" data-sched-reset="${esc(key)}">Just my favourites</button><button class="btn primary" data-sched-done>Done</button></div>`;
+  draw();
+  $("#schedFind").oninput = (e) => draw(e.target.value);
+  $("#modalBody").onchange = (e) => {
+    const cb = e.target.closest("[data-sched-tog]");
+    if (!cb) return;
+    const [k, ab] = cb.dataset.schedTog.split("|");
+    const cur = schedTeams(L).filter((x) => x !== ab);
+    if (cb.checked) cur.push(ab);
+    setSchedTeams(k, cur);
+    if ((cfg.sports.view || "scores") === "sched") renderSports();
+  };
 }
 async function fillTeamSchedules() {
   for (const el of document.querySelectorAll("[data-sched-team]")) {
@@ -1103,10 +1141,67 @@ async function fillTables() {
   for (const el of document.querySelectorAll("[data-table-key]")) {
     const key = el.dataset.tableKey;
     try {
+      const lv = el.dataset.lb || "table";
+      if (lv === "players") {
+        const cats = await loadLeaders(key);
+        if (el.isConnected) el.innerHTML = cats.length ? playerLeadersHTML(key, cats) : `<div class="empty">Player leaders aren't available yet — check back once the season is under way.</div>`;
+        continue;
+      }
       const groups = await loadTable(key);
-      if (el.isConnected) el.innerHTML = groups.length ? tableHTML(key, groups) : `<div class="empty">Standings aren't available right now.</div>`;
-    } catch { if (el.isConnected) el.innerHTML = `<div class="err">Couldn't load standings right now.</div>`; }
+      if (!el.isConnected) continue;
+      if (lv === "teams") el.innerHTML = groups.length ? teamLeadersHTML(key, groups) : `<div class="empty">Team leaders aren't available right now.</div>`;
+      else el.innerHTML = groups.length ? tableHTML(key, groups) : `<div class="empty">Standings aren't available right now.</div>`;
+    } catch { if (el.isConnected) el.innerHTML = `<div class="err">Couldn't load ${el.dataset.lb === "players" ? "player leaders" : "standings"} right now.</div>`; }
   }
+}
+// ---------- Leaders
+const leaderCache = {};
+async function loadLeaders(key) {
+  if (leaderCache[key] && Date.now() - leaderCache[key].at < 60 * 60e3) return leaderCache[key].cats;
+  const d = await api(`/api/sports?path=${LEAGUES[key].path}&kind=leaders`);
+  const cats = d.categories || [];
+  leaderCache[key] = { at: Date.now(), cats };
+  return cats;
+}
+function lbList(rows, mine, fmt) {
+  return `<ol class="lb-list">${rows.map((r, i) => `<li class="${mine.includes(r.team) ? "mine" : ""}"><span class="lb-n">${i + 1}</span>${r.img ? `<img src="${esc(r.img)}" alt="" loading="lazy">` : `<span class="lb-noimg"></span>`}<span class="lb-who">${esc(r.name)}${r.sub ? ` <small>${esc(r.sub)}</small>` : ""}</span><b class="lb-v">${esc(fmt ? fmt(r) : r.value)}</b></li>`).join("")}</ol>`;
+}
+function catChips(key, cats, cur) {
+  return `<div class="lb-cats">${cats.map((c) => `<button class="chip ${c.name === cur ? "sel" : ""}" data-lbcat="${esc(key)}|${esc(c.name)}">${esc(c.label)}</button>`).join("")}</div>`;
+}
+function playerLeadersHTML(key, cats) {
+  const mine = cfg.sports.leagues.find((x) => x.key === key)?.teams || [];
+  const cur = cats.find((c) => c.name === cfg.sports.lbCat?.[`p-${key}`]) || cats[0];
+  return catChips(`p-${key}`, cats, cur.name) +
+    lbList(cur.leaders.slice(0, 10).map((l) => ({ name: l.name, sub: l.team, team: l.team, img: l.headshot, value: l.value })), mine);
+}
+// Team leaders come from the standings: best record, most wins, best offence/defence, goal difference, hottest streak.
+function teamLeadersHTML(key, groups) {
+  const L = LEAGUES[key];
+  const mine = cfg.sports.leagues.find((x) => x.key === key)?.teams || [];
+  const sport = L.path.split("/")[0];
+  const pts = sport === "hockey" || sport === "soccer";
+  const unit = sport === "hockey" || sport === "soccer" ? "goals" : sport === "baseball" ? "runs" : "points";
+  const seen = new Set();
+  const teams = groups.flatMap((g) => g.entries).filter((e) => e.team && !seen.has(e.team.id || e.team.abbreviation) && seen.add(e.team.id || e.team.abbreviation));
+  const v = (e, ...names) => { for (const n of names) { const s = e.stats?.find((x) => x.name === n); if (s && s.value != null && !isNaN(s.value)) return { value: Number(s.value), display: s.displayValue ?? String(s.value) }; } return null; };
+  const defs = [
+    ["record", pts ? "Most points" : "Best record", (e) => pts ? v(e, "points") : v(e, "winPercent"), -1],
+    ["wins", "Most wins", (e) => v(e, "wins"), -1],
+    ["offense", `Most ${unit} scored`, (e) => v(e, "pointsFor", "avgPointsFor"), -1],
+    ["defense", `Fewest ${unit} allowed`, (e) => v(e, "pointsAgainst", "avgPointsAgainst"), 1],
+    ["diff", `Best ${unit === "points" ? "point" : unit === "runs" ? "run" : "goal"} differential`, (e) => v(e, "differential", "pointDifferential"), -1],
+    ["streak", "Hottest streak", (e) => v(e, "streak"), -1],
+  ];
+  const cats = defs.map(([name, label, get, dir]) => {
+    const rows = teams.map((e) => ({ e, s: get(e) })).filter((r) => r.s);
+    if (rows.length < 3) return null;
+    rows.sort((a, b) => dir * (a.s.value - b.s.value));
+    return { name, label, leaders: rows.slice(0, 10).map(({ e, s }) => ({ name: e.team.shortDisplayName || e.team.displayName, team: e.team.abbreviation, img: e.team.logos?.[0]?.href, value: name === "diff" && s.value > 0 && !String(s.display).startsWith("+") ? `+${s.display}` : s.display, sub: (() => { const w = v(e, "wins"), l = v(e, "losses"); return w && l ? `${w.display}–${l.display}` : ""; })() })) };
+  }).filter(Boolean);
+  if (!cats.length) return `<div class="empty">Team leaders aren't available right now.</div>`;
+  const cur = cats.find((c) => c.name === cfg.sports.lbCat?.[`t-${key}`]) || cats[0];
+  return catChips(`t-${key}`, cats, cur.name) + lbList(cur.leaders, mine);
 }
 function renderSportsAlt(body, seg, view) {
   const tiles = data.sports.map(({ L, events, error }) => {
@@ -1114,12 +1209,15 @@ function renderSportsAlt(body, seg, view) {
     if (!meta) return "";
     const liveN = (events || []).filter((e) => e.state === "in").length;
     if (view === "sched") {
-      const sub = meta.kind === "golf" ? "Tournament calendar" : (L.teams || []).length && meta.kind !== "cricket" ? `${L.teams.join(" · ")} · upcoming` : "Next 7 days";
+      const sub = meta.kind === "golf" ? "Tournament calendar" : schedTeams(L).length && meta.kind !== "cricket" ? `${schedTeams(L).join(" · ")} · upcoming` : "Next 7 days";
       return leagueTile(L, error && meta.kind !== "golf" ? `<div class="err">Couldn't load ${meta.name} right now.</div>` : leagueSchedHTML(L, events), sub, liveN);
     }
     if (meta.kind === "golf") return leagueTile(L, events?.length ? events.map(golfHTML).join("") : `<div class="empty">No ${meta.name} event this week.</div>`, "Leaderboard", liveN);
     if (meta.kind === "cricket") return leagueTile(L, `<div class="empty">Cricket standings vary by series — open a match scorecard from Scores for the table.</div>`, "Standings", liveN);
-    return leagueTile(L, `<div data-table-key="${L.key}">${skeleton(5)}</div>`, (L.teams || []).length ? "Your division" : "Standings", liveN);
+    const lv = cfg.sports.lbView?.[L.key] || "table";
+    const tabs = `<div class="seg lb-seg">${[["table", "Table"], ["teams", "Team leaders"], ["players", "Player leaders"]].map(([v, l]) => `<button data-lbview="${L.key}|${v}" class="${lv === v ? "on" : ""}">${l}</button>`).join("")}</div>`;
+    const sub = lv === "table" ? ((L.teams || []).length ? "Your division" : "Standings") : lv === "teams" ? "Who's leading" : "Stat leaders";
+    return leagueTile(L, tabs + `<div data-table-key="${L.key}" data-lb="${lv}">${skeleton(5)}</div>`, sub, liveN);
   }).join("");
   body.innerHTML = seg + `<div class="leagues">${tiles}</div>`;
   updateBadges();
@@ -3458,6 +3556,17 @@ document.addEventListener("click", async (e) => {
     renderMarkets(true); if (!inRE) renderNews();
     return;
   }
+  const srm = t.closest("[data-sched-rm]");
+  if (srm) { const [k, ab] = srm.dataset.schedRm.split("|"); const L = cfg.sports.leagues.find((x) => x.key === k); setSchedTeams(k, schedTeams(L).filter((x) => x !== ab)); renderSports(); return; }
+  const spk = t.closest("[data-sched-pick]");
+  if (spk) { openSchedPicker(spk.dataset.schedPick); return; }
+  if (t.closest("[data-sched-done]")) { closeModal(); return; }
+  const srs = t.closest("[data-sched-reset]");
+  if (srs) { const k = srs.dataset.schedReset; cfg.sports.schedTeams = { ...(cfg.sports.schedTeams || {}) }; delete cfg.sports.schedTeams[k]; save(); closeModal(); renderSports(); return; }
+  const lbv = t.closest("[data-lbview]");
+  if (lbv) { const [k, v] = lbv.dataset.lbview.split("|"); cfg.sports.lbView = { ...(cfg.sports.lbView || {}), [k]: v }; save(); renderSports(); return; }
+  const lbc = t.closest("[data-lbcat]");
+  if (lbc) { const [k, v] = lbc.dataset.lbcat.split("|"); cfg.sports.lbCat = { ...(cfg.sports.lbCat || {}), [k]: v }; save(); renderSports(); return; }
   const spv = t.closest("[data-spview]");
   if (spv) { cfg.sports.view = spv.dataset.spview; save(); renderSports(); return; }
   const smore = t.closest("[data-sched-more]");

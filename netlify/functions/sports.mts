@@ -19,6 +19,7 @@ export default async (req: Request) => {
   const event = p.get("event") || "";
   if (kind === "summary" && !/^\d{1,12}$/.test(event)) return json({ error: "Bad event" }, 400);
   if (kind === "raw" && !/^(golf\/(pga|lpga|eur|liv)|cricket\/scorepanel)$/.test(path)) return json({ error: "Unknown feed" }, 400);
+  if (kind === "leaders") return leaders(path);
   const team = p.get("team") || "";
   if (kind === "schedule" && !/^[a-z0-9]{1,12}$/i.test(team)) return json({ error: "Bad team" }, 400);
   if (kind === "summary" || kind === "standings" || kind === "raw" || kind === "schedule") {
@@ -124,3 +125,53 @@ export default async (req: Request) => {
 };
 
 export const config = { path: "/api/sports" };
+
+
+// Player stat leaders, normalised to { categories: [{ name, label, leaders: [{ name, team, headshot, value }] }] }.
+// ESPN has two feeds; the site v3 one is tried first, then the core API (whose athletes come as links, resolved here).
+const fetchJ = async (url: string, ms = 7000) => {
+  const r = await fetch(url.replace(/^http:/, "https:"), { headers: { "user-agent": UA, accept: "application/json" }, signal: AbortSignal.timeout(ms) });
+  if (!r.ok) throw new Error(`${r.status}`);
+  return r.json();
+};
+const memo = new Map<string, any>();
+async function ref(url: string) {
+  if (!url) return null;
+  if (memo.has(url)) return memo.get(url);
+  try { const d = await fetchJ(url, 5000); memo.set(url, d); return d; } catch { return null; }
+}
+async function leaders(path: string) {
+  const [sport, league] = path.split("/");
+  const errs: string[] = [];
+  try {
+    const d = await fetchJ(`https://site.api.espn.com/apis/site/v3/sports/${path}/leaders`);
+    const cats = d?.leaders?.categories || d?.categories || (Array.isArray(d?.leaders) ? d.leaders : []);
+    const out = (cats || []).map((c: any) => ({
+      name: c.name || c.abbreviation, label: c.displayName || c.shortDisplayName || c.name,
+      leaders: (c.leaders || []).slice(0, 10).map((l: any) => ({
+        name: l.athlete?.displayName || l.athlete?.shortName || l.displayName,
+        team: l.athlete?.team?.abbreviation || l.team?.abbreviation || l.athlete?.teamShortName || "",
+        headshot: l.athlete?.headshot?.href || l.athlete?.headshot || "",
+        value: l.displayValue ?? l.value,
+      })).filter((l: any) => l.name),
+    })).filter((c: any) => c.leaders.length);
+    if (out.length) return json({ categories: out, via: "site" }, 200, 3600);
+    errs.push("site: empty");
+  } catch (e: any) { errs.push(`site: ${e?.message || e}`); }
+  try {
+    const d = await fetchJ(`https://sports.core.api.espn.com/v2/sports/${sport}/leagues/${league}/leaders`);
+    const cats = (d?.categories || []).slice(0, 8);
+    const out = await Promise.all(cats.map(async (c: any) => ({
+      name: c.name, label: c.displayName || c.shortDisplayName || c.name,
+      leaders: (await Promise.all((c.leaders || []).slice(0, 5).map(async (l: any) => {
+        const [a, t] = await Promise.all([ref(l.athlete?.$ref), ref(l.team?.$ref)]);
+        return { name: a?.displayName || a?.fullName, team: t?.abbreviation || "", headshot: a?.headshot?.href || "", value: l.displayValue ?? l.value };
+      }))).filter((l: any) => l.name),
+    })));
+    const ok = out.filter((c: any) => c.leaders.length);
+    if (ok.length) return json({ categories: ok, via: "core" }, 200, 3600);
+    errs.push("core: empty");
+  } catch (e: any) { errs.push(`core: ${e?.message || e}`); }
+  console.log(`ESPN leaders ${path} failed:`, errs.join(" | "));
+  return json({ error: "Leaders unavailable" }, 502);
+}

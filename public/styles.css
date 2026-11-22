@@ -1154,3 +1154,32 @@ body.drawer-open .as-launcher { display: none; }
 .sch-res { display: inline-block; min-width: 18px; text-align: center; font-weight: 700; border-radius: 4px; font-size: 12px; padding: 1px 3px; }
 .sch-res.w { color: #fff; background: #16a34a; }
 .sch-res.l { color: #fff; background: #dc2626; }
+
+/* Schedule team chooser & leaders */
+.sch-pick { display: flex; flex-wrap: wrap; gap: 6px; margin: 2px 0 6px; }
+.sch-chip { display: inline-flex; align-items: center; gap: 4px; border: 1px solid var(--line); background: transparent; color: var(--text); border-radius: 999px; padding: 4px 10px; font-size: 13px; cursor: pointer; }
+.sch-chip.fav { border-color: var(--accent); }
+.sch-chip .ic { width: 12px; height: 12px; opacity: .6; }
+.sch-chip.add { border-style: dashed; color: var(--muted); }
+.sp-team-list { max-height: 55vh; overflow: auto; margin: 8px 0; }
+.sp-team-row { display: flex; align-items: center; gap: 10px; padding: 8px 4px; border-bottom: 1px solid var(--line); cursor: pointer; }
+.sp-team-row input { width: 18px; height: 18px; accent-color: var(--accent); }
+.sp-team-row img { width: 22px; height: 22px; object-fit: contain; }
+.sp-team-row span { flex: 1; }
+.fav-tag { color: var(--accent); font-size: 12px; }
+#schedFind { width: 100%; box-sizing: border-box; padding: 9px 12px; border-radius: 10px; border: 1px solid var(--line); background: transparent; color: var(--text); }
+.row-btns { display: flex; gap: 8px; justify-content: flex-end; margin-top: 8px; }
+.lb-seg { display: flex; width: 100%; margin: 4px 0 10px; }
+.lb-seg button { flex: 1; padding: 6px 4px; font-size: 13px; }
+.lb-cats { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 6px; margin-bottom: 4px; scrollbar-width: none; }
+.lb-cats .chip { flex: none; cursor: pointer; white-space: nowrap; }
+.lb-list { list-style: none; margin: 0; padding: 0; }
+.lb-list li { display: flex; align-items: center; gap: 10px; padding: 7px 4px; border-bottom: 1px solid var(--line); font-size: 14px; }
+.lb-list li:last-child { border-bottom: 0; }
+.lb-list li.mine { background: color-mix(in srgb, var(--accent) 12%, transparent); border-radius: 6px; }
+.lb-list li:first-child .lb-n { color: #eab308; }
+.lb-n { width: 18px; text-align: right; color: var(--muted); font-variant-numeric: tabular-nums; font-weight: 600; }
+.lb-list img, .lb-noimg { width: 28px; height: 28px; border-radius: 50%; object-fit: cover; flex: none; background: var(--line); }
+.lb-who { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.lb-who small { color: var(--muted); margin-left: 4px; }
+.lb-v { font-variant-numeric: tabular-nums; }
