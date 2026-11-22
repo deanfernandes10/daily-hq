@@ -30,7 +30,7 @@ export default async (req: Request) => {
         ? `https://site.api.espn.com/apis/site/v2/sports/${path}${path.startsWith("golf/") ? "/scoreboard" : ""}`
         : kind === "summary"
         ? `https://site.api.espn.com/apis/site/v2/sports/${path}/summary?event=${event}`
-        : `https://site.api.espn.com/apis/v2/sports/${path}/standings`;
+        : `https://site.api.espn.com/apis/v2/sports/${path}/standings${/^[123]$/.test(p.get("level") || "") ? `?level=${p.get("level")}` : ""}`;
     try {
       const r = await fetch(url, { headers: { "user-agent": UA, accept: "application/json" }, signal: AbortSignal.timeout(8000) });
       if (!r.ok) { console.log(`ESPN ${kind} ${path} -> ${r.status}`); return json({ error: `ESPN ${r.status}` }, 502); }

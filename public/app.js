@@ -1000,19 +1000,27 @@ async function loadTeamSchedule(key, abbr) {
   schedCache[ck] = { at: Date.now(), events };
   return events;
 }
-async function loadTable(key) {
-  if (tableCache[key] && Date.now() - tableCache[key].at < 15 * 60e3) return tableCache[key].groups;
+const ST_LEVELS = [["3", "Division"], ["2", "Conference"], ["1", "League"]];
+const stLevels = (key) => (LEAGUES[key].path.startsWith("soccer/") ? [] : key === "ncaaf" || key === "ncaam" ? ST_LEVELS.slice(1) : ST_LEVELS);
+const stLevel = (key) => { const lv = stLevels(key); const v = cfg.sports.stLevel?.[key]; return lv.some(([x]) => x === v) ? v : lv[0]?.[0] || ""; };
+async function loadTable(key, level = "") {
+  const ck = `${key}|${level}`;
+  if (tableCache[ck] && Date.now() - tableCache[ck].at < 15 * 60e3) return tableCache[ck].groups;
   const L = LEAGUES[key];
-  const d = await espnOrProxy(`https://site.api.espn.com/apis/v2/sports/${L.path}/standings`, `/api/sports?path=${L.path}&kind=standings`);
+  const q = level ? `?level=${level}` : "";
+  const d = await espnOrProxy(`https://site.api.espn.com/apis/v2/sports/${L.path}/standings${q}`, `/api/sports?path=${L.path}&kind=standings${level ? `&level=${level}` : ""}`);
   const groups = [];
   const walk = (n) => { if (n?.standings?.entries?.length) groups.push({ name: n.name || n.abbreviation || L.name, entries: n.standings.entries }); (n?.children || []).forEach(walk); };
   walk(d);
-  tableCache[key] = { at: Date.now(), groups };
+  // If ESPN ignored the level, group what we got: for "League", merge everything into one table.
+  if (level === "1" && groups.length > 1) { const all = groups.flatMap((g) => g.entries); tableCache[ck] = { at: Date.now(), groups: [{ name: L.name, entries: all }] }; return tableCache[ck].groups; }
+  tableCache[ck] = { at: Date.now(), groups };
   return groups;
 }
 const schedDay = (iso) => new Date(iso).toLocaleDateString([], { weekday: "short", month: "short", day: "numeric" });
 const schedTime = (iso) => new Date(iso).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
-function schedRow(e, abbr, path) {
+const LEAGUES_FAV = (key) => cfg.sports.leagues.find((x) => x.key === key)?.teams || [];
+function schedRow(e, abbr, path, rec = "", isNext = false) {
   const me = e.teams.find((t) => t.abbr === abbr), opp = e.teams.find((t) => t.abbr !== abbr);
   if (!me || !opp) return "";
   const home = me.homeAway === "home";
@@ -1022,10 +1030,10 @@ function schedRow(e, abbr, path) {
     right = `<span class="sch-res ${res === "W" ? "w" : res === "L" ? "l" : ""}">${res}</span> ${esc(me.score ?? "")}–${esc(opp.score ?? "")}${/OT|SO/.test(e.detail) ? ` <small>${esc(e.detail.replace(/^Final\/?/, ""))}</small>` : ""}`;
   } else if (e.state === "in") right = `<span class="pill live">LIVE</span> ${esc(me.score ?? "")}–${esc(opp.score ?? "")}`;
   else right = esc(schedTime(e.date));
-  return `<div class="sch-row ${e.state === "post" ? "past" : ""}" data-game="${esc(e.id)}" data-path="${esc(path)}" role="button" tabindex="0">
+  return `<div class="sch-row sch-4 ${e.state === "post" ? "past" : ""} ${isNext ? "next" : ""}" data-game="${esc(e.id)}" data-path="${esc(path)}" role="button" tabindex="0">
     <span class="sch-d">${esc(sameDay(new Date(e.date), new Date()) ? "Today" : sameDay(new Date(e.date), addDays(1)) ? "Tomorrow" : schedDay(e.date))}</span>
     <span class="sch-o">${home ? "vs" : "@"} ${opp.logo ? `<img src="${esc(opp.logo)}" alt="" loading="lazy">` : ""}${esc(opp.name)}</span>
-    <span class="sch-r">${right}</span>
+    <span class="sch-r">${right}</span><span class="sch-rec">${esc(rec)}</span>
     ${e.state === "pre" && e.broadcasts.length ? `<span class="sch-tv">${esc(e.broadcasts.slice(0, 2).join(", "))}</span>` : ""}
   </div>`;
 }
@@ -1061,11 +1069,25 @@ function leagueSchedHTML(L, events) {
       return `<div class="sch-row ${isM ? "mine" : ""}" ${meta.kind === "cricket" ? "" : `data-game="${esc(e.id)}" data-path="${esc(path)}" role="button" tabindex="0"`}><span class="sch-d">${e.state === "in" ? `<span class="pill live">LIVE</span>` : esc(schedTime(e.date))}</span><span class="sch-o">${a.logo ? `<img src="${esc(a.logo)}" alt="" loading="lazy">` : ""}${esc(a.name)} <i>@</i> ${h.logo ? `<img src="${esc(h.logo)}" alt="" loading="lazy">` : ""}${esc(h.name)}</span>${e.broadcasts?.length ? `<span class="sch-tv">${esc(e.broadcasts.slice(0, 2).join(", "))}</span>` : ""}</div>`;
     }).join("")}`).join("");
   const chosen = schedTeams(L);
-  const chips = meta.kind === "cricket" ? "" : `<div class="sch-pick">${chosen.map((ab) => `<button class="sch-chip ${mine.includes(ab) ? "fav" : ""}" data-sched-rm="${esc(L.key)}|${esc(ab)}" title="Hide this schedule">${mine.includes(ab) ? "★ " : ""}${esc(ab)} ${ic("x", "xs")}</button>`).join("")}<button class="sch-chip add" data-sched-pick="${esc(L.key)}">${ic("plus", "xs")} Teams</button></div>`;
-  const teamBlocks = meta.kind === "cricket" ? "" : chips + chosen.map((ab) => `<div class="sch-team" data-sched-team="${esc(L.key)}|${esc(ab)}"><h5 class="sch-day">${esc(ab)} schedule</h5>${skeleton(3)}</div>`).join("");
-  return teamBlocks + (chosen.length && meta.kind !== "cricket" ? `<h5 class="sch-day sch-all">All ${esc(meta.name)} games</h5>` : "") +
-    (games || `<div class="empty">No ${esc(meta.name)} games in the next week.</div>`) +
+  const allGames = (games || `<div class="empty">No ${esc(meta.name)} games in the next week.</div>`) +
     (days.length > 3 ? `<button class="lg-more" data-sched-more="${L.key}">${cfg.sports.schedFull?.[L.key] ? "Show fewer days" : "Show the whole week"}</button>` : "");
+  if (meta.kind === "cricket") return allGames;
+  const sel = schedSel(L);
+  const nm = (ab) => (teamCache[L.key] || []).find((t) => t.abbr === ab)?.name || ab;
+  const favs = chosen.filter((ab) => mine.includes(ab)), others = chosen.filter((ab) => !mine.includes(ab));
+  const opt = (v, label) => `<option value="${esc(v)}" ${sel === v ? "selected" : ""}>${esc(label)}</option>`;
+  const dd = `<div class="sch-bar"><label class="sch-sel">${ic("calendar", "xs")}<select data-sched-sel="${esc(L.key)}" aria-label="Choose a schedule">
+      ${favs.length ? `<optgroup label="Favourites">${favs.map((ab) => opt(ab, `★ ${nm(ab)}`)).join("")}</optgroup>` : ""}
+      ${others.length ? `<optgroup label="Other teams">${others.map((ab) => opt(ab, nm(ab))).join("")}</optgroup>` : ""}
+      <optgroup label="League">${opt("all", `All ${meta.name} games · next 7 days`)}</optgroup>
+      <option value="__add">＋ Add or remove teams…</option>
+    </select>${ic("chevron-down", "xs")}</label></div>`;
+  return dd + (sel === "all" ? allGames : `<div class="sch-team" data-sched-team="${esc(L.key)}|${esc(sel)}">${skeleton(5)}</div>`);
+}
+function schedSel(L) {
+  const chosen = schedTeams(L);
+  const s = cfg.sports.schedSel?.[L.key];
+  return s === "all" || chosen.includes(s) ? s : chosen[0] || "all";
 }
 // Which teams' schedules to show: chosen in the Schedule view, starting with the teams you follow.
 function schedTeams(L) {
@@ -1098,11 +1120,21 @@ async function openSchedPicker(key) {
     if (!cb) return;
     const [k, ab] = cb.dataset.schedTog.split("|");
     const cur = schedTeams(L).filter((x) => x !== ab);
-    if (cb.checked) cur.push(ab);
+    if (cb.checked) { cur.push(ab); cfg.sports.schedSel = { ...(cfg.sports.schedSel || {}), [k]: ab }; }
     setSchedTeams(k, cur);
     if ((cfg.sports.view || "scores") === "sched") renderSports();
   };
 }
+document.addEventListener("change", (e) => {
+  const ss = e.target.closest?.("[data-sched-sel]");
+  if (ss) {
+    const k = ss.dataset.schedSel;
+    if (ss.value === "__add") { ss.value = schedSel(cfg.sports.leagues.find((x) => x.key === k)); openSchedPicker(k); return; }
+    cfg.sports.schedSel = { ...(cfg.sports.schedSel || {}), [k]: ss.value }; save(); renderSports(); return;
+  }
+  const sl = e.target.closest?.("[data-st-level]");
+  if (sl) { cfg.sports.stLevel = { ...(cfg.sports.stLevel || {}), [sl.dataset.stLevel]: sl.value }; save(); renderSports(); }
+});
 async function fillTeamSchedules() {
   for (const el of document.querySelectorAll("[data-sched-team]")) {
     const [key, ab] = el.dataset.schedTeam.split("|");
@@ -1110,13 +1142,16 @@ async function fillTeamSchedules() {
     try {
       const evs = (await loadTeamSchedule(key, ab)).sort((a, b) => new Date(a.date) - new Date(b.date));
       if (!el.isConnected) continue;
-      const full = !!cfg.sports.schedFull?.[`${key}-${ab}`];
-      const past = evs.filter((e) => e.state === "post"), next = evs.filter((e) => e.state !== "post");
-      const rows = [...past.slice(full ? 0 : -3), ...next.slice(0, full ? 200 : 8)];
-      const rec = (() => { let w = 0, l = 0; for (const e of past) { const me = e.teams.find((t) => t.abbr === ab); if (me?.winner) w++; else if (e.teams.some((t) => t.abbr !== ab && t.winner)) l++; } return past.length ? `${w}–${l}${past.length - w - l ? `–${past.length - w - l}` : ""}` : ""; })();
-      el.innerHTML = `<h5 class="sch-day">${esc((teamCache[key] || []).find((t) => t.abbr === ab)?.short || ab)} schedule${rec ? ` <small>${esc(rec)} so far</small>` : ""}</h5>` +
-        (rows.length ? `<div class="sch-list">${rows.map((e) => schedRow(e, ab, path)).join("")}</div>` : `<div class="empty">No games on the schedule yet.</div>`) +
-        (evs.length > rows.length || full ? `<button class="lg-more" data-sched-more="${esc(key)}-${esc(ab)}">${full ? "Show fewer" : `Full season (${evs.length} games)`}</button>` : "");
+      const sel = document.querySelector(`[data-sched-sel="${key}"]`);
+      if (sel) for (const o of sel.options) { const t = (teamCache[key] || []).find((x) => x.abbr === o.value); if (t) o.textContent = `${(LEAGUES_FAV(key).includes(t.abbr) ? "★ " : "")}${t.name}`; }
+      let w = 0, l = 0, o = 0;
+      const recs = evs.map((e) => { if (e.state === "post") { const me = e.teams.find((t) => t.abbr === ab); if (me?.winner) w++; else if (e.teams.some((t) => t.abbr !== ab && t.winner)) l++; else o++; return `${w}-${l}${o ? `-${o}` : ""}`; } return ""; });
+      const team = (teamCache[key] || []).find((t) => t.abbr === ab);
+      const nextIdx = evs.findIndex((e) => e.state !== "post");
+      el.innerHTML = `<div class="sch-head">${team?.logo ? `<img src="${esc(team.logo)}" alt="">` : ""}<div><b>${esc(team?.name || ab)}</b><small>${w + l + o ? `${w}-${l}${o ? `-${o}` : ""} · ` : ""}${evs.length} games</small></div></div>` +
+        (evs.length ? `<div class="sch-cols"><span>Date</span><span>Opponent</span><span>Result / Time</span><span>W-L</span></div><div class="sch-list sch-scroll">${evs.map((e, i) => schedRow(e, ab, path, recs[i], i === nextIdx)).join("")}</div>` : `<div class="empty">No games on the schedule yet.</div>`);
+      const nx = el.querySelector(".sch-row.next");
+      if (nx) { const box = el.querySelector(".sch-scroll"); box.scrollTop = Math.max(0, nx.offsetTop - box.offsetTop - 3 * nx.offsetHeight); }
     } catch { if (el.isConnected) el.innerHTML = `<h5 class="sch-day">${esc(ab)} schedule</h5><div class="err">Couldn't load this schedule right now.</div>`; }
   }
 }
@@ -1124,18 +1159,21 @@ function tableHTML(key, groups) {
   const L = LEAGUES[key];
   const mineTeams = cfg.sports.leagues.find((x) => x.key === key)?.teams || [];
   const sport = L.path.split("/")[0];
-  const cols = STANDING_COLS[sport] || STANDING_COLS.basketball;
+  const cols = [...(STANDING_COLS[sport] || STANDING_COLS.basketball)];
   const stat = (e, n) => e.stats?.find((s) => s.name === n || s.type === n.toLowerCase())?.displayValue ?? "";
   const num = (e, n) => Number(e.stats?.find((s) => s.name === n)?.value ?? 0);
   const sortKey = sport === "hockey" || sport === "soccer" ? "points" : "winPercent";
-  const full = !!cfg.sports.schedFull?.[`t-${key}`];
-  let show = groups.filter((g) => g.entries.some((e) => mineTeams.includes(e.team?.abbreviation)));
-  if (!show.length || full) show = full ? groups : groups.slice(0, 1);
+  const used = (STANDING_COLS[sport] || STANDING_COLS.basketball).filter(([n]) => groups.some((g) => g.entries.some((e) => stat(e, n) !== "")));
+  cols.length = 0; cols.push(...used);
+  const show = [...groups].sort((a, b) => (b.entries.some((e) => mineTeams.includes(e.team?.abbreviation)) ? 1 : 0) - (a.entries.some((e) => mineTeams.includes(e.team?.abbreviation)) ? 1 : 0));
+  const lv = stLevels(key);
+  const cur = stLevel(key);
+  const dd = lv.length ? `<div class="sch-bar"><label class="sch-sel">${ic("list-ordered", "xs")}<select data-st-level="${esc(key)}" aria-label="Group standings by">${lv.map(([v, l]) => `<option value="${v}" ${v === cur ? "selected" : ""}>${l}</option>`).join("")}</select>${ic("chevron-down", "xs")}</label></div>` : "";
   const tbl = (g) => {
     const rows = [...g.entries].sort((a, b) => num(b, sortKey) - num(a, sortKey));
-    return `<h5 class="sch-day">${esc(g.name)}</h5><table class="st-table"><thead><tr><th>#</th><th class="tl">Team</th>${cols.map(([, h]) => `<th>${h}</th>`).join("")}</tr></thead><tbody>${rows.map((e, i) => `<tr class="${mineTeams.includes(e.team?.abbreviation) ? "mine" : ""}"><td>${i + 1}</td><td class="tl">${e.team?.logos?.[0]?.href ? `<img src="${esc(e.team.logos[0].href)}" alt="">` : ""}${esc(e.team?.shortDisplayName || e.team?.displayName)}</td>${cols.map(([n]) => `<td>${esc(stat(e, n))}</td>`).join("")}</tr>`).join("")}</tbody></table>`;
+    return `<h5 class="sch-day">${esc(g.name)}</h5><div class="st-wrap"><table class="st-table"><thead><tr><th>#</th><th class="tl">Team</th>${cols.map(([, h]) => `<th>${h}</th>`).join("")}</tr></thead><tbody>${rows.map((e, i) => `<tr class="${mineTeams.includes(e.team?.abbreviation) ? "mine" : ""}"><td>${i + 1}</td><td class="tl">${e.team?.logos?.[0]?.href ? `<img src="${esc(e.team.logos[0].href)}" alt="">` : ""}${esc(e.team?.shortDisplayName || e.team?.displayName)}</td>${cols.map(([n]) => `<td>${esc(stat(e, n))}</td>`).join("")}</tr>`).join("")}</tbody></table></div>`;
   };
-  return show.map(tbl).join("") + (groups.length > show.length || full ? `<button class="lg-more" data-sched-more="t-${key}">${full ? "Show my division only" : `Show all ${groups.length} groups`}</button>` : "");
+  return dd + show.map(tbl).join("");
 }
 async function fillTables() {
   for (const el of document.querySelectorAll("[data-table-key]")) {
@@ -1147,7 +1185,7 @@ async function fillTables() {
         if (el.isConnected) el.innerHTML = cats.length ? playerLeadersHTML(key, cats) : `<div class="empty">Player leaders aren't available yet — check back once the season is under way.</div>`;
         continue;
       }
-      const groups = await loadTable(key);
+      const groups = await loadTable(key, lv === "table" ? stLevel(key) : "");
       if (!el.isConnected) continue;
       if (lv === "teams") el.innerHTML = groups.length ? teamLeadersHTML(key, groups) : `<div class="empty">Team leaders aren't available right now.</div>`;
       else el.innerHTML = groups.length ? tableHTML(key, groups) : `<div class="empty">Standings aren't available right now.</div>`;
@@ -1209,14 +1247,14 @@ function renderSportsAlt(body, seg, view) {
     if (!meta) return "";
     const liveN = (events || []).filter((e) => e.state === "in").length;
     if (view === "sched") {
-      const sub = meta.kind === "golf" ? "Tournament calendar" : schedTeams(L).length && meta.kind !== "cricket" ? `${schedTeams(L).join(" · ")} · upcoming` : "Next 7 days";
+      const sub = meta.kind === "golf" ? "Tournament calendar" : meta.kind === "cricket" || schedSel(L) === "all" ? "Next 7 days" : "Team schedule";
       return leagueTile(L, error && meta.kind !== "golf" ? `<div class="err">Couldn't load ${meta.name} right now.</div>` : leagueSchedHTML(L, events), sub, liveN);
     }
     if (meta.kind === "golf") return leagueTile(L, events?.length ? events.map(golfHTML).join("") : `<div class="empty">No ${meta.name} event this week.</div>`, "Leaderboard", liveN);
     if (meta.kind === "cricket") return leagueTile(L, `<div class="empty">Cricket standings vary by series — open a match scorecard from Scores for the table.</div>`, "Standings", liveN);
     const lv = cfg.sports.lbView?.[L.key] || "table";
     const tabs = `<div class="seg lb-seg">${[["table", "Table"], ["teams", "Team leaders"], ["players", "Player leaders"]].map(([v, l]) => `<button data-lbview="${L.key}|${v}" class="${lv === v ? "on" : ""}">${l}</button>`).join("")}</div>`;
-    const sub = lv === "table" ? ((L.teams || []).length ? "Your division" : "Standings") : lv === "teams" ? "Who's leading" : "Stat leaders";
+    const sub = lv === "table" ? (stLevels(L.key).find(([v]) => v === stLevel(L.key))?.[1] || "Standings") : lv === "teams" ? "Who's leading" : "Stat leaders";
     return leagueTile(L, tabs + `<div data-table-key="${L.key}" data-lb="${lv}">${skeleton(5)}</div>`, sub, liveN);
   }).join("");
   body.innerHTML = seg + `<div class="leagues">${tiles}</div>`;
@@ -2261,11 +2299,11 @@ function gameDetailHTML(d, path, id) {
     `<a class="btn wide" href="${esc(link)}" target="_blank" rel="noopener">Open full game on ESPN ${ic("external-link", "xs")}</a>`;
 }
 const STANDING_COLS = {
-  hockey: [["gamesPlayed", "GP"], ["wins", "W"], ["losses", "L"], ["otLosses", "OTL"], ["points", "PTS"]],
-  basketball: [["wins", "W"], ["losses", "L"], ["winPercent", "PCT"], ["gamesBehind", "GB"], ["streak", "STRK"]],
-  football: [["wins", "W"], ["losses", "L"], ["ties", "T"], ["winPercent", "PCT"], ["streak", "STRK"]],
-  baseball: [["wins", "W"], ["losses", "L"], ["winPercent", "PCT"], ["gamesBehind", "GB"]],
-  soccer: [["gamesPlayed", "GP"], ["wins", "W"], ["ties", "D"], ["losses", "L"], ["points", "PTS"]],
+  hockey: [["gamesPlayed", "GP"], ["wins", "W"], ["losses", "L"], ["otLosses", "OTL"], ["points", "PTS"], ["pointsFor", "GF"], ["pointsAgainst", "GA"], ["differential", "DIFF"], ["streak", "STRK"]],
+  basketball: [["wins", "W"], ["losses", "L"], ["winPercent", "PCT"], ["gamesBehind", "GB"], ["avgPointsFor", "PPG"], ["avgPointsAgainst", "OPP"], ["differential", "DIFF"], ["streak", "STRK"]],
+  football: [["wins", "W"], ["losses", "L"], ["ties", "T"], ["winPercent", "PCT"], ["pointsFor", "PF"], ["pointsAgainst", "PA"], ["differential", "DIFF"], ["streak", "STRK"]],
+  baseball: [["wins", "W"], ["losses", "L"], ["winPercent", "PCT"], ["gamesBehind", "GB"], ["pointsFor", "RS"], ["pointsAgainst", "RA"], ["differential", "DIFF"], ["streak", "STRK"]],
+  soccer: [["gamesPlayed", "GP"], ["wins", "W"], ["ties", "D"], ["losses", "L"], ["pointsFor", "F"], ["pointsAgainst", "A"], ["pointDifferential", "GD"], ["points", "PTS"]],
 };
 async function showStandings(key) {
   const L = LEAGUES[key];
