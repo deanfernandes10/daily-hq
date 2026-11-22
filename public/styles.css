@@ -1250,3 +1250,80 @@ body.drawer-open .as-launcher { display: none; }
 @media (max-width: 680px) {
   body.scroll-down .as-launcher { transform: translateX(84px); opacity: 0; pointer-events: none; }
 }
+
+/* ============ Phone pass: every tab (≤ 680px) ============ */
+@media (max-width: 680px) {
+  /* Top bar: text truncates instead of sliding under the buttons */
+  .brand { gap: 10px; }
+  .brand > div:last-child { flex: 1 1 auto; overflow: hidden; }
+  .date, .greet { overflow: hidden; text-overflow: ellipsis; }
+  .top-actions { gap: 4px; flex: none; }
+  .icon-btn { width: 40px; height: 40px; }
+  .beta-pill { min-height: 26px; }
+
+  /* Section headers: one tidy row — no collapse arrow inside a full-screen tab, title never pushes buttons off-screen */
+  .card-head { gap: 8px; padding: 10px 12px; flex-wrap: nowrap; }
+  .card-head .sec-toggle { min-width: 0; flex: 0 1 auto; }
+  .card-head h2 { font-size: 16px; gap: 8px; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .card-head .ico { width: 30px; height: 30px; flex: none; }
+  .card-head .sub { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
+  .card-head .spacer { flex: 1 1 0; min-width: 0; }
+  .card-head .mini-btn { flex: none; min-height: 34px; min-width: 34px; }
+  body:not([data-view="home"]) .card-head .sec-toggle .chev { display: none; }
+
+  /* Markets: full names, % badge drops below only when it has to */
+  .q-top { flex-wrap: wrap; row-gap: 2px; }
+  .q .sym { flex: 1 0 auto; max-width: 100%; }
+  .q .pct { font-size: 12px; padding: 1px 6px; }
+  .q .px { font-size: 17px; }
+  .mk-grid:has(> a[href*="economy"]) { grid-template-columns: 1fr 1fr !important; gap: 8px; margin: 4px 0 12px !important; }
+  .mk-grid > a[href*="economy"] { padding: 12px !important; }
+  .mk-grid > a[href*="economy"] .sym { white-space: normal; font-size: 13.5px; line-height: 1.25; }
+  .mk-grid > a[href*="economy"] .nm:not(:last-child) { display: none; }
+  .mk-grid > a[href*="economy"] .nm:last-child { margin-top: 6px !important; }
+
+  /* News: long titles wrap, thumbnails stay on screen, bigger bookmark target */
+  .item, .item.noimg { grid-template-columns: minmax(0, 1fr) 76px; }
+  .item.noimg { grid-template-columns: minmax(0, 1fr); }
+  .item > * { min-width: 0; }
+  .item a.t { overflow-wrap: anywhere; }
+  .item .thumb, .item img.thumb { width: 76px; height: 54px; }
+  .save-btn { padding: 8px; margin: -8px -6px -8px auto; }
+  .save-btn .ic { width: 17px; height: 17px; }
+
+  /* Settings drawer */
+  .beta-set .inline { flex-wrap: wrap; }
+  .beta-set .inline > .btn { flex: 1 1 auto; justify-content: center; }
+  .ord button { width: 34px; height: 34px; }
+  .chip button { padding: 4px 2px 4px 6px; font-size: 16px; }
+  .drawer input, .drawer select, .drawer textarea, .modal input, .modal select, .modal textarea { font-size: 16px; }
+
+  /* Generic: comfortable taps, nothing wider than the screen */
+  .mini-btn, .btn { min-height: 36px; }
+  .card-body { overflow-wrap: anywhere; }
+  img, svg, video { max-width: 100%; }
+}
+@media (max-width: 680px) {
+  .card-head .sec-toggle { flex: 0 0 auto; }
+  .card-head h2 { overflow: visible; }
+  .card-head .sub { flex: 1 1 auto; }
+  .sp-bar .seg button { white-space: nowrap; font-size: 14px; padding: 7px 2px; }
+  .greet-row { flex-wrap: nowrap; min-width: 0; }
+  .greet { min-width: 0; }
+  .beta-pill { flex: none; font-size: 11px; padding: 2px 7px; }
+  [data-grp-toggle], .grp-toggle { min-height: 32px; }
+}
+@media (max-width: 400px) {
+  .icon-btn { width: 38px; height: 38px; }
+  .top-actions #refreshAll { display: none; } /* Refresh everything is in More; each section has its own refresh */
+}
+@media (max-width: 430px) {
+  .beta-pill { font-size: 0; padding: 2px 8px; }
+  .beta-pill::after { content: "Beta"; font-size: 11px; }
+}
+@media (max-width: 430px) {
+  .logo { flex-basis: 32px; width: 32px; height: 32px; border-radius: 9px; font-size: 13px; }
+  .brand { gap: 8px; }
+  .greet { font-size: 14.5px; }
+  .greet-row { gap: 6px; }
+}

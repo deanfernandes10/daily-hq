@@ -624,7 +624,8 @@ function tickClock() {
   const h = now.getHours();
   const part = h < 5 ? "Good evening" : h < 12 ? "Good morning" : h < 17 ? "Good afternoon" : "Good evening";
   $("#greet").textContent = cfg.name ? `${part}, ${cfg.name}` : part;
-  $("#date").textContent = now.toLocaleDateString([], { weekday: "long", month: "long", day: "numeric" }) +
+  const narrow = matchMedia("(max-width: 430px)").matches;
+  $("#date").textContent = now.toLocaleDateString([], narrow ? { weekday: "short", month: "short", day: "numeric" } : { weekday: "long", month: "long", day: "numeric" }) +
     " · " + now.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
 }
 
