@@ -1030,11 +1030,14 @@ function schedRow(e, abbr, path, rec = "", isNext = false) {
     right = `<span class="sch-res ${res === "W" ? "w" : res === "L" ? "l" : ""}">${res}</span> ${esc(me.score ?? "")}–${esc(opp.score ?? "")}${/OT|SO/.test(e.detail) ? ` <small>${esc(e.detail.replace(/^Final\/?/, ""))}</small>` : ""}`;
   } else if (e.state === "in") right = `<span class="pill live">LIVE</span> ${esc(me.score ?? "")}–${esc(opp.score ?? "")}`;
   else right = esc(schedTime(e.date));
+  const d = new Date(e.date);
+  const top = sameDay(d, new Date()) ? "Today" : sameDay(d, addDays(1)) ? "Tmrw" : d.toLocaleDateString([], { month: "short", day: "numeric" });
+  const wk = d.toLocaleDateString([], { weekday: "short" });
+  const tv = e.state === "pre" && e.broadcasts.length ? e.broadcasts.slice(0, 2).join(", ") : "";
   return `<div class="sch-row sch-4 ${e.state === "post" ? "past" : ""} ${isNext ? "next" : ""}" data-game="${esc(e.id)}" data-path="${esc(path)}" role="button" tabindex="0">
-    <span class="sch-d">${esc(sameDay(new Date(e.date), new Date()) ? "Today" : sameDay(new Date(e.date), addDays(1)) ? "Tomorrow" : schedDay(e.date))}</span>
-    <span class="sch-o">${home ? "vs" : "@"} ${opp.logo ? `<img src="${esc(opp.logo)}" alt="" loading="lazy">` : ""}${esc(opp.name)}</span>
-    <span class="sch-r">${right}</span><span class="sch-rec">${esc(rec)}</span>
-    ${e.state === "pre" && e.broadcasts.length ? `<span class="sch-tv">${esc(e.broadcasts.slice(0, 2).join(", "))}</span>` : ""}
+    <span class="sch-d"><b>${esc(top)}</b><small>${esc(wk)}</small></span>
+    <span class="sch-o"><span class="sch-ha">${home ? "vs" : "@"}</span>${opp.logo ? `<img src="${esc(opp.logo)}" alt="" loading="lazy">` : ""}<span class="sch-on"><span class="sch-nm">${esc(opp.name)}</span>${tv ? `<small>${esc(tv)}</small>` : ""}</span></span>
+    <span class="sch-r"><span class="sch-rv">${right}</span>${rec ? `<small>${esc(rec)}</small>` : ""}</span>
   </div>`;
 }
 function leagueTile(L, body, sub, liveN = 0) {
@@ -1148,10 +1151,15 @@ async function fillTeamSchedules() {
       const recs = evs.map((e) => { if (e.state === "post") { const me = e.teams.find((t) => t.abbr === ab); if (me?.winner) w++; else if (e.teams.some((t) => t.abbr !== ab && t.winner)) l++; else o++; return `${w}-${l}${o ? `-${o}` : ""}`; } return ""; });
       const team = (teamCache[key] || []).find((t) => t.abbr === ab);
       const nextIdx = evs.findIndex((e) => e.state !== "post");
-      el.innerHTML = `<div class="sch-head">${team?.logo ? `<img src="${esc(team.logo)}" alt="">` : ""}<div><b>${esc(team?.name || ab)}</b><small>${w + l + o ? `${w}-${l}${o ? `-${o}` : ""} · ` : ""}${evs.length} games</small></div></div>` +
-        (evs.length ? `<div class="sch-cols"><span>Date</span><span>Opponent</span><span>Result / Time</span><span>W-L</span></div><div class="sch-list sch-scroll">${evs.map((e, i) => schedRow(e, ab, path, recs[i], i === nextIdx)).join("")}</div>` : `<div class="empty">No games on the schedule yet.</div>`);
-      const nx = el.querySelector(".sch-row.next");
-      if (nx) { const box = el.querySelector(".sch-scroll"); box.scrollTop = Math.max(0, nx.offsetTop - box.offsetTop - 3 * nx.offsetHeight); }
+      const k2 = `${key}-${ab}`;
+      const showPast = !!cfg.sports.schedPast?.[k2], showRest = !!cfg.sports.schedFull?.[k2];
+      const start = nextIdx < 0 ? Math.max(0, evs.length - 10) : showPast ? 0 : Math.max(0, nextIdx - 3);
+      const end = nextIdx < 0 || showRest ? evs.length : Math.min(evs.length, nextIdx + 10);
+      el.innerHTML = `<div class="sch-head">${team?.logo ? `<img src="${esc(team.logo)}" alt="">` : ""}<span><b>${w + l + o ? `${w}-${l}${o ? `-${o}` : ""}` : "0-0"}</b> record · ${evs.length} games</span></div>` +
+        (evs.length ? (start > 0 ? `<button class="lg-more sch-exp" data-sched-past="${esc(k2)}">${ic("chevron-down", "xs")} Earlier games (${start})</button>` : showPast && nextIdx > 3 ? `<button class="lg-more sch-exp" data-sched-past="${esc(k2)}">Hide earlier games</button>` : "") +
+          `<div class="sch-cols"><span>Date</span><span>Opponent</span><span>Result</span></div><div class="sch-list">${evs.slice(start, end).map((e, i) => schedRow(e, ab, path, recs[start + i], start + i === nextIdx)).join("")}</div>` +
+          (end < evs.length ? `<button class="lg-more sch-exp" data-sched-more="${esc(k2)}">${ic("chevron-down", "xs")} Rest of season (${evs.length - end})</button>` : showRest && nextIdx >= 0 && evs.length > nextIdx + 10 ? `<button class="lg-more sch-exp" data-sched-more="${esc(k2)}">Show less</button>` : "")
+        : `<div class="empty">No games on the schedule yet.</div>`);
     } catch { if (el.isConnected) el.innerHTML = `<h5 class="sch-day">${esc(ab)} schedule</h5><div class="err">Couldn't load this schedule right now.</div>`; }
   }
 }
@@ -3607,6 +3615,8 @@ document.addEventListener("click", async (e) => {
   if (lbc) { const [k, v] = lbc.dataset.lbcat.split("|"); cfg.sports.lbCat = { ...(cfg.sports.lbCat || {}), [k]: v }; save(); renderSports(); return; }
   const spv = t.closest("[data-spview]");
   if (spv) { cfg.sports.view = spv.dataset.spview; save(); renderSports(); return; }
+  const spast = t.closest("[data-sched-past]");
+  if (spast) { const k = spast.dataset.schedPast; cfg.sports.schedPast = { ...(cfg.sports.schedPast || {}), [k]: !cfg.sports.schedPast?.[k] }; save(); renderSports(); return; }
   const smore = t.closest("[data-sched-more]");
   if (smore) { const k = smore.dataset.schedMore; cfg.sports.schedFull = { ...(cfg.sports.schedFull || {}), [k]: !cfg.sports.schedFull?.[k] }; save(); renderSports(); return; }
   const sp = t.closest("[data-spmode]");
@@ -4890,3 +4900,15 @@ async function asFallback(q) {
 }
 
 asInit();
+
+// Phone: hide the floating assistant button while scrolling down so it never covers results; show it again on scroll up or when scrolling stops.
+(() => {
+  let lastY = scrollY, t;
+  addEventListener("scroll", () => {
+    const y = scrollY;
+    if (Math.abs(y - lastY) > 6) document.body.classList.toggle("scroll-down", y > lastY && y > 120);
+    lastY = y;
+    clearTimeout(t);
+    t = setTimeout(() => document.body.classList.remove("scroll-down"), 1400);
+  }, { passive: true });
+})();

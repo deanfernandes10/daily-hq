@@ -1205,3 +1205,48 @@ body.drawer-open .as-launcher { display: none; }
 .st-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
 .st-wrap .st-table { min-width: 100%; white-space: nowrap; }
 .st-wrap .st-table td:nth-child(2), .st-wrap .st-table th:nth-child(2) { position: sticky; left: 0; background: var(--card, var(--panel)); z-index: 1; }
+
+/* Phone-first schedule rows (overrides earlier sch-4 grid) */
+.sch-cols, .sch-row.sch-4 { grid-template-columns: 54px minmax(0, 1fr) auto; gap: 10px; }
+.sch-cols span:nth-child(3) { text-align: right; }
+.sch-row.sch-4 { padding: 9px 6px; min-height: 48px; }
+.sch-row.sch-4 .sch-d { display: flex; flex-direction: column; line-height: 1.15; }
+.sch-row.sch-4 .sch-d b { color: var(--text); font-weight: 600; font-size: 14px; }
+.sch-row.sch-4.past .sch-d b { color: var(--muted); }
+.sch-row.sch-4 .sch-d small { font-size: 12px; }
+.sch-row.sch-4 .sch-o { gap: 6px; }
+.sch-ha { color: var(--muted); font-size: 13px; width: 18px; flex: none; }
+.sch-on { display: flex; flex-direction: column; min-width: 0; line-height: 1.2; }
+.sch-nm { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sch-on small { color: var(--muted); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sch-row.sch-4 .sch-o img { width: 22px; height: 22px; }
+.sch-row.sch-4 .sch-r { display: flex; flex-direction: column; align-items: flex-end; line-height: 1.2; }
+.sch-row.sch-4 .sch-r small { font-size: 11.5px; color: var(--muted); }
+.sch-rv { white-space: nowrap; }
+.sch-head { gap: 8px; font-size: 13.5px; color: var(--muted); }
+.sch-head img { width: 26px; height: 26px; }
+.sch-head b { display: inline; font-size: 14px; color: var(--text); }
+.sch-exp { width: 100%; justify-content: center; min-height: 40px; margin: 2px 0; }
+.sch-exp .ic { width: 14px; height: 14px; }
+
+/* Touch: no iOS zoom on focus, comfortable tap targets */
+.sch-sel select, #schedFind { font-size: 16px; }
+.sch-sel { min-height: 46px; }
+.sp-bar .seg button, .lb-seg button { min-height: 38px; }
+.lb-cats .chip { min-height: 34px; padding: 6px 12px; }
+.lb-list li { min-height: 44px; }
+.sch-row, .lb-list li, .sp-team-row { -webkit-tap-highlight-color: transparent; }
+.sch-row:active, .sp-team-row:active { background: color-mix(in srgb, var(--accent) 12%, transparent); }
+.sp-team-row { min-height: 48px; }
+.lb-cats { -webkit-mask-image: linear-gradient(90deg, #000 88%, transparent); mask-image: linear-gradient(90deg, #000 88%, transparent); padding-right: 24px; }
+@media (max-width: 400px) {
+  .st-table th, .st-table td { padding-left: 6px; padding-right: 6px; }
+  .sp-views .seg button { padding: 7px 2px; font-size: 14px; }
+  .lb-seg button { font-size: 12.5px; }
+}
+
+/* Assistant button tucks away while scrolling down on phones, comes back on scroll up */
+.as-launcher { transition: transform .22s ease, opacity .22s ease; }
+@media (max-width: 680px) {
+  body.scroll-down .as-launcher { transform: translateX(84px); opacity: 0; pointer-events: none; }
+}
