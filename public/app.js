@@ -1816,10 +1816,10 @@ function renderWeather() {
         .slice(0, 2)
         .map((a) => `<a class="wx-alert ${sev(a)}" href="${esc(a.url)}" target="_blank" rel="noopener" title="${esc(a.headline || a.event)} — ${esc(a.source)}">${ic("triangle-alert")} <b>${esc(a.event)}</b>${a.ends ? ` · until ${esc(when(a.ends))}` : ""}</a>`)
         .join("");
-      return `<div class="wx ${alerts?.length ? "has-alert" : ""} ${cfg.wxOpen?.[c.name] ? "open" : ""}" data-wx="${idx}" data-wx-name="${esc(c.name)}" role="button" aria-expanded="${!!cfg.wxOpen?.[c.name]}">
+      return `<div class="wx ${alerts?.length ? "has-alert" : ""} " data-wx="${idx}" data-wx-name="${esc(c.name)}" role="button" tabindex="0" aria-label="${esc(c.name)} — open full forecast">
         ${alertHTML}
         <div class="wx-top"><div class="wx-ico">${ico}</div>
-          <span class="wx-chev" aria-hidden="true">${ic("chevron-down")}</span>
+          <span class="wx-chev wx-more" aria-hidden="true">${ic("chevron-right")}</span>
           <div><div class="wx-city">${esc(c.name)}</div><div class="wx-temp">${Math.round(cur.temperature_2m)}°</div></div>
           <div class="wx-right"><div><b>${esc(cur._obs && obsToCode(cur._obs) === cur.weather_code ? cur._obs : desc)}</b></div>
             ${cur._next ? `<div class="wx-next">${ic(/starting/.test(cur._next) ? "umbrella" : "clock")} ${esc(cur._next)}</div>` : ""}
@@ -1831,8 +1831,141 @@ function renderWeather() {
         <div class="wx-days">${days.join("")}<div class="meta">${ic("sunrise")} ${sun(dl.sunrise[0])} · ${ic("sunset")} ${sun(dl.sunset[0])}${cur._src ? ` · <span class="wx-src">Now: ${esc(cur._src)}</span>` : ""}</div></div>
       </div>`;
     })
-    .join("")}</div><div class="meta" style="justify-content:center;margin-top:8px">Tap a city to expand or collapse its 7-day forecast · Alerts: NWS (US) & Environment Canada</div>`;
+    .join("")}</div><div class="meta" style="justify-content:center;margin-top:8px">Tap a city for hour-by-hour, 10-day, radar and details · Alerts: NWS (US) & Environment Canada</div>`;
   updateBadges();
+}
+
+
+// ---------- City weather detail (tap a city): hour-by-hour, 10-day, detail tiles, air quality, alerts, radar
+const wxDetail = { c: null, w: null, d: null, aq: null, day: -1 };
+const compass = (deg) => ["N", "NNE", "NE", "ENE", "E", "ESE", "SE", "SSE", "S", "SSW", "SW", "WSW", "W", "WNW", "NW", "NNW"][Math.round(((deg % 360) + 360) % 360 / 22.5) % 16];
+const fmtHour = (t) => { const h = +t.slice(11, 13); return `${h % 12 || 12}${h < 12 ? "am" : "pm"}`; };
+const fmtClock = (t) => { const h = +t.slice(11, 13); return `${h % 12 || 12}:${t.slice(14, 16)} ${h < 12 ? "AM" : "PM"}`; };
+function moonPhase(date = new Date()) {
+  const lp = 2551443, newMoon = Date.UTC(1970, 0, 7, 20, 35) / 1000;
+  const phase = (((date.getTime() / 1000 - newMoon) % lp) + lp) % lp / lp; // 0..1
+  const names = [["🌑", "New moon"], ["🌒", "Waxing crescent"], ["🌓", "First quarter"], ["🌔", "Waxing gibbous"], ["🌕", "Full moon"], ["🌖", "Waning gibbous"], ["🌗", "Last quarter"], ["🌘", "Waning crescent"]];
+  const [e, n] = names[Math.round(phase * 8) % 8];
+  return { e, n, lit: Math.round((1 - Math.cos(phase * 2 * Math.PI)) / 2 * 100) };
+}
+async function openWxDetail(idx) {
+  const w = (data.weather || [])[idx];
+  if (!w || w.error) return;
+  Object.assign(wxDetail, { c: w.c, w, d: null, aq: null, day: -1 });
+  openModal(`${ic("map-pin")} ${esc(w.c.name)}`, `<div id="wxDet">${wxHeroHTML()}${skeleton(8)}</div>`);
+  $("#modal").classList.add("sheet-full");
+  const F = cfg.units === "F";
+  const u = new URL("https://api.open-meteo.com/v1/forecast");
+  Object.entries({
+    latitude: w.c.lat, longitude: w.c.lon, timezone: "auto", forecast_days: 10,
+    current: "temperature_2m,apparent_temperature,weather_code,is_day,wind_speed_10m,wind_gusts_10m,wind_direction_10m,relative_humidity_2m,dew_point_2m,pressure_msl,cloud_cover,precipitation",
+    hourly: "temperature_2m,apparent_temperature,precipitation_probability,precipitation,snowfall,weather_code,is_day,wind_speed_10m,wind_gusts_10m,wind_direction_10m,relative_humidity_2m,uv_index,visibility,pressure_msl,cloud_cover",
+    daily: "weather_code,temperature_2m_max,temperature_2m_min,apparent_temperature_max,apparent_temperature_min,precipitation_sum,snowfall_sum,precipitation_probability_max,precipitation_hours,sunrise,sunset,daylight_duration,uv_index_max,wind_speed_10m_max,wind_gusts_10m_max,wind_direction_10m_dominant",
+    temperature_unit: F ? "fahrenheit" : "celsius", wind_speed_unit: F ? "mph" : "kmh", precipitation_unit: F ? "inch" : "mm",
+  }).forEach(([k, v]) => u.searchParams.set(k, v));
+  const aqU = `https://air-quality-api.open-meteo.com/v1/air-quality?latitude=${w.c.lat}&longitude=${w.c.lon}&current=us_aqi,pm2_5,pm10,ozone,nitrogen_dioxide&hourly=us_aqi&forecast_days=2&timezone=auto`;
+  const [d, aq] = await Promise.all([api(u).catch(() => null), api(aqU).catch(() => null)]);
+  if (wxDetail.c !== w.c) return; // user moved on
+  wxDetail.d = d; wxDetail.aq = aq;
+  drawWxDetail();
+}
+function wxHeroHTML() {
+  const { w } = wxDetail;
+  const cur = w.d.current, dl = w.d.daily;
+  const [ico, desc] = wmo(cur.weather_code, cur.is_day);
+  const sev = (a) => (["extreme", "severe"].includes(a.severity) ? "sev-high" : a.severity === "moderate" ? "sev-mid" : "sev-low");
+  const alerts = (w.alerts || []).map((a) => `<details class="wxd-alert ${sev(a)}"><summary>${ic("triangle-alert")} <b>${esc(a.event)}</b>${a.ends ? ` · until ${esc(when(a.ends))}` : ""}</summary>
+    ${a.headline ? `<p><b>${esc(a.headline)}</b></p>` : ""}${a.description ? `<p>${esc(a.description).replace(/\n{2,}/g, "</p><p>").replace(/\n/g, " ")}</p>` : ""}${a.instruction ? `<p><b>What to do:</b> ${esc(a.instruction)}</p>` : ""}
+    <p class="muted">${esc(a.source || "")}${a.url ? ` · <a href="${esc(a.url)}" target="_blank" rel="noopener">Full alert ${ic("external-link", "xs")}</a>` : ""}</p></details>`).join("");
+  return `<div class="wxd-hero"><div class="wxd-ico">${ico}</div><div class="wxd-temp">${Math.round(cur.temperature_2m)}°</div>
+    <div class="wxd-desc">${esc(cur._obs && obsToCode(cur._obs) === cur.weather_code ? cur._obs : desc)}</div>
+    <div class="wxd-hl">H ${Math.round(dl.temperature_2m_max[0])}° · L ${Math.round(dl.temperature_2m_min[0])}° · Feels like ${Math.round(cur.apparent_temperature)}°</div>
+    ${cur._next ? `<div class="wx-next">${ic(/starting/.test(cur._next) ? "umbrella" : "clock")} ${esc(cur._next)}</div>` : ""}</div>${alerts}`;
+}
+function tempChart(vals, labels) {
+  if (vals.length < 2) return "";
+  const W = 64 * vals.length, H = 56, min = Math.min(...vals), max = Math.max(...vals), rng = max - min || 1;
+  const x = (i) => i * 64 + 32, y = (v) => 10 + (1 - (v - min) / rng) * (H - 20);
+  const pts = vals.map((v, i) => `${x(i)},${y(v).toFixed(1)}`).join(" ");
+  return `<svg class="wxd-chart" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}"><defs><linearGradient id="tg" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stop-color="var(--accent)" stop-opacity=".35"/><stop offset="1" stop-color="var(--accent)" stop-opacity="0"/></linearGradient></defs>
+    <polygon points="${x(0)},${H} ${pts} ${x(vals.length - 1)},${H}" fill="url(#tg)"/><polyline points="${pts}" fill="none" stroke="var(--accent)" stroke-width="2"/>${vals.map((v, i) => `<circle cx="${x(i)}" cy="${y(v).toFixed(1)}" r="2.5" fill="var(--accent)"/>`).join("")}</svg>`;
+}
+function drawWxDetail() {
+  const box = $("#wxDet");
+  if (!box) return;
+  const { d, aq, w, c } = wxDetail;
+  const F = cfg.units === "F";
+  const wind = F ? "mph" : "km/h", pu = F ? "in" : "mm";
+  if (!d) { box.innerHTML = wxHeroHTML() + `<div class="err">Couldn't load the detailed forecast right now.</div>`; return; }
+  const cur = d.current, hr = d.hourly, dl = d.daily;
+  const nowIdx = Math.max(0, hr.time.findIndex((t) => t >= cur.time.slice(0, 13)));
+  // hour-by-hour: next 48h, or the chosen day
+  let from = nowIdx, to = nowIdx + 48, title = "Next 48 hours";
+  if (wxDetail.day >= 0) { const day = dl.time[wxDetail.day]; from = hr.time.findIndex((t) => t.startsWith(day)); to = from + 24; if (wxDetail.day === 0) from = nowIdx; title = wxDetail.day === 0 ? "Rest of today" : new Date(day + "T12:00").toLocaleDateString([], { weekday: "long", month: "short", day: "numeric" }); }
+  const idx = [...Array(Math.max(0, to - from)).keys()].map((k) => from + k).filter((j) => j < hr.time.length);
+  const hrs = idx.map((j, k) => {
+    const isNow = j === nowIdx && wxDetail.day <= 0;
+    const t = hr.time[j];
+    const newDay = k > 0 && t.slice(11, 13) === "00";
+    const pp = hr.precipitation_probability[j], amt = hr.precipitation[j];
+    return `<div class="wxd-h ${newDay ? "nd" : ""}">${newDay ? `<i class="wxd-day">${esc(new Date(t.slice(0, 10) + "T12:00").toLocaleDateString([], { weekday: "short" }))}</i>` : ""}<span class="t">${isNow ? "Now" : fmtHour(t)}</span>${wmo(isNow ? w.d.current.weather_code : hr.weather_code[j], hr.is_day[j])[0]}<span class="rp">${pp >= 10 ? `${pp}%` : "&nbsp;"}</span><span class="amt">${amt >= (F ? 0.01 : 0.1) ? `${F ? amt.toFixed(2) : amt.toFixed(1)}${pu}` : "&nbsp;"}</span><span class="wd">${ic("wind", "xs")}${Math.round(hr.wind_speed_10m[j])}</span></div>`;
+  }).join("");
+  const chart = tempChart(idx.map((j, k) => (j === nowIdx && wxDetail.day <= 0 ? w.d.current.temperature_2m : hr.temperature_2m[j])), []);
+  const temps = idx.map((j) => `<span>${Math.round(j === nowIdx && wxDetail.day <= 0 ? w.d.current.temperature_2m : hr.temperature_2m[j])}°</span>`).join("");
+  // 10-day
+  const lo = Math.min(...dl.temperature_2m_min), hi = Math.max(...dl.temperature_2m_max);
+  const days = dl.time.map((t, i) => {
+    const name = i === 0 ? "Today" : new Date(t + "T12:00").toLocaleDateString([], { weekday: "short" });
+    const a = ((dl.temperature_2m_min[i] - lo) / (hi - lo || 1)) * 100, b = ((dl.temperature_2m_max[i] - lo) / (hi - lo || 1)) * 100;
+    const pp = dl.precipitation_probability_max[i], snow = dl.snowfall_sum?.[i] || 0, rain = dl.precipitation_sum[i] || 0;
+    return `<button class="wxd-d ${wxDetail.day === i ? "on" : ""}" data-wxday="${i}"><span class="n">${name}<small>${esc(new Date(t + "T12:00").toLocaleDateString([], { month: "numeric", day: "numeric" }))}</small></span><span class="i">${wmo(dl.weather_code[i])[0]}${pp >= 20 ? `<small>${pp}%</small>` : ""}</span>
+      <span class="lo">${Math.round(dl.temperature_2m_min[i])}°</span><span class="bar"><i style="left:${a}%;right:${100 - b}%"></i></span><span class="hi">${Math.round(dl.temperature_2m_max[i])}°</span></button>
+      ${wxDetail.day === i ? `<div class="wxd-dsum">${[pp >= 10 ? `${pp}% chance of ${snow > 0 ? "snow" : "rain"}` : "Dry", rain >= (F ? 0.01 : 0.1) ? `${snow > 0 ? `${snow.toFixed(1)} ${F ? "in" : "cm"} snow` : `${F ? rain.toFixed(2) : rain.toFixed(1)} ${pu}`}` : "", `Wind ${compass(dl.wind_direction_10m_dominant[i])} up to ${Math.round(dl.wind_speed_10m_max[i])} ${wind} (gusts ${Math.round(dl.wind_gusts_10m_max[i])})`, `UV ${Math.round(dl.uv_index_max[i] ?? 0)}`, `Sunrise ${fmtClock(dl.sunrise[i])} · Sunset ${fmtClock(dl.sunset[i])}`].filter(Boolean).map(esc).join(" · ")}</div>` : ""}`;
+  }).join("");
+  // detail tiles
+  const j = nowIdx;
+  const vis = hr.visibility?.[j];
+  const visTxt = vis == null ? "—" : F ? `${(vis / 1609).toFixed(vis >= 16090 ? 0 : 1)} mi` : `${(vis / 1000).toFixed(vis >= 10000 ? 0 : 1)} km`;
+  const pr = cur.pressure_msl, pr3 = hr.pressure_msl?.[Math.max(0, j - 3)];
+  const trend = pr3 == null ? "" : pr - pr3 > 1 ? "Rising" : pr3 - pr > 1 ? "Falling" : "Steady";
+  const prTxt = F ? `${(pr * 0.02953).toFixed(2)} inHg` : `${Math.round(pr)} hPa`;
+  const uvNow = hr.uv_index?.[j] ?? 0;
+  const day0 = dl.daylight_duration?.[0];
+  const sunNext = (() => { const now = cur.time; if (now < dl.sunrise[0]) return ["sunrise", "Sunrise", fmtClock(dl.sunrise[0]), `Sunset ${fmtClock(dl.sunset[0])}`]; if (now < dl.sunset[0]) return ["sunset", "Sunset", fmtClock(dl.sunset[0]), `Sunrise ${fmtClock(dl.sunrise[0])}`]; return ["sunrise", "Sunrise", fmtClock(dl.sunrise[1]), `Tomorrow · sunset ${fmtClock(dl.sunset[1])}`]; })();
+  const next24 = hr.precipitation.slice(j, j + 24).reduce((s2, v) => s2 + (v || 0), 0);
+  const moon = moonPhase();
+  const feelsWhy = cur.apparent_temperature < cur.temperature_2m - 2 ? "Wind is making it feel colder." : cur.apparent_temperature > cur.temperature_2m + 2 ? "Humidity is making it feel warmer." : "Similar to the actual temperature.";
+  const tile = (icon, label, big, sub = "", extra = "") => `<div class="wxd-tile"><div class="lbl">${ic(icon, "xs")} ${label}</div><div class="big">${big}</div>${extra}${sub ? `<div class="sub">${sub}</div>` : ""}</div>`;
+  const arrow = `<svg class="wxd-dir" viewBox="0 0 24 24" style="transform:rotate(${(cur.wind_direction_10m + 180) % 360}deg)"><path d="M12 2l5 12h-10z" fill="var(--accent)"/><rect x="11" y="13" width="2" height="9" fill="var(--accent)"/></svg>`;
+  const uvPct = Math.min(100, (uvNow / 11) * 100);
+  const aqc = aq?.current;
+  const aqiNow = aqc?.us_aqi ?? w.aqi;
+  const tiles = [
+    tile("thermometer", "Feels like", `${Math.round(cur.apparent_temperature)}°`, esc(feelsWhy)),
+    tile("wind", "Wind", `${Math.round(cur.wind_speed_10m)} <small>${wind}</small>`, `Gusts ${Math.round(cur.wind_gusts_10m)} ${wind} · from the ${compass(cur.wind_direction_10m)}`, arrow),
+    tile("droplets", "Humidity", `${cur.relative_humidity_2m}%`, `Dew point ${Math.round(cur.dew_point_2m)}°`),
+    tile("sun", "UV index", `${Math.round(uvNow)} <small>${uvLabel(uvNow)}</small>`, `Today's peak ${Math.round(dl.uv_index_max[0] ?? 0)}`, `<div class="wxd-meter uv"><i style="left:${uvPct}%"></i></div>`),
+    tile("umbrella", "Precipitation", `${F ? next24.toFixed(2) : next24.toFixed(1)} <small>${pu}</small>`, `Expected in the next 24 hours · ${dl.precipitation_probability_max[0] ?? 0}% chance today`),
+    tile("eye", "Visibility", visTxt, vis == null ? "" : vis >= 10000 ? "Clear view" : vis >= 4000 ? "Some haze" : "Poor — fog or heavy precip"),
+    tile("gauge", "Pressure", prTxt, trend ? `${trend} over the last 3 hours` : ""),
+    tile("cloud", "Cloud cover", `${cur.cloud_cover}%`, cur.cloud_cover < 20 ? "Mostly clear" : cur.cloud_cover < 60 ? "Partly cloudy" : "Mostly cloudy"),
+    tile(sunNext[0], sunNext[1], sunNext[2], `${sunNext[3]}${day0 ? ` · ${Math.floor(day0 / 3600)}h ${Math.round((day0 % 3600) / 60)}m of daylight` : ""}`),
+    tile("moon", "Moon", `${moon.e} <small>${moon.lit}%</small>`, moon.n),
+  ].join("");
+  const aqHTML = aqiNow != null ? `<h5 class="sch-day">Air quality</h5><div class="wxd-aq"><div class="wxd-aqv ${aqiCls(aqiNow)}"><b>${Math.round(aqiNow)}</b><span>${aqiLabel(aqiNow)}</span></div><div class="wxd-meter aq"><i style="left:${Math.min(100, aqiNow / 3)}%"></i></div>
+      ${aqc ? `<div class="wxd-pol">${[["PM2.5", aqc.pm2_5], ["PM10", aqc.pm10], ["Ozone", aqc.ozone], ["NO₂", aqc.nitrogen_dioxide]].filter(([, v]) => v != null).map(([n, v]) => `<span><small>${n}</small>${Math.round(v)} µg/m³</span>`).join("")}</div>` : ""}</div>` : "";
+  box.innerHTML = wxHeroHTML() +
+    `<h5 class="sch-day">${esc(title)}${wxDetail.day >= 0 ? ` <button class="linkish" data-wxday="${wxDetail.day}">Back to next 48h</button>` : ""}</h5>
+     <div class="wxd-hours"><div class="wxd-hscroll"><div class="wxd-temps">${temps}</div>${chart}<div class="wxd-hrow">${hrs}</div></div></div>
+     <h5 class="sch-day">10-day forecast <small>Tap a day for its hours</small></h5><div class="wxd-days">${days}</div>
+     <div class="wxd-tiles">${tiles}</div>${aqHTML}
+     <h5 class="sch-day">Radar</h5><div id="wxRadar"><button class="btn wide" data-wxradar>${ic("map", "xs")} Show live radar</button></div>
+     <div class="meta" style="justify-content:center;margin-top:10px">Forecast: Open-Meteo · Now: ${esc(w.d.current._src || "Forecast model")}</div>`;
+}
+function radarHTML(c) {
+  const z = 7;
+  return `<div class="wxd-radar"><iframe title="Radar" loading="lazy" src="https://embed.windy.com/embed2.html?lat=${c.lat}&lon=${c.lon}&detailLat=${c.lat}&detailLon=${c.lon}&zoom=${z}&level=surface&overlay=radar&product=radar&menu=&message=true&marker=true&calendar=now&type=map&location=coordinates&metricWind=${cfg.units === "F" ? "mph" : "km%2Fh"}&metricTemp=%C2%B0${cfg.units === "F" ? "F" : "C"}"></iframe></div>
+    <div class="hub-links"><a class="chip" href="https://www.rainviewer.com/map.html?loc=${c.lat},${c.lon},8&oFa=0&oC=1&oU=0&oCS=1&oF=0&oAP=1&c=3&o=83&lm=1&layer=radar&sm=1&sn=1" target="_blank" rel="noopener">RainViewer ${ic("external-link", "xs")}</a><a class="chip" href="https://zoom.earth/maps/radar/#view=${c.lat},${c.lon},8z" target="_blank" rel="noopener">Zoom Earth ${ic("external-link", "xs")}</a></div>`;
 }
 
 // ============================================================ markets
@@ -2491,6 +2624,7 @@ function renderBrief() {
 
 // ============================================================ modal, game details, standings
 function openModal(title, html) {
+  $("#modal").classList.remove("sheet-full");
   $("#modalTitle").innerHTML = title;
   $("#modalBody").innerHTML = html;
   $("#modal").hidden = false;
@@ -2498,6 +2632,7 @@ function openModal(title, html) {
 }
 function closeModal() {
   $("#modal").hidden = true;
+  $("#modal").classList.remove("sheet-full");
   document.body.classList.remove("modal-open");
   clearInterval(openModal.timer);
 }
@@ -3938,14 +4073,11 @@ document.addEventListener("click", async (e) => {
   const nt = t.closest("[data-news]");
   if (nt) { activeNews = nt.dataset.news; renderNews(); return; }
   if (t.closest("[data-more]")) { newsLimit[activeNews] = (newsLimit[activeNews] || cfg.news.perCategory) + 24; renderNews(); return; }
+  const wxd = t.closest("[data-wxday]");
+  if (wxd) { const i = +wxd.dataset.wxday; wxDetail.day = wxDetail.day === i ? -1 : i; drawWxDetail(); return; }
+  if (t.closest("[data-wxradar]")) { const b = $("#wxRadar"); if (b) b.innerHTML = radarHTML(wxDetail.c); return; }
   const wx = t.closest("[data-wx]");
-  if (wx && !t.closest("a")) {
-    const open = wx.classList.toggle("open");
-    wx.setAttribute("aria-expanded", open);
-    cfg.wxOpen = { ...(cfg.wxOpen || {}) };
-    if (open) cfg.wxOpen[wx.dataset.wxName] = true; else delete cfg.wxOpen[wx.dataset.wxName];
-    save(); return;
-  }
+  if (wx && !t.closest("a")) { openWxDetail(+wx.dataset.wx); return; }
 });
 function updateMortgageOut() {
   const m = mortgageDefaults(), c = calcMortgage(m);
