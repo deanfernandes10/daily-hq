@@ -1,6 +1,6 @@
 // Network-first service worker: makes Daily HQ installable and opens instantly offline with the last shell.
-const CACHE = "dhq-shell-v14";
-const SHELL = ["/", "/index.html", "/app.js", "/beta.js", "/styles.css", "/manifest.webmanifest", "/icon.svg", "/icon-192.png"];
+const CACHE = "dhq-shell-v15";
+const SHELL = ["/", "/index.html", "/app.js?v=15", "/beta.js", "/styles.css", "/manifest.webmanifest", "/icon.svg", "/icon-192.png"];
 
 self.addEventListener("install", (e) => {
   e.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL)).then(() => self.skipWaiting()));
@@ -12,9 +12,9 @@ self.addEventListener("activate", (e) => {
 });
 self.addEventListener("fetch", (e) => {
   const url = new URL(e.request.url);
-  if (e.request.method !== "GET" || url.origin !== location.origin || url.pathname.startsWith("/api/")) return;
+  if (e.request.method !== "GET" || url.origin !== location.origin || url.pathname.startsWith("/api/") || url.pathname === "/sw.js") return;
   e.respondWith(
-    fetch(e.request)
+    fetch(e.request, { cache: "no-cache" })
       .then((r) => {
         if (r.ok) { const copy = r.clone(); caches.open(CACHE).then((c) => c.put(e.request, copy)); }
         return r;
@@ -22,6 +22,8 @@ self.addEventListener("fetch", (e) => {
       .catch(() => caches.match(e.request).then((r) => r || caches.match("/index.html")))
   );
 });
+
+self.addEventListener("message", (e) => { if (e.data === "skipWaiting") self.skipWaiting(); });
 
 self.addEventListener("notificationclick", (e) => {
   e.notification.close();

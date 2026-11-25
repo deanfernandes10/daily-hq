@@ -1417,6 +1417,11 @@ async function loadTeamInfo(key, ab) {
   hubInfoCache[ck] = { at: Date.now(), d };
   return d;
 }
+function favLeaguesRow() {
+  const ls = cfg.sports.leagues.filter((x) => LEAGUES[x.key]);
+  if (!ls.length) return "";
+  return `<div class="fav-lgs"><span>Leagues</span>${ls.map((x) => `<button data-lgpage="${x.key}|scores">${leagueBadge(x.key)} ${esc(LEAGUES[x.key].name)}</button>`).join("")}</div>`;
+}
 function renderTeamHub(body, hubBar) {
   const cur = hubCurrent();
   const { key, ab } = cur;
@@ -1436,7 +1441,7 @@ function renderTeamHub(body, hubBar) {
   else if (tab === "news") inner = `<div data-news-key="${esc(key)}|${esc(ab)}">${skeleton(5)}</div>`;
   else if (tab === "table") inner = `<div data-table-key="${esc(key)}" data-lb="table">${skeleton(6)}</div>`;
   else inner = `<div id="hubRoster">${skeleton(8)}</div>`;
-  body.innerHTML = hubBar + `<div class="hub">${head}${tabs}<div class="hub-body">${inner}</div></div>`;
+  body.innerHTML = hubBar + `<div class="hub">${head}${tabs}<div class="hub-body">${inner}</div></div>` + favLeaguesRow();
   updateBadges();
   fillTeamHub(key, ab, tab);
 }
@@ -4825,6 +4830,36 @@ document.addEventListener("visibilitychange", () => {
 });
 
 if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").catch(() => {});
+
+// Keep the installed app current: when it comes back to the screen, see if a newer build is live and load it.
+const APP_BUILD = "dhq-shell-v15";
+let lastHidden = 0, updating = false;
+async function checkForUpdate(auto) {
+  if (updating) return;
+  try {
+    const txt = await (await fetch(`/sw.js?check=${Date.now()}`, { cache: "no-store" })).text();
+    const live = txt.match(/CACHE = "([^"]+)"/)?.[1];
+    if (!live || live === APP_BUILD) return;
+    updating = true;
+    const go = async () => {
+      try { const reg = await navigator.serviceWorker?.getRegistration(); await reg?.update(); reg?.waiting?.postMessage("skipWaiting"); } catch {}
+      try { const ks = await caches.keys(); await Promise.all(ks.map((k) => caches.delete(k))); } catch {}
+      location.reload();
+    };
+    if (auto) return go();
+    const t = $("#toast");
+    t.innerHTML = `${ic("refresh-cw", "xs")} A new version of Daily HQ is ready. <button class="btn primary" id="doUpdate">Update</button>`;
+    t.hidden = false; t.classList.add("show", "sticky");
+    $("#doUpdate").onclick = go;
+  } catch {}
+}
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden) { lastHidden = Date.now(); return; }
+  // back after a minute or more away: nothing is mid-use, so update straight away
+  checkForUpdate(lastHidden && Date.now() - lastHidden > 60e3);
+});
+setTimeout(() => checkForUpdate(false), 4000);
+setInterval(() => !document.hidden && checkForUpdate(false), 30 * 60e3);
 
 // ============================================================ HQ Assistant (free — runs on this device, no AI service)
 // Like Alex in Executive Search: launcher bubble, chat, suggestions, task cards and confirm-before-change.

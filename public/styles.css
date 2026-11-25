@@ -1501,3 +1501,12 @@ body.drawer-open .as-launcher { display: none; }
 .hub-sel .lg-logo { width: 20px; height: 20px; }
 .lg-links button { white-space: nowrap; padding: 0 4px; gap: 4px; }
 @media (max-width: 400px) { .lg-links button { font-size: 13px; } .lg-links button .ic { width: 13px; height: 13px; } }
+
+/* update prompt + leagues row in Favorites */
+#toast.sticky { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; justify-content: center; }
+#toast.sticky .btn { min-height: 32px; padding: 4px 12px; }
+.fav-lgs { display: flex; align-items: center; gap: 6px; overflow-x: auto; scrollbar-width: none; margin-top: 12px; padding-bottom: 2px; }
+.fav-lgs::-webkit-scrollbar { display: none; }
+.fav-lgs > span { flex: none; font-size: 11.5px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); font-weight: 600; margin-right: 2px; }
+.fav-lgs button { flex: none; display: inline-flex; align-items: center; gap: 6px; min-height: 38px; padding: 0 12px; border: 1px solid var(--line); border-radius: 999px; background: var(--panel); color: var(--text); font: inherit; font-size: 13.5px; font-weight: 600; }
+.fav-lgs .lg-logo { width: 18px; height: 18px; }
