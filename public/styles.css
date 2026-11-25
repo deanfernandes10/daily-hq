@@ -1510,3 +1510,17 @@ body.drawer-open .as-launcher { display: none; }
 .fav-lgs > span { flex: none; font-size: 11.5px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); font-weight: 600; margin-right: 2px; }
 .fav-lgs button { flex: none; display: inline-flex; align-items: center; gap: 6px; min-height: 38px; padding: 0 12px; border: 1px solid var(--line); border-radius: 999px; background: var(--panel); color: var(--text); font: inherit; font-size: 13.5px; font-weight: 600; }
 .fav-lgs .lg-logo { width: 18px; height: 18px; }
+
+/* Favorites on a league page */
+.lg-favs { display: flex; flex-direction: column; gap: 8px; padding: 10px 12px; background: var(--panel); border-bottom: 1px solid var(--line); }
+.lg-fav { display: flex; align-items: center; gap: 12px; width: 100%; min-height: 58px; padding: 8px 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--panel-2); color: var(--text); font: inherit; text-align: left; cursor: pointer; -webkit-tap-highlight-color: transparent; }
+.lg-fav:active { background: color-mix(in srgb, var(--accent) 14%, transparent); }
+.lg-fav img { width: 38px; height: 38px; object-fit: contain; flex: none; }
+.hub-ph.sm { width: 38px; height: 38px; font-size: 12px; flex: none; }
+.lf-t { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.lf-t b { font-size: 15.5px; font-weight: 700; }
+.lf-t small { color: var(--muted); font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.lf-t small b { font-size: 12.5px; }
+.lf-t small b.w { color: #22c55e; } .lf-t small b.l { color: #ef4444; }
+.lg-fav > .ic { width: 16px; height: 16px; color: var(--muted); flex: none; }
+.lg-fav.add { justify-content: center; min-height: 44px; border-style: dashed; color: var(--muted); font-weight: 600; font-size: 14px; }

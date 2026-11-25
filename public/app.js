@@ -1301,6 +1301,28 @@ function lgLinks(key) {
   const golf = LEAGUES[key].kind === "golf";
   return `<div class="lg-links">${[["sched", golf ? "Schedule" : "Schedule", "calendar"], ["news", "News", "newspaper"], ["table", golf ? "Leaderboard" : "Standings", "list-ordered"]].map(([t, l, i]) => `<button data-lgpage="${key}|${t}">${ic(i, "xs")} ${l}</button>`).join("")}</div>`;
 }
+// Favorite teams of this league, each one tap from its full team page
+function lgFavsHTML(key, events) {
+  const meta = LEAGUES[key];
+  if (meta.kind) return "";
+  const L = cfg.sports.leagues.find((x) => x.key === key);
+  const favs = L?.teams || [];
+  if (!favs.length) return `<div class="lg-favs"><button class="lg-fav add" data-open-settings="sports">${ic("plus", "xs")} Add favorite ${esc(meta.name)} teams</button></div>`;
+  const card = (ab) => {
+    const t = (teamCache[key] || []).find((x) => x.abbr === ab);
+    const evs = (events || []).filter((e) => e.teams?.some((x) => x.abbr === ab));
+    const live = evs.find((e) => e.state === "in"), next = evs.filter((e) => e.state === "pre").sort((a, b) => new Date(a.date) - new Date(b.date))[0];
+    const last = evs.filter((e) => e.state === "post").sort((a, b) => new Date(b.date) - new Date(a.date))[0];
+    const vs = (e) => { const me = e.teams.find((x) => x.abbr === ab), op = e.teams.find((x) => x.abbr !== ab); return op ? `${me?.homeAway === "home" ? "vs" : "@"} ${op.abbr || op.name}` : ""; };
+    let line = "";
+    if (live) { const me = live.teams.find((x) => x.abbr === ab), op = live.teams.find((x) => x.abbr !== ab); line = `<span class="pill live">LIVE</span> ${esc(me?.score ?? "")}–${esc(op?.score ?? "")} ${esc(vs(live))}`; }
+    else if (last && (!next || Date.now() - new Date(last.date) < 20 * 3600e3)) { const me = last.teams.find((x) => x.abbr === ab), op = last.teams.find((x) => x.abbr !== ab); const w = me?.winner ? "W" : op?.winner ? "L" : ""; line = `${w ? `<b class="${w === "W" ? "w" : "l"}">${w}</b> ` : ""}${esc(me?.score ?? "")}–${esc(op?.score ?? "")} ${esc(vs(last))}`; }
+    else if (next) line = `Next: ${esc(vs(next))} · ${esc(sameDay(new Date(next.date), new Date()) ? schedTime(next.date) : schedDay(next.date))}`;
+    else line = "Tap for schedule, news & more";
+    return `<button class="lg-fav" data-open-team="${esc(key)}|${esc(ab)}">${t?.logo ? `<img src="${esc(t.logo)}" alt="">` : `<span class="hub-ph sm">${esc(ab)}</span>`}<span class="lf-t"><b>★ ${esc(t?.short || t?.name || ab)}</b><small>${line}</small></span>${ic("chevron-right", "xs")}</button>`;
+  };
+  return `<div class="lg-favs">${favs.map(card).join("")}</div>`;
+}
 function lgTabs(key) {
   const k = LEAGUES[key].kind;
   if (k === "golf") return [["scores", "Leaderboard"], ["sched", "Schedule"], ["news", "News"]];
@@ -1348,7 +1370,7 @@ function renderLeaguePage(body, mainBar) {
     inner = `<div class="seg lb-seg">${[["table", "Table"], ["teams", "Team leaders"], ["players", "Player leaders"]].map(([v, l]) => `<button data-lbview="${key}|${v}" class="${lv === v ? "on" : ""}">${l}</button>`).join("")}</div><div data-table-key="${key}" data-lb="${lv}">${skeleton(6)}</div>`;
   }
   const liveN = events.filter((e) => e.state === "in").length;
-  const head = `<div class="hub-head lg-head"><span class="lg-big">${leagueBadge(key)}</span><div><b>${esc(meta.name)}</b><small>${liveN ? `<span class="pill live">${liveN} LIVE</span> ` : ""}${(L.teams || []).length ? `Your teams: ${esc(L.teams.join(" · "))}` : "All teams"}</small></div></div>`;
+  const head = `<div class="hub-head lg-head"><span class="lg-big">${leagueBadge(key)}</span><div><b>${esc(meta.name)}</b><small>${liveN ? `<span class="pill live">${liveN} LIVE</span> ` : ""}${(L.teams || []).length ? `${L.teams.length} favorite${L.teams.length > 1 ? "s" : ""}` : "No favorites yet"}</small></div></div>` + lgFavsHTML(key, events);
   body.innerHTML = mainBar + bar + `<div class="hub">${head}${tabBar}<div class="hub-body">${inner}</div></div>`;
   updateBadges();
   if (tab === "sched") fillTeamSchedules(); else if (tab === "news") fillSportsNews(); else if (tab === "table") fillTables();
@@ -1430,7 +1452,7 @@ function renderTeamHub(body, hubBar) {
   const tab = HUB_TABS.some(([v]) => v === cfg.sports.hubTab) ? cfg.sports.hubTab : "home";
   const t = (teamCache[key] || []).find((x) => x.abbr === ab);
   const head = `<div class="hub-head" id="hubHead">${t?.logo ? `<img src="${esc(t.logo)}" alt="">` : `<span class="hub-ph">${esc(ab)}</span>`}<div><b>${esc(t?.name || ab)}</b><small id="hubSub">${leagueBadge(key)} ${esc(meta.name)}</small></div>
-    <button class="hub-lg" data-hub-league="${esc(key)}" title="Open ${esc(meta.name)} in Leagues">${esc(meta.name)} ${ic("chevron-right", "xs")}</button></div>`;
+    <button class="hub-lg" data-hub-league="${esc(key)}" title="Open the ${esc(meta.name)} page">${esc(meta.name)} ${ic("chevron-right", "xs")}</button></div>`;
   const tabs = `<div class="hub-tabs" role="tablist">${HUB_TABS.map(([v, l]) => `<button role="tab" data-hub-tab="${v}" class="${tab === v ? "on" : ""}">${l}</button>`).join("")}</div>`;
   let inner = "";
   if (tab === "home") inner = `<div id="hubGames">${hubGamesHTML(key, ab)}</div>
@@ -4075,6 +4097,10 @@ document.addEventListener("click", async (e) => {
   if (lbc) { const [k, v] = lbc.dataset.lbcat.split("|"); cfg.sports.lbCat = { ...(cfg.sports.lbCat || {}), [k]: v }; save(); renderSports(); return; }
   const spv = t.closest("[data-spview]");
   if (spv) { cfg.sports.view = spv.dataset.spview; save(); renderSports(); return; }
+  const opt = t.closest("[data-open-team]");
+  if (opt) { cfg.sports.hub = opt.dataset.openTeam; cfg.sports.hubTab = "home"; cfg.sports.main = "fav"; save(); renderSports(); $("#sec-sports")?.scrollIntoView({ block: "start" }); return; }
+  const ops = t.closest("[data-open-settings]");
+  if (ops) { openSettings(ops.dataset.openSettings); return; }
   const lgp = t.closest("[data-lgpage]");
   if (lgp) { const [k, tb] = lgp.dataset.lgpage.split("|"); cfg.sports.lgPage = k; cfg.sports.lgTab = tb; cfg.sports.main = "leagues"; save(); renderSports(); $("#sec-sports")?.scrollIntoView({ block: "start" }); return; }
   if (t.closest("[data-lgback]")) { cfg.sports.lgPage = ""; save(); renderSports(); $("#sec-sports")?.scrollIntoView({ block: "start" }); return; }
@@ -4832,7 +4858,7 @@ document.addEventListener("visibilitychange", () => {
 if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").catch(() => {});
 
 // Keep the installed app current: when it comes back to the screen, see if a newer build is live and load it.
-const APP_BUILD = "dhq-shell-v15";
+const APP_BUILD = "dhq-shell-v16";
 let lastHidden = 0, updating = false;
 async function checkForUpdate(auto) {
   if (updating) return;

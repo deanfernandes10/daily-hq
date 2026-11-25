@@ -81,7 +81,7 @@ function ended(status) {
 
 // ---------- start
 let booted = false;
-function boot() { if (booted) return; booted = true; import("/app.js?v=15"); }
+function boot() { if (booted) return; booted = true; import("/app.js?v=16"); }
 async function start() {
   if (!st.code) return gate();
   if (st.expires && st.expires < Date.now()) return ended("expired");
