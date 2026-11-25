@@ -1487,3 +1487,17 @@ body.drawer-open .as-launcher { display: none; }
 .wxd-ico .wxi { width: 96px; height: 96px; margin: -10px 0 -14px; }
 .wxd-h .wxi { width: 30px; height: 30px; }
 .wxd-d .i .wxi { width: 30px; height: 30px; }
+
+/* League page */
+.lg-links { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin-top: 10px; }
+.lg-links button { display: inline-flex; align-items: center; justify-content: center; gap: 5px; min-height: 40px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); color: var(--text); font: inherit; font-size: 13.5px; font-weight: 600; cursor: pointer; }
+.lg-links button .ic { width: 14px; height: 14px; color: var(--accent); }
+.lg-links button:active { background: color-mix(in srgb, var(--accent) 14%, transparent); }
+.lg-head { --team: var(--accent); }
+.lg-big { width: 48px; height: 48px; border-radius: 12px; display: grid; place-items: center; background: color-mix(in srgb, #fff 12%, transparent); font-size: 28px; flex: none; }
+.lg-big img, .lg-big .lg-logo { width: 34px; height: 34px; object-fit: contain; }
+.lg-head small .pill { margin-right: 4px; }
+.hub-body .sp-bar { margin-bottom: 8px; }
+.hub-sel .lg-logo { width: 20px; height: 20px; }
+.lg-links button { white-space: nowrap; padding: 0 4px; gap: 4px; }
+@media (max-width: 400px) { .lg-links button { font-size: 13px; } .lg-links button .ic { width: 13px; height: 13px; } }

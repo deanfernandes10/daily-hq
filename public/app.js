@@ -926,6 +926,7 @@ function renderSports() {
   const mainBar = sportsMainBar(main);
   if (main === "fav") return renderTeamHub(body, mainBar + teamHubBar());
   const hubBar = mainBar;
+  if (cfg.sports.lgPage && LEAGUES[cfg.sports.lgPage] && cfg.sports.leagues.some((x) => x.key === cfg.sports.lgPage)) return renderLeaguePage(body, mainBar);
   if (view !== "scores") return renderSportsAlt(body, hubBar + seg, view);
 
   const upnext = "";
@@ -956,9 +957,9 @@ function renderSports() {
           none = `No ${meta.name} games ${mode === "0" ? "today" : mode === "1" ? "tomorrow" : "yesterday"}.`;
         }
         gameHTML.path = meta.path;
-        inner = (games.length ? games.map((g) => gameHTML(g, L.teams || [])).join("") : `<div class="empty">${none}</div>`) +
-          `<button class="lg-more" data-standings="${L.key}">${ic("list-ordered")} Standings</button>`;
+        inner = (games.length ? games.map((g) => gameHTML(g, L.teams || [])).join("") : `<div class="empty">${none}</div>`);
       }
+      if (meta.kind !== "cricket") inner += lgLinks(L.key);
       const tl = meta.kind === "golf" ? "Leaderboard" : mode === "mine" ? `${(L.teams || []).join(" · ") || (meta.kind === "cricket" ? "Internationals & major leagues" : "All games")} · Live, last & next` : SP_MODES.find((m) => m[0] === mode)[1];
       const collapsed = !!cfg.sports.collapsed?.[L.key];
       const liveN = (events || []).filter((e) => e.state === "in" && (mode !== "mine" || isMine(L, e))).length;
@@ -1055,7 +1056,7 @@ function leagueTile(L, body, sub, liveN = 0) {
       ${liveN ? `<span class="pill live">${liveN} LIVE</span>` : ""}<small>${esc(sub)}</small>
     </button><div class="league-body" id="alt-${L.key}">${body}</div></div>`;
 }
-function leagueSchedHTML(L, events) {
+function leagueSchedHTML(L, events, selOverride) {
   const meta = LEAGUES[L.key];
   const path = meta.path;
   if (meta.kind === "golf") {
@@ -1081,7 +1082,7 @@ function leagueSchedHTML(L, events) {
   const allGames = (games || `<div class="empty">No ${esc(meta.name)} games in the next week.</div>`) +
     (days.length > 3 ? `<button class="lg-more" data-sched-more="${L.key}">${cfg.sports.schedFull?.[L.key] ? "Show fewer days" : "Show the whole week"}</button>` : "");
   if (meta.kind === "cricket") return allGames;
-  const sel = schedSel(L);
+  const sel = selOverride ?? schedSel(L);
   const nm = (ab) => (teamCache[L.key] || []).find((t) => t.abbr === ab)?.name || ab;
   const favs = chosen.filter((ab) => mine.includes(ab)), others = chosen.filter((ab) => !mine.includes(ab));
   const opt = (v, label) => `<option value="${esc(v)}" ${sel === v ? "selected" : ""}>${esc(label)}</option>`;
@@ -1129,7 +1130,11 @@ async function openSchedPicker(key) {
     if (!cb) return;
     const [k, ab] = cb.dataset.schedTog.split("|");
     const cur = schedTeams(L).filter((x) => x !== ab);
-    if (cb.checked) { cur.push(ab); const vk = (cfg.sports.view || "") === "news" ? "newsSel" : "schedSel"; cfg.sports[vk] = { ...(cfg.sports[vk] || {}), [k]: ab }; }
+    if (cb.checked) {
+      cur.push(ab);
+      if (onLeaguePage()) cfg.sports.lgSel = { ...(cfg.sports.lgSel || {}), [`${cfg.sports.lgTab === "news" ? "news" : "sched"}-${k}`]: ab };
+      else { const vk = (cfg.sports.view || "") === "news" ? "newsSel" : "schedSel"; cfg.sports[vk] = { ...(cfg.sports[vk] || {}), [k]: ab }; }
+    }
     setSchedTeams(k, cur);
     if (["sched", "news"].includes(cfg.sports.view || "scores")) renderSports();
   };
@@ -1138,16 +1143,22 @@ document.addEventListener("change", (e) => {
   const ss = e.target.closest?.("[data-sched-sel]");
   if (ss) {
     const k = ss.dataset.schedSel;
-    if (ss.value === "__add") { ss.value = schedSel(cfg.sports.leagues.find((x) => x.key === k)); openSchedPicker(k); return; }
-    cfg.sports.schedSel = { ...(cfg.sports.schedSel || {}), [k]: ss.value }; save(); renderSports(); return;
+    if (ss.value === "__add") { const L0 = cfg.sports.leagues.find((x) => x.key === k); ss.value = onLeaguePage() ? lgSel("sched", L0) : schedSel(L0); openSchedPicker(k); return; }
+    if (onLeaguePage()) cfg.sports.lgSel = { ...(cfg.sports.lgSel || {}), [`sched-${k}`]: ss.value };
+    else cfg.sports.schedSel = { ...(cfg.sports.schedSel || {}), [k]: ss.value };
+    save(); renderSports(); return;
   }
+  const lgs = e.target.closest?.("[data-lgsel]");
+  if (lgs) { cfg.sports.lgPage = lgs.value; save(); renderSports(); return; }
   const hb = e.target.closest?.("[data-hub]");
   if (hb) { cfg.sports.hub = hb.value; cfg.sports.main = "fav"; save(); renderSports(); return; }
   const ns = e.target.closest?.("[data-news-sel]");
   if (ns) {
     const k = ns.dataset.newsSel;
-    if (ns.value === "__add") { ns.value = newsSel(cfg.sports.leagues.find((x) => x.key === k)); openSchedPicker(k); return; }
-    cfg.sports.newsSel = { ...(cfg.sports.newsSel || {}), [k]: ns.value }; save(); renderSports(); return;
+    if (ns.value === "__add") { const L0 = cfg.sports.leagues.find((x) => x.key === k); ns.value = onLeaguePage() ? lgSel("news", L0) : newsSel(L0); openSchedPicker(k); return; }
+    if (onLeaguePage()) cfg.sports.lgSel = { ...(cfg.sports.lgSel || {}), [`news-${k}`]: ns.value };
+    else cfg.sports.newsSel = { ...(cfg.sports.newsSel || {}), [k]: ns.value };
+    save(); renderSports(); return;
   }
   const sl = e.target.closest?.("[data-st-level]");
   if (sl) { cfg.sports.stLevel = { ...(cfg.sports.stLevel || {}), [sl.dataset.stLevel]: sl.value }; save(); renderSports(); }
@@ -1284,6 +1295,64 @@ async function fillSportsNews() {
   fy.innerHTML = all.length ? `<div class="spn-list">${all.slice(0, full ? 30 : 5).map((a) => sportsNewsItem(a, a.tag)).join("")}</div>` + (all.length > 5 ? `<button class="lg-more sch-exp" data-news-more="foryou">${full ? "Show fewer" : `More for you (${Math.min(all.length, 30) - 5})`}</button>` : "") : `<div class="empty">No recent news for your teams.</div>`;
 }
 
+
+// ---------- League page: everything for one league (Scores, Schedule, News, Standings), like a league page in the ESPN app
+function lgLinks(key) {
+  const golf = LEAGUES[key].kind === "golf";
+  return `<div class="lg-links">${[["sched", golf ? "Schedule" : "Schedule", "calendar"], ["news", "News", "newspaper"], ["table", golf ? "Leaderboard" : "Standings", "list-ordered"]].map(([t, l, i]) => `<button data-lgpage="${key}|${t}">${ic(i, "xs")} ${l}</button>`).join("")}</div>`;
+}
+function lgTabs(key) {
+  const k = LEAGUES[key].kind;
+  if (k === "golf") return [["scores", "Leaderboard"], ["sched", "Schedule"], ["news", "News"]];
+  if (k === "cricket") return [["scores", "Scores"]];
+  return [["scores", "Scores"], ["sched", "Schedule"], ["news", "News"], ["table", "Standings"]];
+}
+// On a league page, Schedule and News start on the whole league; picking a team there is remembered separately.
+function lgSel(kind, L) {
+  const v = cfg.sports.lgSel?.[`${kind}-${L.key}`];
+  return v && (v === "all" || schedTeams(L).includes(v)) ? v : "all";
+}
+const onLeaguePage = () => !!(cfg.sports.lgPage && (cfg.sports.main || "") === "leagues");
+function renderLeaguePage(body, mainBar) {
+  const key = cfg.sports.lgPage;
+  const meta = LEAGUES[key];
+  const L = cfg.sports.leagues.find((x) => x.key === key);
+  const row = data.sports.find((r) => r.L.key === key) || { L, events: [] };
+  const tabs = lgTabs(key);
+  let tab = cfg.sports.lgTab;
+  if (meta.kind === "golf" && tab === "table") tab = "scores";
+  if (!tabs.some(([v]) => v === tab)) tab = "scores";
+  const leagues = cfg.sports.leagues.filter((x) => LEAGUES[x.key]);
+  const bar = `<div class="hub-bar"><button class="hub-nav lg-back" data-lgback aria-label="All leagues">${ic("chevron-left")}</button>
+    <label class="sch-sel hub-sel">${leagueBadge(key)}<select data-lgsel aria-label="League">${leagues.map((x) => `<option value="${x.key}" ${x.key === key ? "selected" : ""}>${esc(LEAGUES[x.key].name)}</option>`).join("")}</select>${ic("chevron-down", "xs")}</label></div>`;
+  const tabBar = `<div class="hub-tabs" role="tablist">${tabs.map(([v, l]) => `<button role="tab" data-lgtab="${v}" class="${tab === v ? "on" : ""}">${l}</button>`).join("")}</div>`;
+  let inner = "";
+  const events = row.events || [];
+  if (row.error) inner = `<div class="err">Couldn't load ${esc(meta.name)} right now — will retry.</div>`;
+  else if (tab === "scores") {
+    if (meta.kind === "golf") inner = events.length ? events.map(golfHTML).join("") : `<div class="empty">No ${esc(meta.name)} event this week.</div>`;
+    else {
+      const days = [...((L.teams || []).length ? [["mine", "My teams"]] : []), ["-1", "Yesterday"], ["0", "Today"], ["1", "Tomorrow"]];
+      let d = cfg.sports.lgDay || "0";
+      if (!days.some(([v]) => v === d)) d = "0";
+      const rank = { in: 0, pre: 1, post: 2 };
+      const games = d === "mine" ? pickGames(L, events) : events.filter((e) => sameDay(new Date(e.date), addDays(+d)) || (d === "0" && e.state === "in")).sort((a, b) => rank[a.state] - rank[b.state] || new Date(a.date) - new Date(b.date));
+      gameHTML.path = meta.path;
+      inner = `<div class="sp-bar"><div class="seg">${days.map(([v, l]) => `<button data-lgday="${v}" class="${d === v ? "on" : ""}">${l}</button>`).join("")}</div></div>` +
+        (games.length ? (meta.kind === "cricket" ? games.map((g) => cricketHTML(g, L.teams || [])) : games.map((g) => gameHTML(g, L.teams || []))).join("") : `<div class="empty">No ${esc(meta.name)} games ${d === "mine" ? "for your teams this week" : d === "0" ? "today" : d === "1" ? "tomorrow" : "yesterday"}.</div>`);
+    }
+  } else if (tab === "sched") inner = leagueSchedHTML(L, events, lgSel("sched", L));
+  else if (tab === "news") { const ns = meta.kind ? "all" : lgSel("news", L); inner = sportsNewsPicker(L, ns) + `<div data-news-key="${key}|${esc(ns)}">${skeleton(5)}</div>`; }
+  else {
+    const lv = cfg.sports.lbView?.[key] || "table";
+    inner = `<div class="seg lb-seg">${[["table", "Table"], ["teams", "Team leaders"], ["players", "Player leaders"]].map(([v, l]) => `<button data-lbview="${key}|${v}" class="${lv === v ? "on" : ""}">${l}</button>`).join("")}</div><div data-table-key="${key}" data-lb="${lv}">${skeleton(6)}</div>`;
+  }
+  const liveN = events.filter((e) => e.state === "in").length;
+  const head = `<div class="hub-head lg-head"><span class="lg-big">${leagueBadge(key)}</span><div><b>${esc(meta.name)}</b><small>${liveN ? `<span class="pill live">${liveN} LIVE</span> ` : ""}${(L.teams || []).length ? `Your teams: ${esc(L.teams.join(" · "))}` : "All teams"}</small></div></div>`;
+  body.innerHTML = mainBar + bar + `<div class="hub">${head}${tabBar}<div class="hub-body">${inner}</div></div>`;
+  updateBadges();
+  if (tab === "sched") fillTeamSchedules(); else if (tab === "news") fillSportsNews(); else if (tab === "table") fillTables();
+}
 // ---------- Team hub: pick a favourite team, see everything about it (like a team page in the ESPN / theScore apps)
 const HUB_TABS = [["home", "Overview"], ["sched", "Schedule"], ["news", "News"], ["table", "Standings"], ["roster", "Roster"]];
 // Team names/logos for the dropdown: load each followed league's team list once, then redraw.
@@ -4001,12 +4070,19 @@ document.addEventListener("click", async (e) => {
   if (lbc) { const [k, v] = lbc.dataset.lbcat.split("|"); cfg.sports.lbCat = { ...(cfg.sports.lbCat || {}), [k]: v }; save(); renderSports(); return; }
   const spv = t.closest("[data-spview]");
   if (spv) { cfg.sports.view = spv.dataset.spview; save(); renderSports(); return; }
+  const lgp = t.closest("[data-lgpage]");
+  if (lgp) { const [k, tb] = lgp.dataset.lgpage.split("|"); cfg.sports.lgPage = k; cfg.sports.lgTab = tb; cfg.sports.main = "leagues"; save(); renderSports(); $("#sec-sports")?.scrollIntoView({ block: "start" }); return; }
+  if (t.closest("[data-lgback]")) { cfg.sports.lgPage = ""; save(); renderSports(); $("#sec-sports")?.scrollIntoView({ block: "start" }); return; }
+  const lgt = t.closest("[data-lgtab]");
+  if (lgt) { cfg.sports.lgTab = lgt.dataset.lgtab; save(); renderSports(); return; }
+  const lgd = t.closest("[data-lgday]");
+  if (lgd) { cfg.sports.lgDay = lgd.dataset.lgday; save(); renderSports(); return; }
   const smain = t.closest("[data-spmain]");
-  if (smain) { cfg.sports.main = smain.dataset.spmain; save(); renderSports(); $("#sec-sports")?.scrollIntoView({ block: "start" }); return; }
+  if (smain) { if (smain.dataset.spmain === "leagues" && cfg.sports.main === "leagues") cfg.sports.lgPage = ""; cfg.sports.main = smain.dataset.spmain; save(); renderSports(); $("#sec-sports")?.scrollIntoView({ block: "start" }); return; }
   const hlg = t.closest("[data-hub-league]");
   if (hlg) {
     const k = hlg.dataset.hubLeague;
-    cfg.sports.main = "leagues";
+    cfg.sports.main = "leagues"; cfg.sports.lgPage = k; cfg.sports.lgTab = "scores";
     cfg.sports.collapsed = { ...(cfg.sports.collapsed || {}), [k]: false };
     save(); renderSports();
     requestAnimationFrame(() => (document.querySelector(`[data-league-toggle="${k}"]`) || $("#sec-sports"))?.scrollIntoView({ block: "start", behavior: "smooth" }));
