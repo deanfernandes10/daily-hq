@@ -10,6 +10,7 @@ const CATS: Record<string, string[]> = {
   food: ['nw[amenity=restaurant][name]', 'nw[amenity=fast_food][name]'],
   coffee: ['nw[amenity=cafe][name]', 'nw[shop=bakery][name]', 'nw[amenity=ice_cream][name]'],
   bars: ['nw[amenity=bar][name]', 'nw[amenity=pub][name]', 'nw[craft=brewery][name]', 'nw[craft=winery][name]'],
+  fun: ['nw[amenity=theatre][name]', 'nw[amenity=arts_centre][name]', 'nw[amenity=music_venue][name]', 'nw[amenity=nightclub][name]', 'nw[amenity=events_venue][name]', 'nw[leisure=stadium][name]'],
   todo: ['nw[tourism=attraction][name]', 'nw[tourism=museum][name]', 'nw[amenity=cinema][name]', 'nw[amenity=theatre][name]', 'nw[leisure=bowling_alley][name]', 'nw[leisure=miniature_golf][name]', 'nw[leisure=amusement_arcade][name]', 'nw[leisure=escape_game][name]'],
   parks: ['nw[leisure=park][name]', 'nw[leisure=nature_reserve][name]', 'nw[natural=beach][name]'],
   family: ['nw[leisure=playground][name]', 'nw[amenity=library][name]', 'nw[tourism=zoo][name]', 'nw[tourism=aquarium][name]', 'nw[leisure=trampoline_park][name]'],
@@ -28,6 +29,7 @@ const G_TYPES: Record<string, string[]> = {
   food: ["restaurant"],
   coffee: ["cafe", "coffee_shop", "bakery", "ice_cream_shop"],
   bars: ["bar", "pub", "wine_bar", "night_club"],
+  fun: ["stadium", "concert_hall", "performing_arts_theater", "night_club"],
   todo: ["tourist_attraction", "museum", "art_gallery", "movie_theater", "bowling_alley", "amusement_park", "performing_arts_theater", "aquarium", "zoo", "casino"],
   parks: ["park", "national_park", "hiking_area", "beach", "state_park"],
   family: ["amusement_center", "amusement_park", "playground", "zoo", "aquarium", "library"],
@@ -59,17 +61,22 @@ const GEO_CATS: Record<string, string> = {
   food: "catering.restaurant,catering.fast_food",
   coffee: "catering.cafe,catering.ice_cream,commercial.food_and_drink.bakery",
   bars: "catering.bar,catering.pub,catering.biergarten,production.brewery,production.winery",
+  fun: "entertainment.culture.theatre,entertainment.culture.arts_centre,sport.stadium,adult.nightclub,entertainment.planetarium",
   todo: "tourism.attraction,entertainment.museum,entertainment.cinema,entertainment.culture.theatre,entertainment.bowling_alley,entertainment.miniature_golf,entertainment.escape_game,entertainment.amusement_arcade,entertainment.theme_park",
   parks: "leisure.park,national_park,natural.protected_area,beach",
   family: "leisure.playground,education.library,entertainment.zoo,entertainment.aquarium,entertainment.activity_park.trampoline,entertainment.theme_park",
 };
-async function geoNearby(key: string, lat: number, lon: number, cat: string, r: number) {
-  const u = `https://api.geoapify.com/v2/places?categories=${GEO_CATS[cat]}&filter=circle:${lon},${lat},${Math.round(r)}&bias=proximity:${lon},${lat}&limit=100&apiKey=${key}`;
+async function geoGet(key: string, lat: number, lon: number, cats: string, r: number, extra = "", limit = 100) {
+  const u = `https://api.geoapify.com/v2/places?categories=${cats}&filter=circle:${lon},${lat},${Math.round(r)}&bias=proximity:${lon},${lat}&limit=${limit}${extra}&apiKey=${key}`;
   const res = await fetch(u, { signal: AbortSignal.timeout(8000) });
   if (!res.ok) throw new Error(`geoapify ${res.status} ${(await res.text()).slice(0, 200)}`);
   const d: any = await res.json();
+  return d.features || [];
+}
+const geoNearby = async (key: string, lat: number, lon: number, cat: string, r: number) => geoItems(await geoGet(key, lat, lon, GEO_CATS[cat], r), lat, lon);
+function geoItems(features: any[], lat: number, lon: number) {
   const seen = new Set<string>();
-  return (d.features || []).map((f: any) => {
+  return features.map((f: any) => {
     const p = f.properties || {}, t = p.datasource?.raw || {};
     const name = p.name || t.name;
     if (!name || p.lat == null) return null;
@@ -89,6 +96,26 @@ async function geoNearby(key: string, lat: number, lon: number, cat: string, r: 
       takeaway: t.takeaway === "yes", delivery: t.delivery === "yes", outdoor: t.outdoor_seating === "yes", brand: t.brand || "",
     };
   }).filter(Boolean).sort((a: any, b: any) => a.dist - b.dist).slice(0, 150);
+}
+
+// ---------- Free-text search ("sushi", "Starbucks", "bowling"): by name across everything, plus cuisine / keyword matches
+const CUISINES = new Set("pizza burger italian chinese sandwich chicken mexican japanese american kebab indian asian sushi french german thai greek seafood fish_and_chips steak_house international tex-mex vietnamese turkish korean noodle barbecue spanish fish ramen mediterranean lebanese middle_eastern caribbean latin_american peruvian brazilian portuguese cuban filipino ethiopian moroccan pakistani polish russian irish tapas bagel dessert breakfast donut".split(" "));
+const ALIAS: Record<string, string> = { steakhouse: "steak_house", steak: "steak_house", bbq: "barbecue", tacos: "mexican", taco: "mexican", burgers: "burger", wings: "chicken", noodles: "noodle", "fish and chips": "fish_and_chips", "middle eastern": "middle_eastern", pho: "vietnamese", curry: "indian", dim_sum: "chinese" };
+const KEYWORDS: Record<string, string> = {
+  coffee: "catering.cafe", cafe: "catering.cafe", bakery: "commercial.food_and_drink.bakery", "ice cream": "catering.ice_cream", bar: "catering.bar,catering.pub", bars: "catering.bar,catering.pub", pub: "catering.pub", brewery: "production.brewery", winery: "production.winery",
+  bowling: "entertainment.bowling_alley", movies: "entertainment.cinema", movie: "entertainment.cinema", cinema: "entertainment.cinema", theater: "entertainment.culture.theatre", theatre: "entertainment.culture.theatre", museum: "entertainment.museum", museums: "entertainment.museum",
+  zoo: "entertainment.zoo", aquarium: "entertainment.aquarium", "mini golf": "entertainment.miniature_golf", arcade: "entertainment.amusement_arcade", "escape room": "entertainment.escape_game", park: "leisure.park", parks: "leisure.park", playground: "leisure.playground", beach: "beach",
+  library: "education.library", stadium: "sport.stadium", gym: "sport.fitness", "ice rink": "sport.ice_rink", rink: "sport.ice_rink", golf: "sport.golf", nightclub: "adult.nightclub", club: "adult.nightclub", restaurant: "catering.restaurant", restaurants: "catering.restaurant", breakfast: "catering.restaurant", brunch: "catering.restaurant", food: "catering.restaurant,catering.fast_food",
+};
+async function geoSearch(key: string, lat: number, lon: number, text: string, r: number) {
+  const t = text.toLowerCase().trim();
+  const w = ALIAS[t] || t.replace(/\s+/g, "_").replace(/s$/, "");
+  const jobs: Promise<any[]>[] = [geoGet(key, lat, lon, "catering,entertainment,leisure,tourism,commercial,sport,activity,adult.nightclub,education.library", r, `&name=${encodeURIComponent(text)}`, 60)];
+  if (CUISINES.has(w) || CUISINES.has(t)) jobs.push(geoGet(key, lat, lon, `catering.restaurant.${CUISINES.has(w) ? w : t},catering.fast_food`, r, "", 100).then((fs) => fs.filter((f: any) => !(f.properties?.categories || []).every((c: string) => c.startsWith("catering.fast_food")) || JSON.stringify(f.properties?.categories || []).includes(w))));
+  if (KEYWORDS[t]) jobs.push(geoGet(key, lat, lon, KEYWORDS[t], r, "", 60));
+  const res = await Promise.allSettled(jobs);
+  if (res.every((x) => x.status === "rejected")) throw new Error(String((res[0] as any).reason));
+  return geoItems(res.flatMap((x) => (x.status === "fulfilled" ? x.value : [])), lat, lon);
 }
 
 export default async (req: Request) => {
@@ -111,6 +138,19 @@ export default async (req: Request) => {
   const cat = q.get("cat") || "food";
   const r = Math.min(Math.max(Number(q.get("r")) || 5000, 500), 25000);
   if (!Number.isFinite(lat) || !Number.isFinite(lon) || Math.abs(lat) > 90 || Math.abs(lon) > 180) return json({ error: "Bad location" }, 400);
+  const text = (q.get("q") || "").trim().slice(0, 80);
+  if (text) {
+    if (!geokey) return json({ error: "Search needs the place service", items: [] }, 503);
+    const la = Math.round(lat * 200) / 200, lo = Math.round(lon * 200) / 200;
+    const store = getStore({ name: "nearby-cache", consistency: "eventual" });
+    const ck = `search/${text.toLowerCase()}/${la}/${lo}/${r}`;
+    try { const c: any = await store.get(ck, { type: "json" }); if (c?.items && Date.now() - c.at < 6 * 3600e3) return json({ items: c.items, provider: "geoapify" }, 200, 3600); } catch {}
+    try {
+      const items = await geoSearch(geokey, lat, lon, text, r);
+      try { await store.setJSON(ck, { at: Date.now(), items }); } catch {}
+      return json({ items, provider: "geoapify" }, 200, 3600);
+    } catch (e: any) { console.log("search failed", e?.message); return json({ error: "Search failed", items: [] }, 502); }
+  }
   if (!CATS[cat]) return json({ error: "Bad category" }, 400);
   if (gkey) {
     try { return json({ items: await googleNearby(gkey, lat, lon, cat, r), provider: "google" }, 200, 300); }

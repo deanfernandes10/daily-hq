@@ -45,8 +45,9 @@ export default async (req: Request) => {
       if (lat == null || lon == null) return json({ error: "Bad location" }, 400);
       const radius = num(q.get("radius"), 5, 100) || 25;
       const start = new Date().toISOString().replace(/\.\d+Z$/, "Z");
-      const end = new Date(Date.now() + 8 * 86400e3).toISOString().replace(/\.\d+Z$/, "Z");
-      const t: any = await get(`https://app.ticketmaster.com/discovery/v2/events.json?apikey=${key}&latlong=${lat.toFixed(3)},${lon.toFixed(3)}&radius=${radius}&unit=miles&sort=date,asc&size=60&startDateTime=${start}&endDateTime=${end}`);
+      const days = num(q.get("days"), 1, 60) || 8;
+      const end = new Date(Date.now() + days * 86400e3).toISOString().replace(/\.\d+Z$/, "Z");
+      const t: any = await get(`https://app.ticketmaster.com/discovery/v2/events.json?apikey=${key}&latlong=${lat.toFixed(3)},${lon.toFixed(3)}&radius=${radius}&unit=miles&sort=date,asc&size=100&startDateTime=${start}&endDateTime=${end}`);
       const seen = new Set<string>();
       const items = (t._embedded?.events || []).map((e: any) => {
         const v = e._embedded?.venues?.[0];
@@ -54,7 +55,7 @@ export default async (req: Request) => {
         return {
           name: e.name, url: e.url, date: e.dates?.start?.localDate, time: e.dates?.start?.localTime || "", tba: !!e.dates?.start?.timeTBA,
           venue: v?.name || "", city: v?.city?.name || "", segment: e.classifications?.[0]?.segment?.name || "", genre: e.classifications?.[0]?.genre?.name || "",
-          img: img?.url || "", price: e.priceRanges?.[0]?.min ?? null,
+          img: img?.url || "", price: e.priceRanges?.[0]?.min ?? null, sub: e.classifications?.[0]?.subGenre?.name || "",
         };
       }).filter((e: any) => { const k = `${e.name}|${e.date}|${e.venue}`; if (seen.has(k)) return false; seen.add(k); return true; });
       return json({ items }, 200, 3 * 3600);
