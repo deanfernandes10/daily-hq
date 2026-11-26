@@ -165,7 +165,7 @@ const RIDE_APPS = [
 const feedsFrom = (cat, n) => SUGGESTED_FEEDS[cat].slice(0, n).map(([name, url]) => ({ name, url, on: true }));
 
 const DEFAULTS = {
-  version: 11,
+  version: 12,
   realestate: { country: "CA", areas: { CA: ["Ontario", "GTA", "Mississauga", "Brampton", "Oakville", "Hamilton", "Ottawa", "Kitchener-Waterloo"], US: ["New Jersey", "Monmouth County"] }, area: { CA: "", US: "" } },
   name: "Dean",
   theme: "dark",
@@ -184,6 +184,7 @@ const DEFAULTS = {
     { id: "weather", on: true, w: 4 },
     { id: "news", on: true, w: 12 },
     { id: "markets", on: true, w: 12 },
+    { id: "nearby", on: true, w: 12 },
   ],
   sports: {
     mode: "mine",
@@ -252,6 +253,7 @@ const SECTION_META = {
   news: { title: "News", icon: "newspaper" },
   weather: { title: "Weather", icon: "cloud-sun" },
   markets: { title: "Markets", icon: "trending-up" },
+  nearby: { title: "Nearby", icon: "compass" },
 };
 
 const FRIENDLY = {
@@ -366,6 +368,14 @@ function migrate(c) {
     // v11: optional interest tabs (off until turned on), brief extras, commute, betting lines
     for (const dc of DEFAULTS.news.categories) if (!c.news.categories.some((x) => x.id === dc.id)) c.news.categories.push({ ...clone(dc), on: false });
     c.version = 11;
+  }
+  if (c.version < 12) {
+    // v12: Nearby (restaurants & things to do) as a Home section, right after Weather
+    if (!c.sections.some((x) => x.id === "nearby")) {
+      const at = c.sections.findIndex((x) => x.id === "weather");
+      c.sections.splice(at >= 0 ? at + 1 : c.sections.length, 0, { id: "nearby", on: true, w: 12 });
+    }
+    c.version = 12;
   }
   c.extras = { onThisDay: true, holidays: true, events: true, radius: 25, ...(c.extras || {}) };
   c.commute ??= { on: false, mode: "drive", arrive: "09:00", days: [1, 2, 3, 4, 5] };
@@ -642,7 +652,7 @@ function buildShell() {
           <button class="sec-toggle" data-sec-toggle="${s.id}" aria-expanded="${!col}" title="Collapse / expand">${ic("chevron-down", "chev")}<h2><span class="ico">${ic(m.icon)}</span>${m.title}</h2></button><span class="sub" id="${s.id}-sub"></span>
           <span class="spacer"></span>
           <span id="${s.id}-extra"></span>
-          <button class="mini-btn" data-config="${s.id}" title="Customize ${m.title}">Edit</button>
+          ${s.id === "nearby" ? "" : `<button class="mini-btn" data-config="${s.id}" title="Customize ${m.title}">Edit</button>`}
           <button class="mini-btn" data-reload="${s.id}" title="Refresh" aria-label="Refresh">${ic("refresh-cw")}</button>
         </div>
         <div class="card-body" id="${s.id}-body">${skeleton(4)}</div>
@@ -2797,7 +2807,7 @@ function goToSection(id, from = "Your brief") {
   const el = $(`#sec-${id}`);
   if (!el) return;
   if (matchMedia("(max-width: 680px)").matches) {
-    if (["sports", "weather", "news", "markets", "calendar"].includes(id)) { setView(id); backSpot = spot; showBackPill(from); return; }
+    if (["sports", "weather", "news", "markets", "calendar", "nearby"].includes(id)) { setView(id); backSpot = spot; showBackPill(from); return; }
     if (document.body.dataset.view && document.body.dataset.view !== "home") setView("home");
   }
   el.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -4025,9 +4035,9 @@ function setView(v) {
     const el = $(`#sec-${v}`);
     if (el) { el.classList.remove("collapsed"); el.querySelector("[data-sec-toggle]")?.setAttribute("aria-expanded", "true"); }
   }
-  if (v === "home") { hideBackPill(); queueToday(); }
-  if (v === "nearby") loadNearby();
+  if (v === "home") { hideBackPill(); queueToday(); if (nb.items) setTimeout(renderNearby, 0); }
   document.body.dataset.view = v;
+  if (v === "nearby") loadNearby();
   $$("#tabbar button").forEach((b) => b.classList.toggle("on", b.dataset.view === v));
   scrollTo({ top: 0 });
 }
@@ -4176,7 +4186,7 @@ async function loadNearby(force) {
   renderNearby();
 }
 function renderNearby() {
-  const box = $("#nearby");
+  const box = $("#nearby-body");
   if (!box) return;
   cfg.nearby = { cat: "food", radius: 5, ...(cfg.nearby || {}) };
   const cat = cfg.nearby.cat;
@@ -4207,9 +4217,12 @@ function renderNearby() {
       return `<div class="nb-card"><div class="nb-top"><b>${esc(it.name)}</b><small>${esc(meta)}</small>${it.addr ? `<small class="nb-addr">${esc(it.addr)}</small>` : ""}${tags.length ? `<div class="nb-tags">${tags.map((t) => t.startsWith("<") ? t : `<span>${esc(t)}</span>`).join("")}</div>` : ""}</div>
         <div class="nb-acts"><a href="https://maps.apple.com/?daddr=${it.lat},${it.lon}&q=${encodeURIComponent(it.name)}" target="_blank" rel="noopener">${ic("navigation", "xs")} Directions</a>${it.phone ? `<a href="tel:${esc(it.phone.replace(/[^\d+]/g, ""))}">${ic("phone", "xs")} Call</a>` : ""}${it.website ? `<a href="${esc(/^https?:/.test(it.website) ? it.website : `https://${it.website}`)}" target="_blank" rel="noopener">${ic("globe", "xs")} Website</a>` : ""}<a href="https://www.google.com/maps/search/?api=1&query=${mapsQ(it)}" target="_blank" rel="noopener">${ic("star", "xs")} Reviews</a></div></div>`;
     };
-    list = filters + (items.length ? `<div class="nb-count">${items.length} place${items.length > 1 ? "s" : ""} within ${cfg.nearby.radius} ${unit}${nb.cuisine ? ` · ${esc(nb.cuisine)}` : ""}</div><div class="nb-list">${items.slice(0, 60).map(card).join("")}</div>` : `<div class="empty">Nothing found${nb.openOnly ? " open right now" : ""}. Try a bigger distance${nb.cuisine || nb.openOnly ? " or clear the filters" : ""}.</div>`);
+    const full = document.body.dataset.view === "nearby" || nb.all;
+    const lim = full ? 60 : 5;
+    list = filters + (items.length ? `<div class="nb-count">${items.length} place${items.length > 1 ? "s" : ""} within ${cfg.nearby.radius} ${unit}${nb.cuisine ? ` · ${esc(nb.cuisine)}` : ""}</div><div class="nb-list">${items.slice(0, lim).map(card).join("")}</div>${items.length > lim ? `<button class="btn nb-all" data-nball>See all ${Math.min(items.length, 60)} places ${ic("chevron-right", "xs")}</button>` : ""}` : `<div class="empty">Nothing found${nb.openOnly ? " open right now" : ""}. Try a bigger distance${nb.cuisine || nb.openOnly ? " or clear the filters" : ""}.</div>`);
   }
-  box.innerHTML = `<div class="nb-head"><h2>${ic("compass")} Nearby</h2><small>${where ? `Around ${esc(where.name)}` : ""}</small></div>${whereSel}${cats}${list}
+  const sub = $("#nearby-sub"); if (sub) sub.textContent = where ? `Around ${where.name}${cfg.nearby.useGps ? " (you)" : ""}` : "";
+  box.innerHTML = `${whereSel}${cats}${list}
     <p class="more-foot">Places from OpenStreetMap contributors. Hours may be out of date — check before you go. Reviews open in Google Maps.</p>`;
   if (cat === "events") fillNearbyEvents();
 }
@@ -4227,12 +4240,12 @@ async function fillNearbyEvents() {
 }
 
 // ============================================================ refresh orchestration
-const loaders = { sports: loadSports, news: loadNews, weather: loadWeather, markets: loadMarkets, calendar: loadCalendar, brief: async () => renderBrief() };
+const loaders = { nearby: () => loadNearby(), sports: loadSports, news: loadNews, weather: loadWeather, markets: loadMarkets, calendar: loadCalendar, brief: async () => renderBrief() };
 
 async function refresh(ids) {
   const btn = $("#refreshAll");
   btn.classList.add("spin");
-  let list = ids || ["sports", "news", "weather", "markets", "calendar"];
+  let list = ids || ["sports", "news", "weather", "markets", "calendar", "nearby"];
   if (list.includes("brief")) list = ["sports", "news", "weather", "markets", "calendar"];
   await Promise.all(
     list.map((id) => {
@@ -4457,6 +4470,7 @@ document.addEventListener("click", async (e) => {
   if (nbc) { cfg.nearby = { ...(cfg.nearby || {}), cat: nbc.dataset.nbcat }; save(); if (nbc.dataset.nbcat === "events") renderNearby(); else loadNearby(); return; }
   const nbcu = t.closest("[data-nbcuisine]");
   if (nbcu) { nb.cuisine = nb.cuisine === nbcu.dataset.nbcuisine ? "" : nbcu.dataset.nbcuisine; renderNearby(); return; }
+  if (t.closest("[data-nball]")) { if (matchMedia("(max-width: 680px)").matches) goToSection("nearby", "Home"); else { nb.all = true; renderNearby(); } return; }
   if (t.closest("[data-nbopen]")) { nb.openOnly = !nb.openOnly; renderNearby(); return; }
   const nmode = t.closest("[data-newsmode]");
   if (nmode) { cfg.sports.newsMode = nmode.dataset.newsmode; save(); renderSports(); return; }
@@ -5209,7 +5223,7 @@ document.addEventListener("visibilitychange", () => {
 if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").catch(() => {});
 
 // Keep the installed app current: when it comes back to the screen, see if a newer build is live and load it.
-const APP_BUILD = "dhq-shell-v23";
+const APP_BUILD = "dhq-shell-v24";
 let lastHidden = 0, updating = false;
 async function checkForUpdate(auto) {
   if (updating) return;
