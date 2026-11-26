@@ -1653,3 +1653,22 @@ body.drawer-open .as-launcher { display: none; }
 .nb-cats:has(> button:nth-child(7)) button { font-size: 11.5px; }
 
 .nb-all { width: 100%; margin-top: 10px; min-height: 42px; justify-content: center; }
+
+/* One-line summary under each section name */
+.card-head h2 { min-width: 0; }
+.h2t { display: flex; flex-direction: column; min-width: 0; line-height: 1.2; }
+.sec-sum { font-size: 12.5px; font-weight: 500; color: var(--muted); letter-spacing: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+.sec-sum:empty { display: none; }
+.sec-sum.live { color: #ef4444; font-weight: 600; }
+.sec-sum.warn { color: #d97706; font-weight: 600; }
+.sec-sum.up { color: #16a34a; } .sec-sum.dn { color: #dc2626; }
+.card-head .sec-toggle { min-width: 0; flex: 1 1 auto; }
+@media (max-width: 680px) {
+  .card-head h2 { overflow: hidden; }
+  .card-head .sec-toggle { flex: 1 1 auto; }
+  .card-head .spacer { display: none; }
+}
+.sec-sum { white-space: normal; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; line-height: 1.3; margin-top: 1px; }
+@media (max-width: 680px) {
+  body[data-view="home"] #markets-extra { display: none; }
+}

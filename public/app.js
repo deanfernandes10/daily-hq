@@ -649,7 +649,7 @@ function buildShell() {
       return `<section class="card w-${s.w || 12} ${col ? "collapsed" : ""}" id="sec-${s.id}" data-sec="${s.id}">
         <div class="card-head">
           <button class="mini-btn back-home" data-back-home aria-label="Back to Home">${ic("chevron-left")} Home</button>
-          <button class="sec-toggle" data-sec-toggle="${s.id}" aria-expanded="${!col}" title="Collapse / expand">${ic("chevron-down", "chev")}<h2><span class="ico">${ic(m.icon)}</span>${m.title}</h2></button><span class="sub" id="${s.id}-sub"></span>
+          <button class="sec-toggle" data-sec-toggle="${s.id}" aria-expanded="${!col}" title="Collapse / expand">${ic("chevron-down", "chev")}<h2><span class="ico">${ic(m.icon)}</span><span class="h2t">${m.title}<small class="sec-sum" id="${s.id}-sum"></small></span></h2></button><span class="sub" id="${s.id}-sub"></span>
           <span class="spacer"></span>
           <span id="${s.id}-extra"></span>
           ${s.id === "nearby" ? "" : `<button class="mini-btn" data-config="${s.id}" title="Customize ${m.title}">Edit</button>`}
@@ -675,6 +675,7 @@ function stamp(id, stale = false) {
   saveSnapshot();
   renderBrief();
   queueToday();
+  queueSummaries();
   if (["sports", "markets", "weather"].includes(id)) checkAlerts(id);
   const bs = $("#brief-sub"); if (bs) bs.textContent = new Date().toLocaleDateString([], { weekday: "long", month: "short", day: "numeric" });
 }
@@ -4054,6 +4055,74 @@ function updateBadges() {
 }
 
 
+
+// ---------- One-line summary under each section name, so Home reads at a glance even when collapsed
+let sumT;
+function queueSummaries() { clearTimeout(sumT); sumT = setTimeout(renderSummaries, 150); }
+function teamLines(max = 2) {
+  const rows = [];
+  for (const r of data.sports || []) {
+    const L = r.L, meta = LEAGUES[L.key];
+    if (!meta || meta.kind) continue;
+    for (const ab of L.teams || []) {
+      const evs = (r.events || []).filter((e) => e.teams?.some((t) => t.abbr === ab));
+      const live = evs.find((e) => e.state === "in");
+      const next = evs.filter((e) => e.state === "pre").sort((a, b) => new Date(a.date) - new Date(b.date))[0];
+      const last = evs.filter((e) => e.state === "post").sort((a, b) => new Date(b.date) - new Date(a.date))[0];
+      const e = live || (last && (!next || Date.now() - new Date(last.date) < 18 * 3600e3) ? last : next);
+      if (!e) continue;
+      const me = e.teams.find((t) => t.abbr === ab), op = e.teams.find((t) => t.abbr !== ab);
+      const nm = (teamCache[L.key] || []).find((t) => t.abbr === ab)?.short || me?.name || ab;
+      const vs = `${me?.homeAway === "home" ? "vs" : "@"} ${op?.abbr || ""}`;
+      const txt = e.state === "in" ? `${nm} ${me?.score ?? ""}–${op?.score ?? ""} ${vs} · LIVE`
+        : e.state === "post" ? `${nm} ${me?.winner ? "W" : op?.winner ? "L" : "T"} ${me?.score ?? ""}–${op?.score ?? ""} ${vs}`
+        : `${nm} ${sameDay(new Date(e.date), new Date()) ? schedTime(e.date) : schedDay(e.date).replace(/,.*/, "")} ${vs}`;
+      rows.push({ live: e.state === "in", t: new Date(e.date), txt });
+    }
+  }
+  rows.sort((a, b) => b.live - a.live || a.t - b.t);
+  return rows.slice(0, max).map((x) => x.txt);
+}
+function renderSummaries() {
+  const set = (id, txt, cls = "") => { const el = $(`#${id}-sum`); if (el) { el.textContent = txt || ""; el.className = `sec-sum ${cls}`; } };
+  // weather
+  const w = (data.weather || []).find((x) => !x.error);
+  if (w) {
+    const cur = w.d.current, dl = w.d.daily;
+    const al = (data.weather || []).flatMap((x) => x.alerts || [])[0];
+    set("weather", `${Math.round(cur.temperature_2m)}° ${wmo(cur.weather_code, cur.is_day)[1].toLowerCase()} · H ${Math.round(dl.temperature_2m_max[0])}° L ${Math.round(dl.temperature_2m_min[0])}°${al ? ` · ⚠ ${al.event}` : cur._next ? ` · ${cur._next}` : ""}`, al ? "warn" : "");
+  }
+  // sports
+  if ((data.sports || []).length) {
+    const lines = teamLines(2);
+    const liveN = data.sports.reduce((n, r) => n + (r.events || []).filter((e) => e.state === "in").length, 0);
+    set("sports", lines.length ? lines.join(" · ") : liveN ? `${liveN} game${liveN > 1 ? "s" : ""} live now` : "No games for your teams today", lines.some((x) => x.endsWith("LIVE")) ? "live" : "");
+  }
+  // calendar
+  if (data.calendar) {
+    const now = new Date();
+    const evs = (data.calendar.events || []).filter((e) => e.end > now && !e.allDay).sort((a, b) => a.start - b.start);
+    const nx = evs[0];
+    const todayN = evs.filter((e) => sameDay(e.start, now)).length;
+    set("calendar", nx ? `${sameDay(nx.start, now) ? "" : `${nx.start.toLocaleDateString([], { weekday: "short" })} `}${hm(nx.start)} ${nx.title}${todayN > 1 ? ` · ${todayN} today` : ""}` : "Nothing else today");
+  }
+  // markets
+  const q = ["^GSPC", "^DJI", "^IXIC"].map((k) => data.quotes?.[k]).filter((x) => x && !x.error);
+  if (q.length) set("markets", (marketOpen() ? "Open · " : "Closed · ") + q.map((x) => `${{ "^GSPC": "S&P", "^DJI": "Dow", "^IXIC": "Nasdaq" }[x.symbol]} ${x.pct >= 0 ? "▲" : "▼"}${fmtNum(Math.abs(x.pct), 1)}%`).join(" · "), q[0].pct >= 0 ? "up" : "dn");
+  // news
+  const fresh = Object.values(data.news || {}).reduce((n, d) => n + (d.items || []).filter((i) => i.ts > prevVisit).length, 0);
+  const top = cfg.news.categories.filter((c) => c.on).map((c) => data.news[c.id]?.items?.[0]).filter(Boolean).sort((a, b) => (b.ts || 0) - (a.ts || 0))[0];
+  if (top) set("news", `${fresh ? `${fresh} new · ` : ""}${top.title}`);
+  // nearby
+  if (nb.items && !nb.err) {
+    const lbl = (NEARBY_CATS.find(([k]) => k === cfg.nearby?.cat) || [, "places"])[1].toLowerCase();
+    const open = nb.items.filter((it) => openNow(it.hours) === true).length;
+    set("nearby", `${nb.items.length} ${lbl} within ${cfg.nearby.radius} ${cfg.units === "F" ? "mi" : "km"}${open ? ` · ${open} open now` : ""}`);
+  }
+  // brief
+  set("brief", new Date().toLocaleDateString([], { weekday: "long", month: "short", day: "numeric" }));
+}
+
 // ============================================================ Today (phone Home): one glanceable card per section, tap to open it
 let todayT;
 function queueToday() { clearTimeout(todayT); todayT = setTimeout(renderToday, 120); }
@@ -4221,6 +4290,7 @@ function renderNearby() {
     const lim = full ? 60 : 5;
     list = filters + (items.length ? `<div class="nb-count">${items.length} place${items.length > 1 ? "s" : ""} within ${cfg.nearby.radius} ${unit}${nb.cuisine ? ` · ${esc(nb.cuisine)}` : ""}</div><div class="nb-list">${items.slice(0, lim).map(card).join("")}</div>${items.length > lim ? `<button class="btn nb-all" data-nball>See all ${Math.min(items.length, 60)} places ${ic("chevron-right", "xs")}</button>` : ""}` : `<div class="empty">Nothing found${nb.openOnly ? " open right now" : ""}. Try a bigger distance${nb.cuisine || nb.openOnly ? " or clear the filters" : ""}.</div>`);
   }
+  queueSummaries();
   const sub = $("#nearby-sub"); if (sub) sub.textContent = where ? `Around ${where.name}${cfg.nearby.useGps ? " (you)" : ""}` : "";
   box.innerHTML = `${whereSel}${cats}${list}
     <p class="more-foot">Places from OpenStreetMap contributors. Hours may be out of date — check before you go. Reviews open in Google Maps.</p>`;
@@ -5223,7 +5293,7 @@ document.addEventListener("visibilitychange", () => {
 if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").catch(() => {});
 
 // Keep the installed app current: when it comes back to the screen, see if a newer build is live and load it.
-const APP_BUILD = "dhq-shell-v24";
+const APP_BUILD = "dhq-shell-v25";
 let lastHidden = 0, updating = false;
 async function checkForUpdate(auto) {
   if (updating) return;
