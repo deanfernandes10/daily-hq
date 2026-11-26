@@ -7,27 +7,14 @@ import { json } from "../lib/shared.mts";
 // Returns { items: [{ id, name, kind, cuisine, lat, lon, dist, addr, phone, website, hours, diet, takeaway, delivery, outdoor }] }
 
 const CATS: Record<string, string[]> = {
-  food: ['nw["amenity"~"^(restaurant|fast_food|food_court)$"]["name"]'],
-  coffee: ['nwr["amenity"="cafe"]["name"]', 'nwr["shop"~"^(bakery|pastry|coffee)$"]["name"]', 'nwr["amenity"="ice_cream"]["name"]'],
-  bars: ['nwr["amenity"~"^(bar|pub|biergarten|nightclub)$"]["name"]', 'nwr["craft"~"^(brewery|winery|distillery)$"]["name"]'],
-  todo: [
-    'nwr["tourism"~"^(attraction|museum|gallery|zoo|theme_park|aquarium|viewpoint)$"]["name"]',
-    'nwr["amenity"~"^(cinema|theatre|arts_centre|casino)$"]["name"]',
-    'nwr["leisure"~"^(bowling_alley|escape_game|miniature_golf|ice_rink|amusement_arcade|golf_course|water_park|trampoline_park)$"]["name"]',
-  ],
-  parks: ['nwr["leisure"~"^(park|nature_reserve|garden|beach_resort)$"]["name"]', 'nwr["natural"="beach"]["name"]', 'nwr["route"="hiking"]["name"]'],
-  family: [
-    'nwr["leisure"~"^(playground|water_park|trampoline_park|miniature_golf|amusement_arcade)$"]["name"]',
-    'nwr["tourism"~"^(zoo|aquarium|theme_park)$"]["name"]',
-    'nwr["amenity"="library"]["name"]',
-  ],
+  food: ['nw[amenity=restaurant][name]', 'nw[amenity=fast_food][name]'],
+  coffee: ['nw[amenity=cafe][name]', 'nw[shop=bakery][name]', 'nw[amenity=ice_cream][name]'],
+  bars: ['nw[amenity=bar][name]', 'nw[amenity=pub][name]', 'nw[craft=brewery][name]', 'nw[craft=winery][name]'],
+  todo: ['nw[tourism=attraction][name]', 'nw[tourism=museum][name]', 'nw[amenity=cinema][name]', 'nw[amenity=theatre][name]', 'nw[leisure=bowling_alley][name]', 'nw[leisure=miniature_golf][name]', 'nw[leisure=amusement_arcade][name]', 'nw[leisure=escape_game][name]'],
+  parks: ['nw[leisure=park][name]', 'nw[leisure=nature_reserve][name]', 'nw[natural=beach][name]'],
+  family: ['nw[leisure=playground][name]', 'nw[amenity=library][name]', 'nw[tourism=zoo][name]', 'nw[tourism=aquarium][name]', 'nw[leisure=trampoline_park][name]'],
 };
-const ENDPOINTS = [
-  "https://overpass-api.de/api/interpreter",
-  "https://overpass.private.coffee/api/interpreter",
-  "https://maps.mail.ru/osm/tools/overpass/api/interpreter",
-  "https://overpass.kumi.systems/api/interpreter",
-];
+const ENDPOINTS = ["https://overpass.private.coffee/api/interpreter", "https://overpass-api.de/api/interpreter"];
 
 const toRad = (d: number) => (d * Math.PI) / 180;
 const distM = (a: number, b: number, c: number, d: number) => {

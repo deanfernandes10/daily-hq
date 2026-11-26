@@ -4408,14 +4408,14 @@ function nbWhere() {
 }
 // Ask OpenStreetMap's Overpass servers straight from the phone (no shared server limits), racing several at once.
 const OVP_CATS = {
-  food: ['nw["amenity"~"^(restaurant|fast_food|food_court)$"]["name"]'],
-  coffee: ['nw["amenity"~"^(cafe|ice_cream)$"]["name"]', 'nw["shop"~"^(bakery|pastry|coffee)$"]["name"]'],
-  bars: ['nw["amenity"~"^(bar|pub|biergarten|nightclub)$"]["name"]', 'nw["craft"~"^(brewery|winery|distillery)$"]["name"]'],
-  todo: ['nw["tourism"~"^(attraction|museum|gallery|zoo|theme_park|aquarium|viewpoint)$"]["name"]', 'nw["amenity"~"^(cinema|theatre|arts_centre|casino)$"]["name"]', 'nw["leisure"~"^(bowling_alley|escape_game|miniature_golf|ice_rink|amusement_arcade|golf_course|water_park|trampoline_park)$"]["name"]'],
-  parks: ['nwr["leisure"~"^(park|nature_reserve|garden|beach_resort)$"]["name"]', 'nwr["natural"="beach"]["name"]'],
-  family: ['nw["leisure"~"^(playground|water_park|trampoline_park|miniature_golf|amusement_arcade)$"]["name"]', 'nw["tourism"~"^(zoo|aquarium|theme_park)$"]["name"]', 'nw["amenity"="library"]["name"]'],
+  food: ['nw[amenity=restaurant][name]', 'nw[amenity=fast_food][name]'],
+  coffee: ['nw[amenity=cafe][name]', 'nw[shop=bakery][name]', 'nw[amenity=ice_cream][name]'],
+  bars: ['nw[amenity=bar][name]', 'nw[amenity=pub][name]', 'nw[craft=brewery][name]', 'nw[craft=winery][name]'],
+  todo: ['nw[tourism=attraction][name]', 'nw[tourism=museum][name]', 'nw[amenity=cinema][name]', 'nw[amenity=theatre][name]', 'nw[leisure=bowling_alley][name]', 'nw[leisure=miniature_golf][name]', 'nw[leisure=amusement_arcade][name]', 'nw[leisure=escape_game][name]'],
+  parks: ['nw[leisure=park][name]', 'nw[leisure=nature_reserve][name]', 'nw[natural=beach][name]'],
+  family: ['nw[leisure=playground][name]', 'nw[amenity=library][name]', 'nw[tourism=zoo][name]', 'nw[tourism=aquarium][name]', 'nw[leisure=trampoline_park][name]'],
 };
-const OVP_EP = ["https://overpass-api.de/api/interpreter", "https://overpass.private.coffee/api/interpreter", "https://maps.mail.ru/osm/tools/overpass/api/interpreter", "https://overpass.kumi.systems/api/interpreter"];
+const OVP_EP = ["https://overpass.private.coffee/api/interpreter", "https://overpass-api.de/api/interpreter"];
 function distM(a, b, c, d) { const R = 6371000, r = (x) => (x * Math.PI) / 180, x = r(c - a), y = r(d - b); const h = Math.sin(x / 2) ** 2 + Math.cos(r(a)) * Math.cos(r(c)) * Math.sin(y / 2) ** 2; return 2 * R * Math.asin(Math.sqrt(h)); }
 function ovpItems(els, lat, lon) {
   const seen = new Set();
@@ -4506,7 +4506,7 @@ async function prefetchNearby(where) {
   if (nbPrefetching) return;
   nbPrefetching = true;
   try {
-    for (const [cat] of NEARBY_CATS) {
+    for (const [cat] of NEARBY_CATS.filter(([k]) => k === "food" || k === "coffee")) {
       const { rM, key } = nbKeyFor(cat, where);
       if (nbCache[key] && Date.now() - nbCache[key].at < 6 * 3600e3) continue;
       try { await nbFetchCached(cat, where, rM, key); } catch {}
@@ -5578,7 +5578,7 @@ document.addEventListener("visibilitychange", () => {
 if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").catch(() => {});
 
 // Keep the installed app current: when it comes back to the screen, see if a newer build is live and load it.
-const APP_BUILD = "dhq-shell-v32";
+const APP_BUILD = "dhq-shell-v33";
 let lastHidden = 0, updating = false;
 async function checkForUpdate(auto) {
   if (updating) return;
