@@ -45,7 +45,10 @@ async function googleNearby(key: string, lat: number, lon: number, cat: string, 
   });
   if (!res.ok) throw new Error(`google ${res.status} ${(await res.text()).slice(0, 200)}`);
   const d: any = await res.json();
-  return (d.places || []).map((p: any) => ({
+  return mapGoogle(d.places || [], lat, lon);
+}
+function mapGoogle(places: any[], lat: number, lon: number) {
+  return places.map((p: any) => ({
     id: p.id, name: p.displayName?.text || "", kind: "", cuisine: p.primaryTypeDisplayName?.text || "",
     lat: p.location?.latitude, lon: p.location?.longitude, dist: Math.round(distM(lat, lon, p.location?.latitude, p.location?.longitude)),
     addr: p.shortFormattedAddress || "", phone: p.nationalPhoneNumber || "", website: p.websiteUri || "",
@@ -114,9 +117,30 @@ async function geoSearch(key: string, lat: number, lon: number, text: string, r:
   const jobs: Promise<any[]>[] = [geoGet(key, lat, lon, "catering,entertainment,leisure,tourism,commercial,sport,activity,adult.nightclub,education.library", r, `&name=${encodeURIComponent(text)}`, 60)];
   if (CUISINES.has(w) || CUISINES.has(t)) jobs.push(geoGet(key, lat, lon, `catering.restaurant.${CUISINES.has(w) ? w : t},catering.fast_food`, r, "", 100).then((fs) => fs.filter((f: any) => !(f.properties?.categories || []).every((c: string) => c.startsWith("catering.fast_food")) || JSON.stringify(f.properties?.categories || []).includes(w))));
   if (KEYWORDS[t]) jobs.push(geoGet(key, lat, lon, KEYWORDS[t], r, "", 60));
+  // the geocoder matches names loosely ("olde silver" finds "Olde Silver Tavern")
+  jobs.push(fetch(`https://api.geoapify.com/v1/geocode/search?text=${encodeURIComponent(text)}&type=amenity&filter=circle:${lon},${lat},${Math.round(Math.max(r, 16000))}&bias=proximity:${lon},${lat}&limit=10&apiKey=${key}`, { signal: AbortSignal.timeout(8000) })
+    .then(async (res) => { if (!res.ok) throw new Error(`geocode ${res.status}`); const d: any = await res.json(); return (d.features || []).filter((f: any) => f.properties?.name); }));
   const res = await Promise.allSettled(jobs);
   if (res.every((x) => x.status === "rejected")) throw new Error(String((res[0] as any).reason));
-  return geoItems(res.flatMap((x) => (x.status === "fulfilled" ? x.value : [])), lat, lon);
+  const items = geoItems(res.flatMap((x) => (x.status === "fulfilled" ? x.value : [])), lat, lon);
+  // places whose name matches what was typed come first
+  const words = t.split(/\s+/).filter((x) => x.length > 1);
+  const score = (it: any) => { const n = it.name.toLowerCase(); return n.includes(t) ? 0 : words.every((x) => n.includes(x)) ? 1 : words.some((x) => n.includes(x)) ? 2 : 3; };
+  items.sort((a: any, b: any) => score(a) - score(b) || a.dist - b.dist);
+  console.log("search", JSON.stringify(text), items.length, "found;", res.map((x) => x.status).join(","));
+  return items;
+}
+
+async function googleText(key: string, lat: number, lon: number, text: string, r: number) {
+  const res = await fetch("https://places.googleapis.com/v1/places:searchText", {
+    method: "POST",
+    headers: { "content-type": "application/json", "X-Goog-Api-Key": key, "X-Goog-FieldMask": G_FIELDS },
+    body: JSON.stringify({ textQuery: text, pageSize: 20, locationBias: { circle: { center: { latitude: lat, longitude: lon }, radius: Math.min(Math.max(r, 5000), 50000) } } }),
+    signal: AbortSignal.timeout(8000),
+  });
+  if (!res.ok) throw new Error(`google ${res.status}`);
+  const d: any = await res.json();
+  return mapGoogle(d.places || [], lat, lon);
 }
 
 export default async (req: Request) => {
@@ -141,10 +165,14 @@ export default async (req: Request) => {
   if (!Number.isFinite(lat) || !Number.isFinite(lon) || Math.abs(lat) > 90 || Math.abs(lon) > 180) return json({ error: "Bad location" }, 400);
   const text = (q.get("q") || "").trim().slice(0, 80);
   if (text) {
+    if (gkey) {
+      try { return json({ items: await googleText(gkey, lat, lon, text, r), provider: "google" }, 200, 300); }
+      catch (e: any) { console.log("google search failed", e?.message); }
+    }
     if (!geokey) return json({ error: "Search needs the place service", items: [] }, 503);
     const la = Math.round(lat * 200) / 200, lo = Math.round(lon * 200) / 200;
     const store = getStore({ name: "nearby-cache", consistency: "eventual" });
-    const ck = `search/${text.toLowerCase()}/${la}/${lo}/${r}`;
+    const ck = `search2/${text.toLowerCase()}/${la}/${lo}/${r}`;
     try { const c: any = await store.get(ck, { type: "json" }); if (c?.items && Date.now() - c.at < 6 * 3600e3) return json({ items: c.items, provider: "geoapify" }, 200, 3600); } catch {}
     try {
       const items = await geoSearch(geokey, lat, lon, text, r);

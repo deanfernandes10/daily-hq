@@ -4593,8 +4593,8 @@ function renderNearby() {
     const lim = full ? 60 : 5;
     const headTxt = S ? `<div class="nb-count nb-sres">${items.length} result${items.length === 1 ? "" : "s"} for <b>“${esc(S.q)}”</b> within ${cfg.nearby.radius} ${unit} <button class="link" data-nbclear>Clear</button></div>` : `<div class="nb-count">${items.length} place${items.length > 1 ? "s" : ""} within ${cfg.nearby.radius} ${unit}${nb.cuisine ? ` · ${esc(nb.cuisine)}` : ""}${nb.refreshing ? ` · <span class="nb-upd">${ic("refresh-cw", "xs")} updating</span>` : ""}</div>`;
     const head = items.length > 1 ? `<div class="nb-counthead">${headTxt}${sortSel}</div>` : headTxt;
-    const none = S ? `<div class="empty">No matches for “${esc(S.q)}” within ${cfg.nearby.radius} ${unit}. Try a bigger distance, or <a href="${gmaps(S.q)}" target="_blank" rel="noopener">search Google Maps</a>.</div>` : `<div class="empty">Nothing found${nb.openOnly ? " open right now" : ""}. Try a bigger distance${nb.cuisine || nb.openOnly ? " or clear the filters" : ""}.</div>`;
-    list = (items.length || nb.cuisine || nb.openOnly ? filters : "") + head + (items.length ? `<div class="nb-list">${items.slice(0, lim).map(card).join("")}</div><div class="nb-nomatch" hidden>No places on this list match. Tap <b>Search</b> on the keyboard to look everywhere nearby.</div>${items.length > lim ? `<button class="btn nb-all" data-nball>See all ${Math.min(items.length, 60)} places ${ic("chevron-right", "xs")}</button>` : ""}${S ? `<a class="nb-gm" href="${gmaps(S.q)}" target="_blank" rel="noopener">${ic("map", "xs")} See “${esc(S.q)}” on Google Maps</a>` : ""}` : none);
+    const none = S ? `<div class="empty">No matches for “${esc(S.q)}” within ${cfg.nearby.radius} ${unit}.</div>${nbElsewhere(S.q, where)}` : `<div class="empty">Nothing found${nb.openOnly ? " open right now" : ""}. Try a bigger distance${nb.cuisine || nb.openOnly ? " or clear the filters" : ""}.</div>`;
+    list = (items.length || nb.cuisine || nb.openOnly ? filters : "") + head + (items.length ? `<div class="nb-list">${items.slice(0, lim).map(card).join("")}</div><div class="nb-nomatch" hidden>No places on this list match. Tap <b>Search</b> on the keyboard to look everywhere nearby.</div>${items.length > lim ? `<button class="btn nb-all" data-nball>See all ${Math.min(items.length, 60)} places ${ic("chevron-right", "xs")}</button>` : ""}${S ? nbElsewhere(S.q, where) : ""}` : none);
   }
   const events = cat === "fun" ? `<div class="nb-evwrap"><div class="nb-h">${ic("ticket", "xs")} Upcoming events</div><div id="nbEvents">${skeleton(3)}</div></div><div class="nb-h">${ic("map-pin", "xs")} Venues near you</div>` : "";
   queueSummaries();
@@ -4604,6 +4604,16 @@ function renderNearby() {
     <p class="more-foot">${nb.google ? `<span class="g-attr">Google Maps</span> Ratings, hours and photos from Google.` : `${nbGeo ? `<a href="https://www.geoapify.com/" target="_blank" rel="noopener">Powered by Geoapify</a> · ` : ""}Places © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> contributors. Hours may be out of date — check before you go. Reviews open in Google Maps.`}${cat === "fun" && tmKey() ? " Events from Ticketmaster." : ""}</p>`;
   nbFilterTyped();
   if (cat === "fun") fillNearbyEvents();
+}
+// Free map data misses some places, so every search offers the big directories too
+function nbElsewhere(q, where) {
+  const near = (where?.name || "").split(",")[0];
+  return `<div class="nb-else"><span>Not seeing it? Some places are missing from the free map data. Try:</span><div class="ev-links">
+    <a href="https://www.google.com/maps/search/${encodeURIComponent(`${q} ${near}`)}/@${where?.lat},${where?.lon},13z" target="_blank" rel="noopener"><img src="https://www.google.com/s2/favicons?domain=maps.google.com&sz=64" alt="" onerror="this.style.visibility='hidden'">Google Maps</a>
+    <a href="https://maps.apple.com/?q=${encodeURIComponent(q)}&sll=${where?.lat},${where?.lon}" target="_blank" rel="noopener"><img src="https://www.google.com/s2/favicons?domain=apple.com&sz=64" alt="" onerror="this.style.visibility='hidden'">Apple Maps</a>
+    <a href="https://www.opentable.com/s?term=${encodeURIComponent(q)}&latitude=${where?.lat}&longitude=${where?.lon}&shouldUseLatLongSearch=true" target="_blank" rel="noopener"><img src="https://www.google.com/s2/favicons?domain=opentable.com&sz=64" alt="" onerror="this.style.visibility='hidden'">OpenTable</a>
+    <a href="https://www.yelp.com/search?find_desc=${encodeURIComponent(q)}&find_loc=${encodeURIComponent(where?.name || "")}" target="_blank" rel="noopener"><img src="https://www.google.com/s2/favicons?domain=yelp.com&sz=64" alt="" onerror="this.style.visibility='hidden'">Yelp</a>
+  </div></div>`;
 }
 // While typing, narrow the list on screen straight away; pressing Search looks further
 function nbFilterTyped() {
@@ -5713,7 +5723,7 @@ document.addEventListener("visibilitychange", () => {
 if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").catch(() => {});
 
 // Keep the installed app current: when it comes back to the screen, see if a newer build is live and load it.
-const APP_BUILD = "dhq-shell-v37";
+const APP_BUILD = "dhq-shell-v38";
 let lastHidden = 0, updating = false;
 async function checkForUpdate(auto) {
   if (updating) return;

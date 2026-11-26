@@ -1939,3 +1939,5 @@ body.drawer-open .as-launcher { display: none; }
 .aa-grid { margin-top: 4px; }
 .aa-grid [hidden] { display: none; }
 .aa-none { color: var(--muted); text-align: center; padding: 16px; }
+.nb-else { margin-top: 14px; padding: 12px; border: 1px dashed var(--line); border-radius: 12px; font-size: 13.5px; color: var(--muted); }
+.nb-else .ev-links { margin-top: 8px; }
