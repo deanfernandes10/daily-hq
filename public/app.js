@@ -377,6 +377,7 @@ function migrate(c) {
     }
     c.version = 12;
   }
+  if (c.homeStyle === "cards") c.homeStyle = "widgets";
   c.extras = { onThisDay: true, holidays: true, events: true, radius: 25, ...(c.extras || {}) };
   c.commute ??= { on: false, mode: "drive", arrive: "09:00", days: [1, 2, 3, 4, 5] };
   c.calendars ??= []; c.saved ??= []; c.collapsed ??= {};
@@ -3970,7 +3971,7 @@ function renderMore() {
       <button class="more-sec" data-more-view="calendar"><span class="ms-ic" style="--c:#ec4899">${ic("calendar-days")}</span><span><b>Calendar</b><small>Today and the next two days</small></span>${ic("chevron-right", "xs")}</button>
       <button class="more-sec" data-more-view="markets"><span class="ms-ic" style="--c:#22c27a">${ic("trending-up")}</span><span><b>Markets</b><small>${sp && !sp.error ? `S&amp;P ${sp.pct >= 0 ? "▲" : "▼"} ${fmtNum(Math.abs(sp.pct), 2)}%` : "Indexes, boards, real estate, mortgage"}</small></span>${ic("chevron-right", "xs")}</button>
     </div>
-    ${cfg.homeStyle !== "cards" ? `<h3>Your apps</h3>
+    ${cfg.homeStyle === "full" ? `<h3>Your apps</h3>
     <div class="apps-grid">${(cfg.apps || []).map((a) => `<a class="app-tile" href="${esc(a.url)}" target="_blank" rel="noopener">${appIcon(a)}<span>${esc(a.name)}</span></a>`).join("")}
       <button class="app-tile" data-config="apps"><span class="app-ico plus">${ic("plus")}</span><span>Add / edit</span></button></div>` : ""}
     <h3>Track a flight</h3>
@@ -3984,7 +3985,7 @@ function renderMore() {
       <div class="row"><span class="grow">Temperature</span>${seg("units", [["F", "°F"], ["C", "°C"]], cfg.units)}</div>
       <div class="row"><span class="grow">Text size</span>${seg("textSize", [["standard", "Standard"], ["large", "Larger"]], cfg.textSize)}</div>
       <div class="row"><span class="grow">Markets</span>${seg("mkview", [["tiles", "Tiles"], ["list", "List"]], cfg.markets.view)}</div>
-      <div class="row"><span class="grow">Home on phone</span>${seg("homeStyle", [["full", "Full sections"], ["cards", "Cards"]], cfg.homeStyle === "cards" ? "cards" : "full")}</div>
+      <div class="row"><span class="grow">Home on phone</span>${seg("homeStyle", [["widgets", "Widgets"], ["full", "Sections"]], cfg.homeStyle === "full" ? "full" : "widgets")}</div>
     </div>
     <button class="btn primary wide" data-config="general">Customize layout, teams, feeds & cities</button>
     <button class="btn wide" data-quick="refresh">${ic("refresh-cw")} Refresh everything</button>
@@ -4124,75 +4125,188 @@ function renderSummaries() {
 }
 
 // ============================================================ Today (phone Home): one glanceable card per section, tap to open it
+// ---------- Widget Home (iPhone style): pick widgets, pick a size (small / medium / large), reorder
+const W_TYPES = {
+  weather: { name: "Weather", icon: "cloud-sun", sizes: ["s", "m", "l"], desc: "Now, the next hours, the week" },
+  teams: { name: "My Teams", icon: "trophy", sizes: ["s", "m", "l"], desc: "Live, last and next games for your favorites" },
+  team: { name: "One team", icon: "star", sizes: ["s", "m", "l"], desc: "One favorite team: next game, results, news" },
+  calendar: { name: "Calendar", icon: "calendar-days", sizes: ["s", "m", "l"], desc: "Today and what's next" },
+  news: { name: "Top stories", icon: "newspaper", sizes: ["s", "m", "l"], desc: "Latest headlines, or one topic" },
+  markets: { name: "Markets", icon: "trending-up", sizes: ["s", "m", "l"], desc: "Indexes and your watchlist" },
+  nearby: { name: "Nearby", icon: "compass", sizes: ["s", "m", "l"], desc: "Restaurants and things to do around you" },
+  commute: { name: "Commute", icon: "map-pin", sizes: ["s", "m"], desc: "When to leave, drive time" },
+  apps: { name: "Your apps", icon: "layout-grid", sizes: ["s", "m", "l"], desc: "Shortcuts to the apps you use" },
+  brief: { name: "Brief", icon: "sparkles", sizes: ["m", "l"], desc: "Your daily brief" },
+};
+const W_STARTER = [["weather", "m"], ["teams", "l"], ["calendar", "s"], ["markets", "s"], ["news", "l"], ["nearby", "m"], ["apps", "s"]];
+const wid = () => Math.random().toString(36).slice(2, 8);
+function widgetList() {
+  if (!Array.isArray(cfg.widgets)) { cfg.widgets = W_STARTER.map(([type, size]) => ({ id: wid(), type, size })); save(); }
+  return cfg.widgets.filter((w) => W_TYPES[w.type]);
+}
+let wEdit = false;
+const useWidgets = () => cfg.homeStyle !== "full";
+function teamGameRows(only) {
+  const rows = [];
+  for (const r of data.sports || []) {
+    const L = r.L, meta = LEAGUES[L.key];
+    if (!meta || meta.kind) continue;
+    for (const ab of L.teams || []) {
+      if (only && `${L.key}|${ab}` !== only) continue;
+      const evs = (r.events || []).filter((e) => e.teams?.some((t) => t.abbr === ab)).sort((a, b) => new Date(a.date) - new Date(b.date));
+      const live = evs.find((e) => e.state === "in");
+      const nexts = evs.filter((e) => e.state === "pre").slice(0, 3);
+      const last = evs.filter((e) => e.state === "post").at(-1);
+      for (const e of [live, last, ...nexts].filter(Boolean)) {
+        if (rows.some((x) => x.e === e)) continue;
+        rows.push({ e, key: L.key, ab, live: e.state === "in", t: new Date(e.date) });
+      }
+    }
+  }
+  // live first, then recent results (last 24h), then upcoming soonest
+  const rank = (x) => (x.live ? 0 : x.e.state === "post" && Date.now() - x.t < 24 * 3600e3 ? 1 : x.e.state === "pre" ? 2 : 3);
+  rows.sort((a, b) => rank(a) - rank(b) || (a.e.state === "post" ? b.t - a.t : a.t - b.t));
+  return rows;
+}
+function wGameRow(x, big) {
+  const e = x.e, a = e.teams.find((t) => t.homeAway === "away") || e.teams[0], h = e.teams.find((t) => t.homeAway === "home") || e.teams[1];
+  const lgOf = (t) => (teamCache[x.key] || []).find((y) => y.abbr === t?.abbr)?.logo || t?.logo;
+  const logo = (t) => { const lg = lgOf(t); return lg ? `<img src="${esc(lg)}" alt="">` : big ? "" : `<span class="wg-ab">${esc(t?.abbr || "")}</span>`; };
+  const fav = (t) => (cfg.sports.leagues.find((l) => l.key === x.key)?.teams || []).includes(t?.abbr) ? `<i class="wg-star">★</i>` : "";
+  const mid = e.state === "in" ? `<span class="wg-live">${esc(e.detail || "LIVE")}</span>` : e.state === "post" ? `<span class="wg-fin">Final<small>${esc(new Date(e.date).toLocaleDateString([], { month: "numeric", day: "numeric" }))}</small></span>` : `<span class="wg-time">${esc(sameDay(new Date(e.date), new Date()) ? schedTime(e.date) : `${schedDay(e.date).replace(/,.*/, "")}`)}${sameDay(new Date(e.date), new Date()) ? "" : `<small>${esc(schedTime(e.date))}</small>`}</span>`;
+  const sc = (t) => (e.state === "pre" ? "" : `<b class="wg-sc ${e.state === "post" && t?.winner ? "win" : ""}">${esc(t?.score ?? "")}</b>`);
+  return `<div class="wg-row" data-game="${esc(e.id)}" data-path="${esc(LEAGUES[x.key].path)}">${fav(a)}${logo(a)}${big ? `<span class="wg-tn">${esc(a?.abbr || "")}</span>` : ""}${sc(a)}${mid}${sc(h)}${big ? `<span class="wg-tn r">${esc(h?.abbr || "")}</span>` : ""}${logo(h)}${fav(h)}</div>`;
+}
+function wInner(w) {
+  const S = w.size, big = S !== "s";
+  const head = (icon, title, extra = "") => `<div class="w-h">${ic(icon, "xs")}<span>${esc(title)}</span>${extra}</div>`;
+  switch (w.type) {
+    case "weather": {
+      const list = (data.weather || []).filter((x) => !x.error);
+      const wx = list.find((x) => x.c.name === w.opt) || list[0];
+      if (!wx) return `<div class="w-pad">${head("cloud-sun", "Weather")}<div class="w-muted">Loading…</div></div>`;
+      const cur = wx.d.current, dl = wx.d.daily, hr = wx.d.hourly;
+      const [icn, desc] = wmo(cur.weather_code, cur.is_day);
+      const al = wx.alerts?.[0];
+      const top = `<div class="ww-top"><div><div class="ww-city">${esc(wx.c.name.split(",")[0])} ${ic("navigation", "xs")}</div><div class="ww-t">${Math.round(cur.temperature_2m)}°</div></div>${S !== "s" ? `<div class="ww-r">${icn}<b>${esc(al ? `⚠ ${al.event}` : desc)}</b><small>${al ? `${esc(desc)} · ` : ""}H:${Math.round(dl.temperature_2m_max[0])}° L:${Math.round(dl.temperature_2m_min[0])}°</small></div>` : ""}</div>`;
+      const small = S === "s" ? `<div class="ww-s">${icn}<b>${esc(al ? al.event : desc)}</b>${al ? "" : `<small>H:${Math.round(dl.temperature_2m_max[0])}° L:${Math.round(dl.temperature_2m_min[0])}°</small>`}</div>` : "";
+      let hours = "";
+      if (S !== "s" && hr) {
+        const i0 = Math.max(0, hr.time.findIndex((t) => t >= cur.time.slice(0, 13)));
+        hours = `<div class="ww-hours">${[0, 1, 2, 3, 4, 5].map((k) => { const j = i0 + k; if (j >= hr.time.length) return ""; return `<span><small>${k ? fmtHour(hr.time[j]) : "Now"}</small>${wmo(k ? hr.weather_code[j] : cur.weather_code, hr.is_day?.[j] ?? 1)[0]}<b>${Math.round(k ? hr.temperature_2m[j] : cur.temperature_2m)}°</b>${(hr.precipitation_probability?.[j] ?? 0) >= 20 ? `<i>${hr.precipitation_probability[j]}%</i>` : ""}</span>`; }).join("")}</div>`;
+      }
+      let days = "";
+      if (S === "l") {
+        const lo = Math.min(...dl.temperature_2m_min.slice(0, 6)), hi = Math.max(...dl.temperature_2m_max.slice(0, 6));
+        days = `<div class="ww-days">${dl.time.slice(0, 6).map((t, i) => { const a = ((dl.temperature_2m_min[i] - lo) / (hi - lo || 1)) * 100, b = ((dl.temperature_2m_max[i] - lo) / (hi - lo || 1)) * 100; return `<div><span class="n">${i ? new Date(t + "T12:00").toLocaleDateString([], { weekday: "short" }) : "Today"}</span>${wmo(dl.weather_code[i])[0]}<span class="p">${(dl.precipitation_probability_max?.[i] ?? 0) >= 20 ? `${dl.precipitation_probability_max[i]}%` : ""}</span><span class="lo">${Math.round(dl.temperature_2m_min[i])}°</span><span class="bar"><i style="left:${a}%;right:${100 - b}%"></i></span><span class="hi">${Math.round(dl.temperature_2m_max[i])}°</span></div>`; }).join("")}</div>`;
+      }
+      const alert = al && S === "l" && false ? `<div class="ww-alert">${ic("triangle-alert", "xs")} ${esc(al.event)}${(wx.alerts.length > 1) ? ` & ${wx.alerts.length - 1} more` : ""}</div>` : "";
+      return `<div class="w-pad ww" data-wgo="weather">${top}${small}${alert}${hours}${days}</div>`;
+    }
+    case "teams": case "team": {
+      const only = w.type === "team" ? (w.opt || hubTeams(false)[0] && `${hubTeams(false)[0].key}|${hubTeams(false)[0].ab}`) : "";
+      const rows = teamGameRows(only);
+      const n = S === "s" ? 2 : S === "m" ? 3 : 6;
+      if (w.type === "team" && only) {
+        const [k, ab] = only.split("|");
+        const t = (teamCache[k] || []).find((x) => x.abbr === ab);
+        const hdr = `<div class="wt-h">${t?.logo ? `<img src="${esc(t.logo)}" alt="">` : ""}<div><b>${esc(t?.name || ab)}</b><small>${esc(LEAGUES[k]?.name || "")}</small></div></div>`;
+        const news = S === "l" ? `<div class="wt-news" data-wteam-news="${esc(only)}">${skeleton(2)}</div>` : "";
+        return `<div class="w-pad wsport" data-wgo="team:${esc(only)}">${hdr}${rows.slice(0, S === "s" ? 1 : 2).map((x) => wGameRow(x, S !== "s")).join("") || `<div class="w-muted">No games this week</div>`}${news}</div>`;
+      }
+      return `<div class="w-pad wsport" data-wgo="sports"><div class="w-h light">${ic("star", "xs")}<span>My Teams</span>${ic("trophy", "xs")}</div>${rows.length ? rows.slice(0, n).map((x) => wGameRow(x, S !== "s")).join("") : `<div class="w-muted">${(data.sports || []).length ? "No games for your teams this week" : "Loading…"}</div>`}</div>`;
+    }
+    case "calendar": {
+      const now = new Date();
+      const evs = (data.calendar?.events || []).filter((e) => e.end > now).sort((a, b) => a.start - b.start);
+      const chip = (e) => `<div class="wc-ev" style="--c:${esc(e.color || "#ef4444")}"><span>${esc(e.title)}</span>${S !== "s" && !e.allDay ? `<small>${esc(hm(e.start))}</small>` : ""}</div>`;
+      const date = `<div class="wc-date"><b>${now.toLocaleDateString([], { weekday: "long" }).toUpperCase()}</b><span>${now.getDate()}</span></div>`;
+      if (S === "s") return `<div class="w-pad wcal" data-wgo="calendar">${date}${evs.slice(0, 2).map(chip).join("") || `<div class="w-muted">No more events today</div>`}</div>`;
+      if (S === "m") return `<div class="w-pad wcal wcal-m" data-wgo="calendar">${date}<div class="wc-list">${evs.filter((e) => sameDay(e.start, now) || e.start < now).slice(0, 4).map(chip).join("") || `<div class="w-muted">Nothing else today</div>`}</div></div>`;
+      const days = [0, 1, 2].map((d) => { const day = addDays(d); const list = evs.filter((e) => sameDay(e.start, day) || (e.allDay && e.start <= day && e.end > day)); return `<div class="wc-day"><small>${d === 0 ? "Today" : d === 1 ? "Tomorrow" : day.toLocaleDateString([], { weekday: "long" })}</small>${list.slice(0, 4).map(chip).join("") || `<div class="w-muted">Nothing scheduled</div>`}</div>`; }).join("");
+      return `<div class="w-pad wcal" data-wgo="calendar">${date}${days}</div>`;
+    }
+    case "news": {
+      const cats = cfg.news.categories.filter((c) => c.on && (!w.opt || c.id === w.opt));
+      const seen = new Set(), items = [];
+      for (const c of cats) for (const i of (data.news[c.id]?.items || []).slice(0, 6)) if (!seen.has(i.link)) { seen.add(i.link); items.push(i); }
+      items.sort((a, b) => (b.ts || 0) - (a.ts || 0));
+      const title = w.opt ? cfg.news.categories.find((c) => c.id === w.opt)?.name || "News" : "Top stories";
+      if (!items.length) return `<div class="w-pad">${head("newspaper", title)}<div class="w-muted">Loading…</div></div>`;
+      if (S === "s") { const i = items[0], im = imgFor(i); return `<a class="w-pad wn-s ${im ? "has-img" : ""}" href="${esc(i.link)}" target="_blank" rel="noopener" ${im ? `style="--img:url('${esc(im)}')"` : ""}><small>${esc(i.source || title)}</small><b>${esc(i.title)}</b></a>`; }
+      const n = S === "m" ? 3 : 6;
+      return `<div class="w-pad wn">${`<div class="w-h" data-wgo="news">${ic("newspaper", "xs")}<span>${esc(title)}</span>${ic("chevron-right", "xs")}</div>`}${items.slice(0, n).map((i, k) => { const im = imgFor(i); return `<a class="wn-i" href="${esc(i.link)}" target="_blank" rel="noopener"><span><b>${esc(i.title)}</b><small>${esc(i.source || "")}${i.ts ? ` · ${esc(ago(i.ts))}` : ""}</small></span>${S === "l" && im ? `<img src="${esc(im)}" alt="" loading="lazy">` : ""}</a>`; }).join("")}</div>`;
+    }
+    case "markets": {
+      const idx = ["^GSPC", "^DJI", "^IXIC"].map((k) => data.quotes?.[k]).filter((q) => q && !q.error);
+      const watch = (cfg.markets.groups.find((g) => /watch/i.test(g.name))?.symbols || []).map((k) => data.quotes?.[k]).filter((q) => q && !q.error);
+      const row = (q, sp) => `<div class="wm-r"><span><b>${esc(FRIENDLY[q.symbol] || q.symbol)}</b>${sp ? `<small>${esc(fmtNum(q.price, q.price > 1000 ? 0 : 2))}</small>` : ""}</span>${sp && q.spark ? `<span class="wm-sp">${spark(q.spark, q.prev, q.pct >= 0)}</span>` : ""}<b class="${q.pct >= 0 ? "up" : "dn"}">${q.pct >= 0 ? "+" : "−"}${fmtNum(Math.abs(q.pct), 2)}%</b></div>`;
+      if (!idx.length) return `<div class="w-pad">${head("trending-up", "Markets")}<div class="w-muted">Loading…</div></div>`;
+      const st = `<span class="wm-st ${marketOpen() ? "open" : ""}">${marketOpen() ? "Open" : "Closed"}</span>`;
+      if (S === "s") { const q = idx[0]; return `<div class="w-pad wm" data-wgo="markets">${head("trending-up", "Markets", st)}<div class="wm-big"><small>S&amp;P 500</small><b>${esc(fmtNum(q.price, 0))}</b><span class="${q.pct >= 0 ? "up" : "dn"}">${q.pct >= 0 ? "▲" : "▼"} ${fmtNum(Math.abs(q.pct), 2)}%</span></div>${q.spark ? `<div class="wm-spark">${spark(q.spark, q.prev, q.pct >= 0)}</div>` : ""}</div>`; }
+      return `<div class="w-pad wm" data-wgo="markets">${head("trending-up", "Markets", st)}${idx.map((q) => row(q, true)).join("")}${S === "l" ? `<div class="wm-sub">Watchlist</div>${watch.slice(0, 6).map((q) => row(q, true)).join("")}` : ""}</div>`;
+    }
+    case "nearby": {
+      const lbl = (NEARBY_CATS.find(([k]) => k === cfg.nearby?.cat) || [, "Places"])[1];
+      const items = (nb.items || []).slice().sort((a, b) => (openNow(b.hours) === true) - (openNow(a.hours) === true) || a.dist - b.dist);
+      const openN = (nb.items || []).filter((x) => openNow(x.hours) === true).length;
+      const pl = (it) => `<a class="wnb-i" href="https://maps.apple.com/?daddr=${it.lat},${it.lon}&q=${encodeURIComponent(it.name)}" target="_blank" rel="noopener"><span><b>${esc(it.name)}</b><small>${esc([it.cuisine ? it.cuisine.split(",")[0] : KIND_LABEL[it.kind] || "", fmtDist(it.dist)].filter(Boolean).join(" · "))}</small></span>${openNow(it.hours) === true ? `<i class="nb-open">Open</i>` : ""}</a>`;
+      if (!nb.items) return `<div class="w-pad wnb">${head("compass", "Nearby")}<div class="w-muted">Finding places…</div></div>`;
+      if (S === "s") return `<div class="w-pad wnb" data-wgo="nearby">${head("compass", "Nearby")}<div class="wnb-big"><b>${openN || items.length}</b><span>${esc(lbl.toLowerCase())} ${openN ? "open now" : "nearby"}</span></div>${items[0] ? `<div class="wnb-top">${esc(items[0].name)} · ${esc(fmtDist(items[0].dist))}</div>` : ""}</div>`;
+      const cats = S === "l" ? `<div class="wnb-cats">${NEARBY_CATS.slice(0, 4).map(([k, l, i]) => `<span data-nbgo="${k}" data-goto="nearby" class="${cfg.nearby?.cat === k ? "on" : ""}">${ic(i, "xs")} ${l}</span>`).join("")}</div>` : "";
+      return `<div class="w-pad wnb">${`<div class="w-h" data-wgo="nearby">${ic("compass", "xs")}<span>${esc(lbl)} near ${esc(nbWhere()?.name || "you")}</span>${ic("chevron-right", "xs")}</div>`}${cats}${items.slice(0, S === "m" ? 3 : 6).map(pl).join("") || `<div class="w-muted">Nothing found nearby</div>`}</div>`;
+    }
+    case "commute": {
+      if (!cfg.commute?.on) return `<div class="w-pad">${head("map-pin", "Commute")}<div class="w-muted">Set up your commute in Customize → General.</div></div>`;
+      const row = commuteRow();
+      return `<div class="w-pad wcm" data-wgo="brief">${head("map-pin", "Commute")}${row || `<div class="w-muted">No commute right now</div>`}</div>`;
+    }
+    case "apps": {
+      const apps = cfg.apps || [];
+      const n = S === "s" ? 4 : S === "m" ? 8 : 12;
+      return `<div class="w-pad wapps wapps-${S}">${apps.slice(0, n).map((a) => `<a class="wa" href="${esc(a.url)}" target="_blank" rel="noopener">${appIcon(a)}${S !== "s" ? `<span>${esc(a.name)}</span>` : ""}</a>`).join("")}${apps.length < n ? `<button class="wa add" data-config="apps"><span class="app-ico plus">${ic("plus")}</span>${S !== "s" ? `<span>Add</span>` : ""}</button>` : ""}</div>`;
+    }
+    case "brief": {
+      const src = $("#brief-body");
+      return `<div class="w-pad wbrief" data-wgo="brief">${head("sparkles", "Your brief", `<small>${esc(new Date().toLocaleDateString([], { weekday: "short", month: "short", day: "numeric" }))}</small>`)}<div class="wb-body">${src ? src.innerHTML : ""}</div></div>`;
+    }
+  }
+  return "";
+}
 let todayT;
 function queueToday() { clearTimeout(todayT); todayT = setTimeout(renderToday, 120); }
-document.body.classList.toggle("home-full", cfg.homeStyle !== "cards");
+document.body.classList.toggle("home-full", !useWidgets());
 function renderToday() {
   const box = $("#today");
   if (!box) return;
-  document.body.classList.toggle("home-full", cfg.homeStyle !== "cards");
-  const card = (view, icon, title, body, cls = "", sub = "") => `<button class="tcard ${cls}" data-goto="${view}"><div class="tc-h"><span class="tc-ic tc-${view}">${ic(icon)}</span><b>${title}</b>${sub ? `<small>${sub}</small>` : ""}${ic("chevron-right", "xs")}</div><div class="tc-b">${body}</div></button>`;
-  const out = [];
-  // glance order: weather, your teams, next event + markets side by side, headlines
-  const ORDER = ["weather", "sports", "calendar", "markets", "news"];
-  const onIds = cfg.sections.filter((x) => x.on).map((x) => x.id);
-  const ids = ORDER.filter((id) => onIds.includes(id));
-  // a lone half-width card stretches full width
-  const halves = ids.filter((id) => id === "calendar" || id === "markets");
-  for (const s of ids.map((id) => ({ id }))) {
-    if (s.id === "weather") {
-      const w = (data.weather || []).find((x) => !x.error);
-      if (!w) { out.push(card("weather", "cloud-sun", "Weather", `<div class="tc-muted">Loading…</div>`, "wide")); continue; }
-      const cur = w.d.current, dl = w.d.daily;
-      const [icn, desc] = wmo(cur.weather_code, cur.is_day);
-      const others = (data.weather || []).filter((x) => !x.error && x !== w).slice(0, 2).map((x) => `<span>${esc(x.c.name.split(",")[0])} <b>${Math.round(x.d.current.temperature_2m)}°</b></span>`).join("");
-      out.push(card("weather", "cloud-sun", "Weather", `<div class="tw"><span class="tw-ic">${icn}</span><span class="tw-t">${Math.round(cur.temperature_2m)}°</span><span class="tw-d"><b>${esc(desc)}</b><small>${esc(w.c.name.split(",")[0])} · H ${Math.round(dl.temperature_2m_max[0])}° L ${Math.round(dl.temperature_2m_min[0])}°</small>${cur._next ? `<small class="tw-next">${esc(cur._next)}</small>` : ""}</span></div>${w.alerts?.length ? `<div class="tw-alert">${ic("triangle-alert", "xs")} ${esc(w.alerts[0].event)}</div>` : ""}${others ? `<div class="tw-others">${others}</div>` : ""}`, "wide"));
-    } else if (s.id === "sports") {
-      const rows = [];
-      for (const r of data.sports || []) {
-        const L = r.L, meta = LEAGUES[L.key];
-        if (!meta || meta.kind || !(L.teams || []).length) continue;
-        for (const ab of L.teams) {
-          const evs = (r.events || []).filter((e) => e.teams?.some((t) => t.abbr === ab));
-          const live = evs.find((e) => e.state === "in");
-          const next = evs.filter((e) => e.state === "pre").sort((a, b) => new Date(a.date) - new Date(b.date))[0];
-          const last = evs.filter((e) => e.state === "post").sort((a, b) => new Date(b.date) - new Date(a.date))[0];
-          const e = live || (last && (!next || Date.now() - new Date(last.date) < 18 * 3600e3) ? last : next);
-          if (!e) continue;
-          const me = e.teams.find((t) => t.abbr === ab), op = e.teams.find((t) => t.abbr !== ab);
-          const logo = (teamCache[L.key] || []).find((t) => t.abbr === ab)?.logo || me?.logo;
-          const vs = `${me?.homeAway === "home" ? "vs" : "@"} ${op?.abbr || op?.name || ""}`;
-          const right = e.state === "in" ? `<span class="pill live">LIVE</span> ${esc(me?.score ?? "")}–${esc(op?.score ?? "")}` : e.state === "post" ? `<b class="${me?.winner ? "w" : op?.winner ? "l" : ""}">${me?.winner ? "W" : op?.winner ? "L" : "T"}</b> ${esc(me?.score ?? "")}–${esc(op?.score ?? "")}` : esc(sameDay(new Date(e.date), new Date()) ? schedTime(e.date) : schedDay(e.date));
-          rows.push({ live: e.state === "in", t: new Date(e.date), html: `<div class="ts">${logo ? `<img src="${esc(logo)}" alt="">` : `<span class="ts-ab">${esc(ab)}</span>`}<span class="ts-n">${esc(me?.name || ab)} <small>${esc(vs)}</small></span><span class="ts-r">${right}</span></div>` });
-        }
-      }
-      rows.sort((a, b) => b.live - a.live || a.t - b.t);
-      const liveN = rows.filter((x) => x.live).length;
-      out.push(card("sports", "trophy", "Sports", rows.length ? rows.slice(0, 4).map((x) => x.html).join("") : `<div class="tc-muted">${(data.sports || []).length ? "No games for your teams in the next few days." : "Loading…"}</div>`, "wide", liveN ? `<span class="pill live">${liveN} LIVE</span>` : ""));
-    } else if (s.id === "calendar") {
-      const now = new Date();
-      const evs = (data.calendar?.events || []).filter((e) => e.end > now).sort((a, b) => a.start - b.start);
-      const today = evs.filter((e) => sameDay(e.start, now) || (e.allDay && e.start <= now));
-      const nx = evs[0];
-      out.push(card("calendar", "calendar-days", "Calendar", nx ? `<div class="tc-big">${esc(nx.title)}</div><div class="tc-muted">${nx.allDay ? "All day" : `${sameDay(nx.start, now) ? "" : `${nx.start.toLocaleDateString([], { weekday: "short" })} `}${hm(nx.start)}`}</div><div class="tc-foot">${today.length ? `${today.length} event${today.length > 1 ? "s" : ""} today` : "Nothing else today"}</div>` : `<div class="tc-muted">${data.calendar ? "Nothing coming up" : "Connect a calendar in Customize"}</div>`, halves.length === 2 ? "half" : "wide"));
-    } else if (s.id === "markets") {
-      const syms = ["^GSPC", "^DJI", "^IXIC"];
-      const rows = syms.map((k) => data.quotes?.[k]).filter((q) => q && !q.error);
-      out.push(card("markets", "trending-up", "Markets", rows.length ? rows.map((q) => `<div class="tm"><span>${esc(FRIENDLY[q.symbol] || q.symbol)}</span><b class="${q.pct >= 0 ? "up" : "dn"}">${q.pct >= 0 ? "▲" : "▼"} ${fmtNum(Math.abs(q.pct), 2)}%</b></div>`).join("") : `<div class="tc-muted">Loading…</div>`, halves.length === 2 ? "half" : "wide"));
-    } else if (s.id === "news") {
-      const top = [];
-      const seen = new Set();
-      for (const c of cfg.news.categories.filter((x) => x.on)) for (const i of (data.news[c.id]?.items || []).slice(0, 3)) if (!seen.has(i.link)) { seen.add(i.link); top.push({ ...i, cat: c.name }); }
-      top.sort((a, b) => (b.ts || 0) - (a.ts || 0));
-      out.push(`<div class="tcard wide tnews"><button class="tc-h" data-goto="news"><span class="tc-ic tc-news">${ic("newspaper")}</span><b>Top stories</b>${ic("chevron-right", "xs")}</button><div class="tc-b">${top.length ? top.slice(0, 4).map((i) => `<a class="tn" href="${esc(i.link)}" target="_blank" rel="noopener"><span>${esc(i.title)}</span><small>${esc(i.source || "")}${i.ts ? ` · ${esc(ago(i.ts))}` : ""}</small></a>`).join("") : `<div class="tc-muted">Loading…</div>`}</div></div>`);
-    }
+  document.body.classList.toggle("home-full", !useWidgets());
+  if (!useWidgets()) return;
+  const ws = widgetList();
+  if (ws.some((w) => w.type === "nearby") && !nb.items && !nb.loading) loadNearby();
+  const ctl = (w, i) => wEdit ? `<div class="w-ctl"><button data-wdel="${w.id}" class="w-x" aria-label="Remove">${ic("x", "xs")}</button>
+      <div class="w-ctl-b">${W_TYPES[w.type].sizes.map((z) => `<button data-wsize="${w.id}|${z}" class="${w.size === z ? "on" : ""}">${{ s: "S", m: "M", l: "L" }[z]}</button>`).join("")}
+      <button data-wmove="${w.id}|-1" ${i ? "" : "disabled"} aria-label="Move up">${ic("chevron-up", "xs")}</button><button data-wmove="${w.id}|1" ${i < ws.length - 1 ? "" : "disabled"} aria-label="Move down">${ic("chevron-down", "xs")}</button>
+      ${["weather", "team", "news"].includes(w.type) ? `<button data-wopt="${w.id}" aria-label="Choose">${ic("settings", "xs")}</button>` : ""}</div></div>` : "";
+  box.innerHTML = `<div class="wgrid ${wEdit ? "editing" : ""}">${ws.map((w, i) => `<div class="wdg wdg-${w.size} wt-${w.type}" data-wid="${w.id}">${wInner(w)}${ctl(w, i)}</div>`).join("")}</div>
+    <div class="w-foot">${wEdit ? `<button class="btn" data-wadd>${ic("plus", "xs")} Add widget</button><button class="btn primary" data-wedit>Done</button>` : `<button class="btn" data-wedit>${ic("settings", "xs")} Edit Home</button><button class="btn" data-quick="refresh">${ic("refresh-cw", "xs")} Refresh</button>`}</div>`;
+  // team widget headlines
+  for (const el of box.querySelectorAll("[data-wteam-news]")) {
+    const [k, ab] = el.dataset.wteamNews.split("|");
+    loadSportsNews(k, ab).then((items) => { el.innerHTML = items.slice(0, 3).map((a) => `<a class="wn-i" href="${esc(a.link)}" target="_blank" rel="noopener"><span><b>${esc(a.title)}</b><small>${esc(ago(Date.parse(a.date)))}</small></span></a>`).join(""); }).catch(() => { el.innerHTML = ""; });
   }
-  out.push(card("nearby", "compass", "Nearby", `<div class="tnb">${NEARBY_CATS.slice(0, 4).map(([k, l, i]) => `<span data-nbgo="${k}">${ic(i, "xs")} ${l}</span>`).join("")}</div>`, "wide"));
-  const apps = cfg.apps || [];
-  const appsRow = apps.length ? `<div class="tapps">${apps.map((a) => `<a class="app-tile" href="${esc(a.url)}" target="_blank" rel="noopener">${appIcon(a)}<span>${esc(a.name)}</span></a>`).join("")}<button class="app-tile" data-config="apps"><span class="app-ico plus">${ic("plus")}</span><span>Edit</span></button></div>` : "";
-  box.innerHTML = `<div class="tgrid">${out.join("")}</div>${appsRow}<button class="tcustom" data-config="general">${ic("settings", "xs")} Choose what's on Home</button>`;
 }
-
+function openWidgetGallery() {
+  openModal(`${ic("plus")} Add a widget`, `<div class="wgal">${Object.entries(W_TYPES).map(([k, t]) => `<div class="wgal-i"><span class="wgal-ic">${ic(t.icon)}</span><span class="wgal-t"><b>${t.name}</b><small>${t.desc}</small></span><span class="wgal-s">${t.sizes.map((z) => `<button class="btn" data-wnew="${k}|${z}">${{ s: "Small", m: "Medium", l: "Large" }[z]}</button>`).join("")}</span></div>`).join("")}</div>`);
+}
+function openWidgetOptions(id) {
+  const w = cfg.widgets.find((x) => x.id === id);
+  if (!w) return;
+  let opts = [];
+  if (w.type === "weather") opts = (cfg.weather.cities || []).map((c) => [c.name, c.name]);
+  if (w.type === "team") opts = hubTeams(false).map((t) => [`${t.key}|${t.ab}`, `${teamName(t.key, t.ab)} · ${LEAGUES[t.key].name}`]);
+  if (w.type === "news") opts = [["", "Top stories (all topics)"], ...cfg.news.categories.filter((c) => c.on).map((c) => [c.id, c.name])];
+  openModal(`${ic(W_TYPES[w.type].icon)} ${W_TYPES[w.type].name}`, `<div class="wopt">${opts.map(([v, l]) => `<button class="btn wide ${(w.opt || "") === v ? "primary" : ""}" data-wsetopt="${id}|${esc(v)}">${esc(l)}</button>`).join("") || `<div class="empty">Nothing to choose yet.</div>`}</div>`);
+}
 // ============================================================ Nearby: restaurants and things to do (OpenStreetMap)
 const NEARBY_CATS = [["food", "Restaurants", "utensils"], ["coffee", "Coffee & treats", "coffee"], ["bars", "Bars", "wine"], ["todo", "Things to do", "ticket"], ["parks", "Parks & outdoors", "trees"], ["family", "Kids & family", "baby"]];
 const nb = { items: null, err: "", loading: false, key: "", where: null, cuisine: "", openOnly: false };
@@ -4253,6 +4367,7 @@ async function loadNearby(force) {
   } catch { if (nb.key === key) { nb.items = []; nb.err = "Couldn't load places right now. Try again in a minute."; } }
   nb.loading = false;
   renderNearby();
+  queueToday();
 }
 function renderNearby() {
   const box = $("#nearby-body");
@@ -4291,6 +4406,7 @@ function renderNearby() {
     list = filters + (items.length ? `<div class="nb-count">${items.length} place${items.length > 1 ? "s" : ""} within ${cfg.nearby.radius} ${unit}${nb.cuisine ? ` · ${esc(nb.cuisine)}` : ""}</div><div class="nb-list">${items.slice(0, lim).map(card).join("")}</div>${items.length > lim ? `<button class="btn nb-all" data-nball>See all ${Math.min(items.length, 60)} places ${ic("chevron-right", "xs")}</button>` : ""}` : `<div class="empty">Nothing found${nb.openOnly ? " open right now" : ""}. Try a bigger distance${nb.cuisine || nb.openOnly ? " or clear the filters" : ""}.</div>`);
   }
   queueSummaries();
+  queueToday();
   const sub = $("#nearby-sub"); if (sub) sub.textContent = where ? `Around ${where.name}${cfg.nearby.useGps ? " (you)" : ""}` : "";
   box.innerHTML = `${whereSel}${cats}${list}
     <p class="more-foot">Places from OpenStreetMap contributors. Hours may be out of date — check before you go. Reviews open in Google Maps.</p>`;
@@ -4364,6 +4480,28 @@ document.addEventListener("click", async (e) => {
   if (t.closest("[data-modal-close]") || t.id === "modal") { closeModal(); return; }
   const bev = t.closest("[data-brief-ev]");
   if (bev) { const ev = briefEvents[+bev.dataset.briefEv]; if (ev) { calUI.sel = sod(new Date()); calUI.month = new Date(calUI.sel.getFullYear(), calUI.sel.getMonth(), 1); renderCalendar(); showEvent(ev); } return; }
+  if (t.closest("[data-wedit]")) { wEdit = !wEdit; renderToday(); return; }
+  if (t.closest("[data-wadd]")) { openWidgetGallery(); return; }
+  const wnew = t.closest("[data-wnew]");
+  if (wnew) { const [type, size] = wnew.dataset.wnew.split("|"); widgetList(); cfg.widgets.push({ id: wid(), type, size }); save(); closeModal(); renderToday(); return; }
+  const wdel = t.closest("[data-wdel]");
+  if (wdel) { cfg.widgets = cfg.widgets.filter((x) => x.id !== wdel.dataset.wdel); save(); renderToday(); return; }
+  const wsz = t.closest("[data-wsize]");
+  if (wsz) { const [id, z] = wsz.dataset.wsize.split("|"); const w = cfg.widgets.find((x) => x.id === id); if (w) w.size = z; save(); renderToday(); return; }
+  const wmv = t.closest("[data-wmove]");
+  if (wmv) { const [id, d] = wmv.dataset.wmove.split("|"); const i = cfg.widgets.findIndex((x) => x.id === id), j = i + +d; if (i >= 0 && j >= 0 && j < cfg.widgets.length) { [cfg.widgets[i], cfg.widgets[j]] = [cfg.widgets[j], cfg.widgets[i]]; save(); renderToday(); } return; }
+  const wop = t.closest("[data-wopt]");
+  if (wop) { openWidgetOptions(wop.dataset.wopt); return; }
+  const wso = t.closest("[data-wsetopt]");
+  if (wso) { const [id, ...v] = wso.dataset.wsetopt.split("|"); const w = cfg.widgets.find((x) => x.id === id); if (w) w.opt = v.join("|"); save(); closeModal(); renderToday(); return; }
+  const wgo = !wEdit && !t.closest("a, [data-game], [data-config], [data-nbgo]") && t.closest("[data-wgo]");
+  if (wgo) {
+    const g = wgo.dataset.wgo;
+    if (g.startsWith("team:")) { setView("sports"); setSportsSel(`tm:${g.slice(5)}`, { hubTab: "home" }); return; }
+    if (g === "nearby") { setView("nearby"); return; }
+    goToSection(g, "Home"); return;
+  }
+  if (wEdit && t.closest("#today .wdg")) return;
   const nbg = t.closest("[data-nbgo]");
   if (nbg) { cfg.nearby = { ...(cfg.nearby || {}), cat: nbg.dataset.nbgo }; save(); }
   const gto = t.closest("[data-goto]");
@@ -5293,7 +5431,7 @@ document.addEventListener("visibilitychange", () => {
 if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").catch(() => {});
 
 // Keep the installed app current: when it comes back to the screen, see if a newer build is live and load it.
-const APP_BUILD = "dhq-shell-v25";
+const APP_BUILD = "dhq-shell-v26";
 let lastHidden = 0, updating = false;
 async function checkForUpdate(auto) {
   if (updating) return;
