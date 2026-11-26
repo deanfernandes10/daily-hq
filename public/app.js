@@ -664,6 +664,7 @@ function stamp(id, stale = false) {
   if (el) el.innerHTML = stale ? `<span class="stale" title="Some sources didn't respond — showing the last data received">Partly delayed · ${hm(Date.now())}</span>` : `Updated ${hm(Date.now())}`;
   saveSnapshot();
   renderBrief();
+  queueToday();
   if (["sports", "markets", "weather"].includes(id)) checkAlerts(id);
   const bs = $("#brief-sub"); if (bs) bs.textContent = new Date().toLocaleDateString([], { weekday: "long", month: "short", day: "numeric" });
 }
@@ -922,18 +923,16 @@ function renderSports() {
   const seg = `<div class="sp-bar sp-views"><div class="seg" role="tablist">${SP_VIEWS.map(([v, l, i]) => `<button data-spview="${v}" class="${view === v ? "on" : ""}">${ic(i)} ${l}</button>`).join("")}</div></div>` +
     (view === "scores" ? `<div class="sp-bar"><div class="seg" role="tablist">${SP_MODES.map(([v, l]) => `<button data-spmode="${v}" class="${mode === v ? "on" : ""}">${l}</button>`).join("")}</div></div>` : "");
   ensureTeamNames();
-  const main = sportsMain();
-  const mainBar = sportsMainBar(main);
-  if (main === "fav") return renderTeamHub(body, mainBar + favLeagueChips() + teamHubBar());
-  const hubBar = mainBar;
-  if (cfg.sports.lgPage && LEAGUES[cfg.sports.lgPage] && cfg.sports.leagues.some((x) => x.key === cfg.sports.lgPage)) return renderLeaguePage(body, mainBar);
-  if (view !== "scores") return renderSportsAlt(body, hubBar + seg, view);
-  const segNoDays = `<div class="sp-bar sp-views"><div class="seg" role="tablist">${SP_VIEWS.map(([v, l, i]) => `<button data-spview="${v}" class="${view === v ? "on" : ""}">${ic(i)} ${l}</button>`).join("")}</div></div>`;
-  if (renderByView(body, hubBar + segNoDays, "scores")) return;
-  const byst = byState("scores");
-  const byBar = byBarHTML("scores", byst);
-  if (byst.mode === "team") mode = "mine";
-  const onlyLeague = byst.mode === "team" && byst.lg !== "all" ? byst.lg : "";
+  // One row of icons (like the ESPN / theScore apps): All · your leagues · your favourite teams
+  const sel = sportsSel();
+  const rail = sportsRail(sel);
+  if (sel.type === "lg") { cfg.sports.lgPage = sel.key; return renderLeaguePage(body, rail); }
+  if (sel.type === "tm") { cfg.sports.hub = `${sel.key}|${sel.ab}`; cfg.sports.newsLeague = sel.key; return renderTeamHub(body, rail); }
+  const hubBar = rail;
+  const segNoDays = "";
+  const byBar = "";
+  const byst = { mode: "league" };
+  const onlyLeague = "";
 
   const upnext = "";
   const tiles = data.sports
@@ -979,7 +978,8 @@ function renderSports() {
         <div class="league-body">${inner}</div></div>`;
     })
     .join("");
-  body.innerHTML = hubBar + segNoDays + byBar + (byst.mode === "team" ? "" : seg.replace(segNoDays, "")) + upnext + `<div class="leagues">${tiles}</div>`;
+  const daySeg = `<div class="sp-bar"><div class="seg" role="tablist">${SP_MODES.map(([v, l]) => `<button data-spmode="${v}" class="${mode === v ? "on" : ""}">${l}</button>`).join("")}</div></div>`;
+  body.innerHTML = hubBar + daySeg + upnext + `<div class="leagues">${tiles}</div>`;
   updateBadges();
 }
 
@@ -1156,6 +1156,18 @@ document.addEventListener("change", (e) => {
     else cfg.sports.schedSel = { ...(cfg.sports.schedSel || {}), [k]: ss.value };
     save(); renderSports(); return;
   }
+  const nw = e.target.closest?.("[data-nbwhere]");
+  if (nw) {
+    if (nw.value === "__gps") {
+      if (!navigator.geolocation) { toast("Location isn't available on this device"); return; }
+      toast("Finding your location…");
+      navigator.geolocation.getCurrentPosition((p) => { nb.gps = { lat: p.coords.latitude, lon: p.coords.longitude }; cfg.nearby = { ...(cfg.nearby || {}), useGps: true }; save(); loadNearby(); },
+        () => { toast("Couldn't get your location — check Location permission for Safari"); renderNearby(); }, { enableHighAccuracy: false, timeout: 10000, maximumAge: 300000 });
+    } else { cfg.nearby = { ...(cfg.nearby || {}), useGps: false, city: nw.value }; save(); loadNearby(); }
+    return;
+  }
+  const nr = e.target.closest?.("[data-nbrad]");
+  if (nr) { cfg.nearby = { ...(cfg.nearby || {}), radius: +nr.value }; save(); loadNearby(); return; }
   const nl = e.target.closest?.("[data-newsleague]");
   if (nl) { cfg.sports.newsLeague = nl.value; save(); renderSports(); return; }
   const nt = e.target.closest?.("[data-newsteam]");
@@ -1391,9 +1403,51 @@ function renderLeaguePage(body, mainBar) {
   }
   const liveN = events.filter((e) => e.state === "in").length;
   const head = `<div class="hub-head lg-head"><span class="lg-big">${leagueBadge(key)}</span><div><b>${esc(meta.name)}</b><small>${liveN ? `<span class="pill live">${liveN} LIVE</span> ` : ""}${(L.teams || []).length ? `${L.teams.length} favorite${L.teams.length > 1 ? "s" : ""}` : "No favorites yet"}</small></div></div>` + lgFavsHTML(key, events);
-  body.innerHTML = mainBar + bar + `<div class="hub">${head}${tabBar}<div class="hub-body">${inner}</div></div>`;
+  body.innerHTML = mainBar + `<div class="hub">${head}${tabBar}<div class="hub-body">${inner}</div></div>`;
   updateBadges();
   if (tab === "sched") fillTeamSchedules(); else if (tab === "news") fillSportsNews(); else if (tab === "table") fillTables();
+}
+
+// ---------- Sports navigation: one swipeable row — All, then your leagues, then your favourite teams
+function sportsSel() {
+  const v = cfg.sports.sel || "all";
+  if (v.startsWith("lg:")) {
+    const key = v.slice(3);
+    if (LEAGUES[key] && cfg.sports.leagues.some((x) => x.key === key)) return { type: "lg", key };
+  }
+  if (v.startsWith("tm:")) {
+    const [key, ab] = v.slice(3).split("|");
+    const L = cfg.sports.leagues.find((x) => x.key === key);
+    if (L && (L.teams || []).includes(ab) && LEAGUES[key] && !LEAGUES[key].kind) return { type: "tm", key, ab };
+  }
+  return { type: "all" };
+}
+function setSportsSel(v, extra = {}) {
+  cfg.sports.sel = v;
+  Object.assign(cfg.sports, extra);
+  save(); renderSports();
+  requestAnimationFrame(() => {
+    $("#sec-sports")?.scrollIntoView({ block: "start" });
+    document.querySelector(".sp-rail .on")?.scrollIntoView({ inline: "center", block: "nearest" });
+  });
+}
+function sportsRail(sel) {
+  const leagues = cfg.sports.leagues.filter((x) => LEAGUES[x.key]);
+  const favs = [];
+  for (const L of leagues) if (!LEAGUES[L.key].kind) for (const ab of L.teams || []) favs.push({ key: L.key, ab });
+  // when a league is open, its favourites come first in the team part of the row
+  const curLg = sel.type === "lg" || sel.type === "tm" ? sel.key : "";
+  favs.sort((a, b) => (b.key === curLg) - (a.key === curLg));
+  const live = (k) => (data.sports.find((r) => r.L.key === k)?.events || []).some((e) => e.state === "in");
+  const teamLive = (k, ab) => (data.sports.find((r) => r.L.key === k)?.events || []).some((e) => e.state === "in" && e.teams?.some((t) => t.abbr === ab));
+  const item = (v, on, icon, label, isLive, cls = "") => `<button class="spr ${cls} ${on ? "on" : ""}" data-sprail="${esc(v)}">${icon}<span>${esc(label)}</span>${isLive ? `<i class="spr-live"></i>` : ""}</button>`;
+  const allBtn = item("all", sel.type === "all", `<span class="spr-ic">${ic("layout-grid")}</span>`, "All", leagues.some((x) => live(x.key)));
+  const lgBtns = leagues.map((x) => item(`lg:${x.key}`, sel.type === "lg" && sel.key === x.key, `<span class="spr-ic">${leagueBadge(x.key)}</span>`, LEAGUES[x.key].name, live(x.key))).join("");
+  const tmBtns = favs.map((f) => {
+    const t = (teamCache[f.key] || []).find((x) => x.abbr === f.ab);
+    return item(`tm:${f.key}|${f.ab}`, sel.type === "tm" && sel.key === f.key && sel.ab === f.ab, t?.logo ? `<img class="spr-logo" src="${esc(t.logo)}" alt="">` : `<span class="spr-ic spr-ab">${esc(f.ab)}</span>`, t?.short || f.ab, teamLive(f.key, f.ab), curLg && f.key !== curLg ? "dim" : "");
+  }).join("");
+  return `<div class="sp-rail" role="tablist" aria-label="Leagues and teams">${allBtn}${lgBtns}${tmBtns ? `<span class="spr-sep" aria-hidden="true"></span>${tmBtns}` : `<button class="spr add" data-open-settings="sports"><span class="spr-ic">${ic("plus")}</span><span>Teams</span></button>`}</div>`;
 }
 // ---------- Team hub: pick a favourite team, see everything about it (like a team page in the ESPN / theScore apps)
 const HUB_TABS = [["home", "Overview"], ["sched", "Schedule"], ["news", "News"], ["table", "Standings"], ["roster", "Roster"]];
@@ -1499,7 +1553,7 @@ function renderTeamHub(body, hubBar) {
   else if (tab === "news") inner = `<div data-news-key="${esc(key)}|${esc(ab)}">${skeleton(5)}</div>`;
   else if (tab === "table") inner = `<div data-table-key="${esc(key)}" data-lb="table">${skeleton(6)}</div>`;
   else inner = `<div id="hubRoster">${skeleton(8)}</div>`;
-  body.innerHTML = hubBar + `<div class="hub">${head}${tabs}<div class="hub-body">${inner}</div></div>` + favLeaguesRow();
+  body.innerHTML = hubBar + `<div class="hub">${head}${tabs}<div class="hub-body">${inner}</div></div>`;
   updateBadges();
   fillTeamHub(key, ab, tab);
 }
@@ -3900,13 +3954,11 @@ function renderMore() {
   const seg = (key, opts, cur) => `<span class="seg">${opts.map(([v, l]) => `<button data-quick="${key}" data-v="${v}" class="${cur === v ? "on" : ""}">${l}</button>`).join("")}</span>`;
   const sp = data.quotes?.["^GSPC"];
   $("#more").innerHTML = `
-    <h3>Sections</h3>
+    <h3>Go to</h3>
     <div class="more-secs">
+      <button class="more-sec" data-more-view="calendar"><span class="ms-ic" style="--c:#ec4899">${ic("calendar-days")}</span><span><b>Calendar</b><small>Today and the next two days</small></span>${ic("chevron-right", "xs")}</button>
       <button class="more-sec" data-more-view="markets"><span class="ms-ic" style="--c:#22c27a">${ic("trending-up")}</span><span><b>Markets</b><small>${sp && !sp.error ? `S&amp;P ${sp.pct >= 0 ? "▲" : "▼"} ${fmtNum(Math.abs(sp.pct), 2)}%` : "Indexes, boards, real estate, mortgage"}</small></span>${ic("chevron-right", "xs")}</button>
     </div>
-    <h3>Your apps</h3>
-    <div class="apps-grid">${(cfg.apps || []).map((a) => `<a class="app-tile" href="${esc(a.url)}" target="_blank" rel="noopener">${appIcon(a)}<span>${esc(a.name)}</span></a>`).join("")}
-      <button class="app-tile" data-config="apps"><span class="app-ico plus">${ic("plus")}</span><span>Add / edit</span></button></div>
     <h3>Track a flight</h3>
     <div class="inline flight"><input id="flightNo" placeholder="Flight number, e.g. UA 1234" autocapitalize="characters"><button class="btn" data-quick="flight">${ic("plane")} Track</button></div>
     ${alertLogHTML()}
@@ -3918,6 +3970,7 @@ function renderMore() {
       <div class="row"><span class="grow">Temperature</span>${seg("units", [["F", "°F"], ["C", "°C"]], cfg.units)}</div>
       <div class="row"><span class="grow">Text size</span>${seg("textSize", [["standard", "Standard"], ["large", "Larger"]], cfg.textSize)}</div>
       <div class="row"><span class="grow">Markets</span>${seg("mkview", [["tiles", "Tiles"], ["list", "List"]], cfg.markets.view)}</div>
+      <div class="row"><span class="grow">Home on phone</span>${seg("homeStyle", [["cards", "Cards"], ["full", "Full sections"]], cfg.homeStyle === "full" ? "full" : "cards")}</div>
     </div>
     <button class="btn primary wide" data-config="general">Customize layout, teams, feeds & cities</button>
     <button class="btn wide" data-quick="refresh">${ic("refresh-cw")} Refresh everything</button>
@@ -3964,14 +4017,13 @@ function profilesHTML() {
 }
 
 function setView(v) {
-  // Opening Sports always starts on Leagues
-  if (v === "sports" && (cfg.sports.main === "fav" || cfg.sports.lgPage)) { cfg.sports.main = "leagues"; cfg.sports.lgPage = ""; save(); renderSports(); }
   if (v !== "home" && cfg.collapsed?.[v]) {
     delete cfg.collapsed[v]; save();
     const el = $(`#sec-${v}`);
     if (el) { el.classList.remove("collapsed"); el.querySelector("[data-sec-toggle]")?.setAttribute("aria-expanded", "true"); }
   }
-  if (v === "home") hideBackPill();
+  if (v === "home") { hideBackPill(); queueToday(); }
+  if (v === "nearby") loadNearby();
   document.body.dataset.view = v;
   $$("#tabbar button").forEach((b) => b.classList.toggle("on", b.dataset.view === v));
   scrollTo({ top: 0 });
@@ -3986,6 +4038,188 @@ function updateBadges() {
   const b3 = $("#tb-news"); b3.hidden = !fresh; b3.textContent = fresh > 99 ? "99+" : fresh || "";
   const now = new Date(), left = (data.calendar?.events || []).filter((e) => !e.allDay && e.end > now && sameDay(e.start, now)).length;
   const b4 = $("#tb-calendar"); if (b4) { b4.hidden = !left; b4.textContent = left || ""; }
+}
+
+
+// ============================================================ Today (phone Home): one glanceable card per section, tap to open it
+let todayT;
+function queueToday() { clearTimeout(todayT); todayT = setTimeout(renderToday, 120); }
+function renderToday() {
+  const box = $("#today");
+  if (!box) return;
+  document.body.classList.toggle("home-full", cfg.homeStyle === "full");
+  const card = (view, icon, title, body, cls = "", sub = "") => `<button class="tcard ${cls}" data-goto="${view}"><div class="tc-h"><span class="tc-ic tc-${view}">${ic(icon)}</span><b>${title}</b>${sub ? `<small>${sub}</small>` : ""}${ic("chevron-right", "xs")}</div><div class="tc-b">${body}</div></button>`;
+  const out = [];
+  // glance order: weather, your teams, next event + markets side by side, headlines
+  const ORDER = ["weather", "sports", "calendar", "markets", "news"];
+  const onIds = cfg.sections.filter((x) => x.on).map((x) => x.id);
+  const ids = ORDER.filter((id) => onIds.includes(id));
+  // a lone half-width card stretches full width
+  const halves = ids.filter((id) => id === "calendar" || id === "markets");
+  for (const s of ids.map((id) => ({ id }))) {
+    if (s.id === "weather") {
+      const w = (data.weather || []).find((x) => !x.error);
+      if (!w) { out.push(card("weather", "cloud-sun", "Weather", `<div class="tc-muted">Loading…</div>`, "wide")); continue; }
+      const cur = w.d.current, dl = w.d.daily;
+      const [icn, desc] = wmo(cur.weather_code, cur.is_day);
+      const others = (data.weather || []).filter((x) => !x.error && x !== w).slice(0, 2).map((x) => `<span>${esc(x.c.name.split(",")[0])} <b>${Math.round(x.d.current.temperature_2m)}°</b></span>`).join("");
+      out.push(card("weather", "cloud-sun", "Weather", `<div class="tw"><span class="tw-ic">${icn}</span><span class="tw-t">${Math.round(cur.temperature_2m)}°</span><span class="tw-d"><b>${esc(desc)}</b><small>${esc(w.c.name.split(",")[0])} · H ${Math.round(dl.temperature_2m_max[0])}° L ${Math.round(dl.temperature_2m_min[0])}°</small>${cur._next ? `<small class="tw-next">${esc(cur._next)}</small>` : ""}</span></div>${w.alerts?.length ? `<div class="tw-alert">${ic("triangle-alert", "xs")} ${esc(w.alerts[0].event)}</div>` : ""}${others ? `<div class="tw-others">${others}</div>` : ""}`, "wide"));
+    } else if (s.id === "sports") {
+      const rows = [];
+      for (const r of data.sports || []) {
+        const L = r.L, meta = LEAGUES[L.key];
+        if (!meta || meta.kind || !(L.teams || []).length) continue;
+        for (const ab of L.teams) {
+          const evs = (r.events || []).filter((e) => e.teams?.some((t) => t.abbr === ab));
+          const live = evs.find((e) => e.state === "in");
+          const next = evs.filter((e) => e.state === "pre").sort((a, b) => new Date(a.date) - new Date(b.date))[0];
+          const last = evs.filter((e) => e.state === "post").sort((a, b) => new Date(b.date) - new Date(a.date))[0];
+          const e = live || (last && (!next || Date.now() - new Date(last.date) < 18 * 3600e3) ? last : next);
+          if (!e) continue;
+          const me = e.teams.find((t) => t.abbr === ab), op = e.teams.find((t) => t.abbr !== ab);
+          const logo = (teamCache[L.key] || []).find((t) => t.abbr === ab)?.logo || me?.logo;
+          const vs = `${me?.homeAway === "home" ? "vs" : "@"} ${op?.abbr || op?.name || ""}`;
+          const right = e.state === "in" ? `<span class="pill live">LIVE</span> ${esc(me?.score ?? "")}–${esc(op?.score ?? "")}` : e.state === "post" ? `<b class="${me?.winner ? "w" : op?.winner ? "l" : ""}">${me?.winner ? "W" : op?.winner ? "L" : "T"}</b> ${esc(me?.score ?? "")}–${esc(op?.score ?? "")}` : esc(sameDay(new Date(e.date), new Date()) ? schedTime(e.date) : schedDay(e.date));
+          rows.push({ live: e.state === "in", t: new Date(e.date), html: `<div class="ts">${logo ? `<img src="${esc(logo)}" alt="">` : `<span class="ts-ab">${esc(ab)}</span>`}<span class="ts-n">${esc(me?.name || ab)} <small>${esc(vs)}</small></span><span class="ts-r">${right}</span></div>` });
+        }
+      }
+      rows.sort((a, b) => b.live - a.live || a.t - b.t);
+      const liveN = rows.filter((x) => x.live).length;
+      out.push(card("sports", "trophy", "Sports", rows.length ? rows.slice(0, 4).map((x) => x.html).join("") : `<div class="tc-muted">${(data.sports || []).length ? "No games for your teams in the next few days." : "Loading…"}</div>`, "wide", liveN ? `<span class="pill live">${liveN} LIVE</span>` : ""));
+    } else if (s.id === "calendar") {
+      const now = new Date();
+      const evs = (data.calendar?.events || []).filter((e) => e.end > now).sort((a, b) => a.start - b.start);
+      const today = evs.filter((e) => sameDay(e.start, now) || (e.allDay && e.start <= now));
+      const nx = evs[0];
+      out.push(card("calendar", "calendar-days", "Calendar", nx ? `<div class="tc-big">${esc(nx.title)}</div><div class="tc-muted">${nx.allDay ? "All day" : `${sameDay(nx.start, now) ? "" : `${nx.start.toLocaleDateString([], { weekday: "short" })} `}${hm(nx.start)}`}</div><div class="tc-foot">${today.length ? `${today.length} event${today.length > 1 ? "s" : ""} today` : "Nothing else today"}</div>` : `<div class="tc-muted">${data.calendar ? "Nothing coming up" : "Connect a calendar in Customize"}</div>`, halves.length === 2 ? "half" : "wide"));
+    } else if (s.id === "markets") {
+      const syms = ["^GSPC", "^DJI", "^IXIC"];
+      const rows = syms.map((k) => data.quotes?.[k]).filter((q) => q && !q.error);
+      out.push(card("markets", "trending-up", "Markets", rows.length ? rows.map((q) => `<div class="tm"><span>${esc(FRIENDLY[q.symbol] || q.symbol)}</span><b class="${q.pct >= 0 ? "up" : "dn"}">${q.pct >= 0 ? "▲" : "▼"} ${fmtNum(Math.abs(q.pct), 2)}%</b></div>`).join("") : `<div class="tc-muted">Loading…</div>`, halves.length === 2 ? "half" : "wide"));
+    } else if (s.id === "news") {
+      const top = [];
+      const seen = new Set();
+      for (const c of cfg.news.categories.filter((x) => x.on)) for (const i of (data.news[c.id]?.items || []).slice(0, 3)) if (!seen.has(i.link)) { seen.add(i.link); top.push({ ...i, cat: c.name }); }
+      top.sort((a, b) => (b.ts || 0) - (a.ts || 0));
+      out.push(`<div class="tcard wide tnews"><button class="tc-h" data-goto="news"><span class="tc-ic tc-news">${ic("newspaper")}</span><b>Top stories</b>${ic("chevron-right", "xs")}</button><div class="tc-b">${top.length ? top.slice(0, 4).map((i) => `<a class="tn" href="${esc(i.link)}" target="_blank" rel="noopener"><span>${esc(i.title)}</span><small>${esc(i.source || "")}${i.ts ? ` · ${esc(ago(i.ts))}` : ""}</small></a>`).join("") : `<div class="tc-muted">Loading…</div>`}</div></div>`);
+    }
+  }
+  out.push(card("nearby", "compass", "Nearby", `<div class="tnb">${NEARBY_CATS.slice(0, 4).map(([k, l, i]) => `<span data-nbgo="${k}">${ic(i, "xs")} ${l}</span>`).join("")}</div>`, "wide"));
+  const apps = cfg.apps || [];
+  const appsRow = apps.length ? `<div class="tapps">${apps.map((a) => `<a class="app-tile" href="${esc(a.url)}" target="_blank" rel="noopener">${appIcon(a)}<span>${esc(a.name)}</span></a>`).join("")}<button class="app-tile" data-config="apps"><span class="app-ico plus">${ic("plus")}</span><span>Edit</span></button></div>` : "";
+  box.innerHTML = `<div class="tgrid">${out.join("")}</div>${appsRow}<button class="tcustom" data-config="general">${ic("settings", "xs")} Choose what's on Home</button>`;
+}
+
+// ============================================================ Nearby: restaurants and things to do (OpenStreetMap)
+const NEARBY_CATS = [["food", "Restaurants", "utensils"], ["coffee", "Coffee & treats", "coffee"], ["bars", "Bars", "wine"], ["todo", "Things to do", "ticket"], ["parks", "Parks & outdoors", "trees"], ["family", "Kids & family", "baby"]];
+const nb = { items: null, err: "", loading: false, key: "", where: null, cuisine: "", openOnly: false };
+const fmtDist = (m) => (cfg.units === "F" ? (m < 160 ? `${Math.round(m * 3.281)} ft` : `${(m / 1609).toFixed(m < 16090 ? 1 : 0)} mi`) : m < 1000 ? `${m} m` : `${(m / 1000).toFixed(1)} km`);
+const KIND_LABEL = { restaurant: "Restaurant", fast_food: "Quick bite", food_court: "Food court", cafe: "Café", bakery: "Bakery", pastry: "Pastry", coffee: "Coffee", ice_cream: "Ice cream", bar: "Bar", pub: "Pub", biergarten: "Beer garden", nightclub: "Club", brewery: "Brewery", winery: "Winery", distillery: "Distillery", attraction: "Attraction", museum: "Museum", gallery: "Gallery", zoo: "Zoo", theme_park: "Theme park", aquarium: "Aquarium", viewpoint: "Viewpoint", cinema: "Movies", theatre: "Theatre", arts_centre: "Arts centre", casino: "Casino", bowling_alley: "Bowling", escape_game: "Escape room", miniature_golf: "Mini golf", ice_rink: "Ice rink", amusement_arcade: "Arcade", golf_course: "Golf", water_park: "Water park", trampoline_park: "Trampoline park", park: "Park", nature_reserve: "Nature reserve", garden: "Garden", beach: "Beach", beach_resort: "Beach", hiking: "Trail", playground: "Playground", library: "Library" };
+// "Mo-Fr 11:00-22:00; Sa,Su 12:00-23:00" → open now? (null when the format isn't understood)
+function openNow(spec, d = new Date()) {
+  if (!spec) return null;
+  if (/^24\/7$/.test(spec.trim())) return true;
+  const D = ["Su", "Mo", "Tu", "We", "Th", "Fr", "Sa"];
+  const today = d.getDay(), mins = d.getHours() * 60 + d.getMinutes();
+  let result = null;
+  for (const rule of spec.split(";").map((x) => x.trim()).filter(Boolean)) {
+    const m = rule.match(/^((?:(?:Mo|Tu|We|Th|Fr|Sa|Su)(?:-(?:Mo|Tu|We|Th|Fr|Sa|Su))?,?)+)?\s*(.*)$/);
+    if (!m) return null;
+    const daysPart = m[1], timesPart = m[2].trim();
+    let applies = true, prevDayApplies = false;
+    if (daysPart) {
+      const set = new Set();
+      for (const seg of daysPart.split(",").filter(Boolean)) {
+        const [a, b] = seg.split("-"); const ia = D.indexOf(a), ib = b ? D.indexOf(b) : ia;
+        if (ia < 0 || ib < 0) return null;
+        for (let i = ia; ; i = (i + 1) % 7) { set.add(i); if (i === ib) break; }
+      }
+      applies = set.has(today); prevDayApplies = set.has((today + 6) % 7);
+    }
+    if (/^off|closed$/i.test(timesPart)) { if (applies) result = false; continue; }
+    const ranges = timesPart.split(",").map((x) => x.trim().match(/^(\d{1,2}):(\d{2})-(\d{1,2}):(\d{2})\+?$/));
+    if (!ranges.length || ranges.some((x) => !x)) return null;
+    for (const r of ranges) {
+      const s0 = +r[1] * 60 + +r[2], e0 = +r[3] * 60 + +r[4];
+      if (applies) { if (e0 > s0 ? mins >= s0 && mins < e0 : mins >= s0) { result = true; break; } else if (result !== true) result = false; }
+      if (prevDayApplies && e0 <= s0 && mins < e0) { result = true; break; }
+    }
+  }
+  return result;
+}
+if (cfg.nearby?.useGps && navigator.geolocation) navigator.geolocation.getCurrentPosition((p) => { nb.gps = { lat: p.coords.latitude, lon: p.coords.longitude }; if (document.body.dataset.view === "nearby") loadNearby(); }, () => {}, { timeout: 10000, maximumAge: 300000 });
+function nbWhere() {
+  if (cfg.nearby?.useGps && nb.gps) return { name: "Current location", lat: nb.gps.lat, lon: nb.gps.lon };
+  const cities = cfg.weather.cities || [];
+  const pick = cities.find((c) => c.name === cfg.nearby?.city) || cities[0];
+  return pick ? { name: pick.name.split(",")[0], lat: pick.lat, lon: pick.lon } : null;
+}
+async function loadNearby(force) {
+  const where = nbWhere();
+  cfg.nearby = { cat: "food", radius: 5, ...(cfg.nearby || {}) };
+  if (!where) { nb.items = []; nb.err = "Add a city in Weather (or use your location) to see what's nearby."; return renderNearby(); }
+  const rM = Math.round((cfg.nearby.radius || 5) * (cfg.units === "F" ? 1609 : 1000));
+  const key = `${cfg.nearby.cat}|${where.lat.toFixed(3)}|${where.lon.toFixed(3)}|${rM}`;
+  if (!force && nb.key === key && nb.items) return renderNearby();
+  nb.key = key; nb.loading = true; nb.err = ""; nb.items = null; nb.where = where; nb.cuisine = "";
+  renderNearby();
+  try {
+    const d = await api(`/api/nearby?lat=${where.lat}&lon=${where.lon}&cat=${cfg.nearby.cat}&r=${rM}`);
+    if (nb.key !== key) return;
+    nb.items = d.items || [];
+  } catch { if (nb.key === key) { nb.items = []; nb.err = "Couldn't load places right now. Try again in a minute."; } }
+  nb.loading = false;
+  renderNearby();
+}
+function renderNearby() {
+  const box = $("#nearby");
+  if (!box) return;
+  cfg.nearby = { cat: "food", radius: 5, ...(cfg.nearby || {}) };
+  const cat = cfg.nearby.cat;
+  const where = nb.where || nbWhere();
+  const cities = cfg.weather.cities || [];
+  const unit = cfg.units === "F" ? "mi" : "km";
+  const cats = `<div class="nb-cats">${NEARBY_CATS.map(([k, l, i]) => `<button data-nbcat="${k}" class="${cat === k ? "on" : ""}">${ic(i)}<span>${l}</span></button>`).join("")}${tmKey() ? `<button data-nbcat="events" class="${cat === "events" ? "on" : ""}">${ic("ticket")}<span>Events</span></button>` : ""}</div>`;
+  const whereSel = `<div class="nb-where"><label class="sch-sel">${ic("map-pin", "xs")}<select data-nbwhere aria-label="Location"><option value="__gps" ${cfg.nearby.useGps ? "selected" : ""}>📍 My current location</option>${cities.map((c) => `<option value="${esc(c.name)}" ${!cfg.nearby.useGps && where?.name && c.name.startsWith(where.name) ? "selected" : ""}>${esc(c.name)}</option>`).join("")}</select>${ic("chevron-down", "xs")}</label>
+    <label class="sch-sel nb-rad"><select data-nbrad aria-label="Distance">${[1, 2, 5, 10, 15].map((r) => `<option value="${r}" ${cfg.nearby.radius == r ? "selected" : ""}>${r} ${unit}</option>`).join("")}</select>${ic("chevron-down", "xs")}</label></div>`;
+  let list = "";
+  if (cat === "events") list = `<div id="nbEvents">${skeleton(5)}</div>`;
+  else if (nb.loading || !nb.items) list = skeleton(6);
+  else if (nb.err) list = `<div class="err">${esc(nb.err)}</div>`;
+  else {
+    let items = nb.items;
+    const cuisines = {};
+    if (cat === "food" || cat === "coffee") for (const it of items) for (const c of (it.cuisine || "").split(", ").filter(Boolean)) cuisines[c] = (cuisines[c] || 0) + 1;
+    const topC = Object.entries(cuisines).sort((a, b) => b[1] - a[1]).slice(0, 12).map(([c]) => c);
+    if (nb.cuisine) items = items.filter((it) => (it.cuisine || "").split(", ").includes(nb.cuisine));
+    if (nb.openOnly) items = items.filter((it) => openNow(it.hours) === true);
+    const filters = `<div class="nb-filters"><button data-nbopen class="${nb.openOnly ? "on" : ""}">${ic("clock", "xs")} Open now</button>${topC.map((c) => `<button data-nbcuisine="${esc(c)}" class="${nb.cuisine === c ? "on" : ""}">${esc(c.replace(/^./, (x) => x.toUpperCase()))}</button>`).join("")}</div>`;
+    const mapsQ = (it) => encodeURIComponent(`${it.name} ${it.addr || where?.name || ""}`);
+    const card = (it) => {
+      const o = openNow(it.hours);
+      const kind = KIND_LABEL[it.kind] || "";
+      const meta = [it.cuisine ? it.cuisine.replace(/^./, (x) => x.toUpperCase()) : kind, fmtDist(it.dist)].filter(Boolean).join(" · ");
+      const tags = [o === true ? `<span class="nb-open">Open now</span>` : o === false ? `<span class="nb-closed">Closed</span>` : "", it.takeaway ? "Takeout" : "", it.delivery ? "Delivery" : "", it.outdoor ? "Outdoor seating" : "", ...(it.diet || []).slice(0, 2).map((d) => d.replace(/_/g, " ").replace(/^./, (x) => x.toUpperCase()))].filter(Boolean);
+      return `<div class="nb-card"><div class="nb-top"><b>${esc(it.name)}</b><small>${esc(meta)}</small>${it.addr ? `<small class="nb-addr">${esc(it.addr)}</small>` : ""}${tags.length ? `<div class="nb-tags">${tags.map((t) => t.startsWith("<") ? t : `<span>${esc(t)}</span>`).join("")}</div>` : ""}</div>
+        <div class="nb-acts"><a href="https://maps.apple.com/?daddr=${it.lat},${it.lon}&q=${encodeURIComponent(it.name)}" target="_blank" rel="noopener">${ic("navigation", "xs")} Directions</a>${it.phone ? `<a href="tel:${esc(it.phone.replace(/[^\d+]/g, ""))}">${ic("phone", "xs")} Call</a>` : ""}${it.website ? `<a href="${esc(/^https?:/.test(it.website) ? it.website : `https://${it.website}`)}" target="_blank" rel="noopener">${ic("globe", "xs")} Website</a>` : ""}<a href="https://www.google.com/maps/search/?api=1&query=${mapsQ(it)}" target="_blank" rel="noopener">${ic("star", "xs")} Reviews</a></div></div>`;
+    };
+    list = filters + (items.length ? `<div class="nb-count">${items.length} place${items.length > 1 ? "s" : ""} within ${cfg.nearby.radius} ${unit}${nb.cuisine ? ` · ${esc(nb.cuisine)}` : ""}</div><div class="nb-list">${items.slice(0, 60).map(card).join("")}</div>` : `<div class="empty">Nothing found${nb.openOnly ? " open right now" : ""}. Try a bigger distance${nb.cuisine || nb.openOnly ? " or clear the filters" : ""}.</div>`);
+  }
+  box.innerHTML = `<div class="nb-head"><h2>${ic("compass")} Nearby</h2><small>${where ? `Around ${esc(where.name)}` : ""}</small></div>${whereSel}${cats}${list}
+    <p class="more-foot">Places from OpenStreetMap contributors. Hours may be out of date — check before you go. Reviews open in Google Maps.</p>`;
+  if (cat === "events") fillNearbyEvents();
+}
+const tmKey = () => !!data.extras?.events && !data.extras.events.needsKey;
+async function fillNearbyEvents() {
+  const el = $("#nbEvents");
+  const where = nbWhere();
+  if (!el || !where) return;
+  try {
+    const d = await api(`/api/extras?kind=events&lat=${where.lat}&lon=${where.lon}&radius=${cfg.nearby.radius * (cfg.units === "F" ? 1 : 0.62)}`);
+    if (d.needsKey) { el.innerHTML = `<div class="empty">Events need a free Ticketmaster key — ask me to add it.</div>`; return; }
+    const items = d.items || [];
+    el.innerHTML = items.length ? `<div class="ev-list">${items.slice(0, 40).map((e) => `<a class="ev" href="${esc(e.url)}" target="_blank" rel="noopener">${e.img ? `<img src="${esc(e.img)}" alt="" loading="lazy">` : `<span class="ev-noimg">${ic("ticket")}</span>`}<span><b>${esc(e.name)}</b><small>${esc(new Date(`${e.date}T${e.time || "12:00:00"}`).toLocaleDateString([], { weekday: "short", month: "short", day: "numeric" }))}${e.time ? ` · ${esc(hm(`${e.date}T${e.time}`))}` : ""} · ${esc(e.venue || "")}</small></span></a>`).join("")}</div>` : `<div class="empty">No events found nearby this week.</div>`;
+  } catch { el.innerHTML = `<div class="err">Couldn't load events right now.</div>`; }
 }
 
 // ============================================================ refresh orchestration
@@ -4043,8 +4277,10 @@ document.addEventListener("click", async (e) => {
   if (t.closest("[data-modal-close]") || t.id === "modal") { closeModal(); return; }
   const bev = t.closest("[data-brief-ev]");
   if (bev) { const ev = briefEvents[+bev.dataset.briefEv]; if (ev) { calUI.sel = sod(new Date()); calUI.month = new Date(calUI.sel.getFullYear(), calUI.sel.getMonth(), 1); renderCalendar(); showEvent(ev); } return; }
+  const nbg = t.closest("[data-nbgo]");
+  if (nbg) { cfg.nearby = { ...(cfg.nearby || {}), cat: nbg.dataset.nbgo }; save(); }
   const gto = t.closest("[data-goto]");
-  if (gto) { goToSection(gto.dataset.goto); return; }
+  if (gto) { if (gto.dataset.goto === "nearby") { setView("nearby"); return; } goToSection(gto.dataset.goto, t.closest(".tcard") ? "Home" : undefined); return; }
   if (t.closest("[data-brief-cal]")) { calUI.sel = sod(new Date()); calUI.month = new Date(calUI.sel.getFullYear(), calUI.sel.getMonth(), 1); renderCalendar(); goToSection("calendar"); return; }
   const gf = t.closest("[data-golf-full]");
   if (gf) { cfg.sports.golfFull = { [gf.dataset.golfFull]: !cfg.sports.golfFull?.[gf.dataset.golfFull] }; save(); renderSports(); return; }
@@ -4199,18 +4435,25 @@ document.addEventListener("click", async (e) => {
   const spv = t.closest("[data-spview]");
   if (spv) { cfg.sports.view = spv.dataset.spview; save(); renderSports(); return; }
   const opt = t.closest("[data-open-team]");
-  if (opt) { cfg.sports.newsLeague = opt.dataset.openTeam.split("|")[0]; cfg.sports.hub = opt.dataset.openTeam; cfg.sports.hubTab = "home"; cfg.sports.main = "fav"; save(); renderSports(); $("#sec-sports")?.scrollIntoView({ block: "start" }); return; }
+  if (opt) { setSportsSel(`tm:${opt.dataset.openTeam}`, { hubTab: "home" }); return; }
   const ops = t.closest("[data-open-settings]");
   if (ops) { openSettings(ops.dataset.openSettings); return; }
   const lgp = t.closest("[data-lgpage]");
-  if (lgp) { const [k, tb] = lgp.dataset.lgpage.split("|"); cfg.sports.lgPage = k; cfg.sports.newsLeague = k; cfg.sports.lgTab = tb; cfg.sports.main = "leagues"; save(); renderSports(); $("#sec-sports")?.scrollIntoView({ block: "start" }); return; }
-  if (t.closest("[data-lgback]")) { cfg.sports.lgPage = ""; save(); renderSports(); $("#sec-sports")?.scrollIntoView({ block: "start" }); return; }
+  if (lgp) { const [k, tb] = lgp.dataset.lgpage.split("|"); setSportsSel(`lg:${k}`, { lgTab: tb }); return; }
+  if (t.closest("[data-lgback]")) { setSportsSel("all"); return; }
+  const spr = t.closest("[data-sprail]");
+  if (spr) { setSportsSel(spr.dataset.sprail); return; }
   const lgt = t.closest("[data-lgtab]");
   if (lgt) { cfg.sports.lgTab = lgt.dataset.lgtab; save(); renderSports(); return; }
   const nv = t.closest("[data-newsview]");
   if (nv) { cfg.sports.view = nv.dataset.newsview; save(); renderSports(); return; }
   const flg = t.closest("[data-favlg]");
   if (flg) { cfg.sports.newsLeague = flg.dataset.favlg; save(); renderSports(); return; }
+  const nbc = t.closest("[data-nbcat]");
+  if (nbc) { cfg.nearby = { ...(cfg.nearby || {}), cat: nbc.dataset.nbcat }; save(); if (nbc.dataset.nbcat === "events") renderNearby(); else loadNearby(); return; }
+  const nbcu = t.closest("[data-nbcuisine]");
+  if (nbcu) { nb.cuisine = nb.cuisine === nbcu.dataset.nbcuisine ? "" : nbcu.dataset.nbcuisine; renderNearby(); return; }
+  if (t.closest("[data-nbopen]")) { nb.openOnly = !nb.openOnly; renderNearby(); return; }
   const nmode = t.closest("[data-newsmode]");
   if (nmode) { cfg.sports.newsMode = nmode.dataset.newsmode; save(); renderSports(); return; }
   const lgd = t.closest("[data-lgday]");
@@ -4219,11 +4462,7 @@ document.addEventListener("click", async (e) => {
   if (smain) { if (smain.dataset.spmain === "leagues" && cfg.sports.main === "leagues") cfg.sports.lgPage = ""; cfg.sports.main = smain.dataset.spmain; save(); renderSports(); $("#sec-sports")?.scrollIntoView({ block: "start" }); return; }
   const hlg = t.closest("[data-hub-league]");
   if (hlg) {
-    const k = hlg.dataset.hubLeague;
-    cfg.sports.main = "leagues"; cfg.sports.lgPage = k; cfg.sports.lgTab = "scores"; cfg.sports.newsLeague = k;
-    cfg.sports.collapsed = { ...(cfg.sports.collapsed || {}), [k]: false };
-    save(); renderSports();
-    requestAnimationFrame(() => (document.querySelector(`[data-league-toggle="${k}"]`) || $("#sec-sports"))?.scrollIntoView({ block: "start", behavior: "smooth" }));
+    setSportsSel(`lg:${hlg.dataset.hubLeague}`, { lgTab: "scores" });
     return;
   }
   const hstep = t.closest("[data-hub-step]");
@@ -4744,6 +4983,7 @@ $("#drawerBody").addEventListener("click", async (e) => {
     case "pt-del": cfg.alerts.prices.splice(i, 1); commit(); break;
     case "textSize": cfg.textSize = a.dataset.v; applyTheme(); commit(); renderMore(); break;
     case "mkview": cfg.markets.view = a.dataset.v; commit(); renderMarkets(); renderMore(); break;
+    case "homeStyle": cfg.homeStyle = a.dataset.v; commit(); renderToday(); renderMore(); break;
     case "app-move": move(cfg.apps, i, d); commit(); renderApps(); break;
     case "al-mute": { const k = a.dataset.k, m = new Set(cfg.alerts.mute || []); m.has(k) ? m.delete(k) : m.add(k); cfg.alerts.mute = [...m]; commit(); break; }
     case "app-del": cfg.apps.splice(i, 1); commit(); renderApps(); break;
@@ -4965,7 +5205,7 @@ document.addEventListener("visibilitychange", () => {
 if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").catch(() => {});
 
 // Keep the installed app current: when it comes back to the screen, see if a newer build is live and load it.
-const APP_BUILD = "dhq-shell-v20";
+const APP_BUILD = "dhq-shell-v21";
 let lastHidden = 0, updating = false;
 async function checkForUpdate(auto) {
   if (updating) return;
