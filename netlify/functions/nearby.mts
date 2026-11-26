@@ -78,7 +78,8 @@ function geoItems(features: any[], lat: number, lon: number) {
   const seen = new Set<string>();
   return features.map((f: any) => {
     const p = f.properties || {}, t = p.datasource?.raw || {};
-    const name = p.name || t.name;
+    const str = (v: any) => (v == null ? "" : Array.isArray(v) ? v.join(";") : String(v));
+    const name = str(p.name || t.name).trim();
     if (!name || p.lat == null) return null;
     const k = `${name.toLowerCase()}|${Math.round(p.lat * 1000)}|${Math.round(p.lon * 1000)}`;
     if (seen.has(k)) return null;
@@ -87,12 +88,12 @@ function geoItems(features: any[], lat: number, lon: number) {
     const leaf = (p.categories || []).filter((c: string) => c.split(".").length === 2).map((c: string) => c.split(".")[1])[0] || "";
     return {
       id: p.place_id || `${f.geometry?.coordinates}`, name, kind: t.amenity || t.tourism || t.leisure || t.shop || t.craft || t.natural || leaf,
-      cuisine: (t.cuisine || p.catering?.cuisine || "").replace(/_/g, " ").split(";").slice(0, 3).join(", "),
+      cuisine: str(t.cuisine || p.catering?.cuisine).replace(/_/g, " ").split(";").slice(0, 3).join(", "),
       lat: p.lat, lon: p.lon, dist: Math.round(p.distance ?? distM(lat, lon, p.lat, p.lon)),
-      addr: [street, p.city].filter(Boolean).join(", ") || p.address_line2 || "",
-      phone: p.contact?.phone || t.phone || t["contact:phone"] || "", website: p.website || t.website || t["contact:website"] || "",
-      hours: p.opening_hours || t.opening_hours || "",
-      diet: Object.keys(t).filter((x) => x.startsWith("diet:") && /yes|only/.test(t[x])).map((x) => x.slice(5)),
+      addr: [street, p.city].filter(Boolean).join(", ") || str(p.address_line2),
+      phone: str(p.contact?.phone || t.phone || t["contact:phone"]), website: str(p.website || t.website || t["contact:website"]),
+      hours: str(p.opening_hours || t.opening_hours),
+      diet: Object.keys(t).filter((x) => x.startsWith("diet:") && /yes|only/.test(str(t[x]))).map((x) => x.slice(5)),
       takeaway: t.takeaway === "yes", delivery: t.delivery === "yes", outdoor: t.outdoor_seating === "yes", brand: t.brand || "",
     };
   }).filter(Boolean).sort((a: any, b: any) => a.dist - b.dist).slice(0, 150);
@@ -198,6 +199,7 @@ export default async (req: Request) => {
       const t = e.tags || {};
       const plat = e.lat ?? e.center?.lat, plon = e.lon ?? e.center?.lon;
       if (plat == null || !t.name) return null;
+      t.name = String(t.name);
       const key = `${t.name.toLowerCase()}|${Math.round(plat * 1000)}|${Math.round(plon * 1000)}`;
       if (seen.has(key)) return null;
       seen.add(key);
