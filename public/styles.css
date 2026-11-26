@@ -1847,3 +1847,20 @@ body.drawer-open .as-launcher { display: none; }
 .nb-fail { display: flex; flex-direction: column; gap: 8px; align-items: stretch; text-align: center; padding: 14px; border: 1px dashed var(--line); border-radius: 14px; }
 .nb-fail span { color: var(--muted); font-size: 13px; }
 .nb-fail .btn { justify-content: center; min-height: 42px; }
+
+/* Logos & brand marks */
+.fav { width: 14px; height: 14px; border-radius: 3px; vertical-align: -2px; margin-right: 5px; object-fit: contain; }
+.tk-logo { position: relative; display: inline-grid; place-items: center; width: 20px; height: 20px; border-radius: 50%; background: #fff; overflow: hidden; vertical-align: -5px; margin-right: 6px; flex: none; box-shadow: 0 0 0 1px rgba(0,0,0,.08); }
+.tk-logo img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; padding: 2px; box-sizing: border-box; background: #fff; }
+.tk-logo em { font-style: normal; font-size: 8.5px; font-weight: 800; color: #334155; }
+.tk-flag { background: none; box-shadow: none; font-size: 15px; }
+.q .sym, .mk-row .sym { display: inline-flex; align-items: center; }
+.wm-r .tk-logo { width: 18px; height: 18px; margin-right: 5px; }
+.nb-top { position: relative; padding-left: 52px; min-height: 42px; }
+.nb-badge { position: absolute; left: 0; top: 0; width: 42px; height: 42px; border-radius: 12px; overflow: hidden; background: color-mix(in srgb, #0d9488 14%, var(--panel-2)); display: grid; place-items: center; }
+.nb-cat .ic { width: 20px; height: 20px; color: #0d9488; }
+.nb-logo { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; background: #fff; padding: 5px; box-sizing: border-box; }
+.wnb-logo { width: 26px; height: 26px; border-radius: 7px; background: #fff; overflow: hidden; flex: none; display: grid; place-items: center; }
+.wnb-logo img { width: 22px; height: 22px; object-fit: contain; }
+.wnb-logo:empty { display: none; }
+.wn-i small .fav { width: 12px; height: 12px; }

@@ -1,5 +1,5 @@
 // Daily HQ private beta gate. Runs before the app: only a valid, unexpired invite code loads Daily HQ.
-const VERSION = "Beta 0.28 · Nov 26, 2026";
+const VERSION = "Beta 0.29 · Nov 26, 2026";
 const KEY = "dailyhq.beta";
 const DAY = 86400e3;
 const load = () => { try { return JSON.parse(localStorage.getItem(KEY)) || {}; } catch { return {}; } };
@@ -81,7 +81,7 @@ function ended(status) {
 
 // ---------- start
 let booted = false;
-function boot() { if (booted) return; booted = true; import("/app.js?v=28"); }
+function boot() { if (booted) return; booted = true; import("/app.js?v=29"); }
 async function start() {
   if (!st.code) return gate();
   if (st.expires && st.expires < Date.now()) return ended("expired");

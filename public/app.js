@@ -505,6 +505,30 @@ const uid = () => Math.random().toString(36).slice(2, 9);
 const ic = (name, cls = "") => `<svg class="ic ${cls}" aria-hidden="true"><use href="#i-${name}"/></svg>`;
 const wxSrc = (n) => (window.WX_INLINE && window.WX_INLINE[n]) || `/wx/${n}.svg`;
 const hostName = (u) => { try { return new URL(u).hostname.replace(/^www\./, ""); } catch { return ""; } };
+// The publisher's own site for a news item (Google News links point at Google, so use the item's source site)
+const pubHost = (i) => { const h = (i.site || "").replace(/^www\./, "") || hostName(i.link); return /news\.google\.com$/.test(h) ? "" : h; };
+// Brand mark for a website (Google's favicon service); removes itself if there isn't one
+const favi = (host, cls = "fav", sz = 64) => host ? `<img class="${cls}" src="https://www.google.com/s2/favicons?domain=${encodeURIComponent(host)}&sz=${sz}" alt="" loading="lazy" onload="if(this.naturalWidth<=16)this.remove()" onerror="this.remove()">` : "";
+// Company / asset logos for market symbols
+const TICKER_DOMAIN = {
+  AAPL: "apple.com", MSFT: "microsoft.com", NVDA: "nvidia.com", GOOGL: "google.com", GOOG: "google.com", AMZN: "amazon.com", META: "meta.com", TSLA: "tesla.com",
+  AVGO: "broadcom.com", CSCO: "cisco.com", ORCL: "oracle.com", AMD: "amd.com", INTC: "intel.com", IBM: "ibm.com", CRM: "salesforce.com", ADBE: "adobe.com",
+  NFLX: "netflix.com", DIS: "disney.com", PYPL: "paypal.com", V: "visa.com", MA: "mastercard.com", JPM: "jpmorganchase.com", BAC: "bankofamerica.com",
+  WFC: "wellsfargo.com", GS: "goldmansachs.com", MS: "morganstanley.com", C: "citigroup.com", KO: "coca-cola.com", PEP: "pepsico.com", WMT: "walmart.com",
+  COST: "costco.com", HD: "homedepot.com", MCD: "mcdonalds.com", SBUX: "starbucks.com", NKE: "nike.com", BA: "boeing.com", GE: "ge.com", F: "ford.com",
+  GM: "gm.com", T: "att.com", VZ: "verizon.com", TMUS: "t-mobile.com", XOM: "exxonmobil.com", CVX: "chevron.com", PFE: "pfizer.com", JNJ: "jnj.com",
+  UNH: "unitedhealthgroup.com", LLY: "lilly.com", MRK: "merck.com", ABBV: "abbvie.com", UBER: "uber.com", ABNB: "airbnb.com", SHOP: "shopify.com",
+  PLTR: "palantir.com", SNOW: "snowflake.com", NOW: "servicenow.com", QCOM: "qualcomm.com", TXN: "ti.com", MU: "micron.com", ARM: "arm.com",
+  TSM: "tsmc.com", ASML: "asml.com", SAP: "sap.com", DELL: "dell.com", HPQ: "hp.com", HPE: "hpe.com", ACN: "accenture.com", ANET: "arista.com",
+  "RY.TO": "rbc.com", "TD.TO": "td.com", "BNS.TO": "scotiabank.com", "BMO.TO": "bmo.com", "SHOP.TO": "shopify.com", "ENB.TO": "enbridge.com", "CNR.TO": "cn.ca",
+  "BTC-USD": "bitcoin.org", "ETH-USD": "ethereum.org", "SOL-USD": "solana.com", "DOGE-USD": "dogecoin.com", SPY: "ssga.com", QQQ: "invesco.com", VOO: "vanguard.com",
+};
+const TICKER_FLAG = { "^GSPC": "🇺🇸", "^DJI": "🇺🇸", "^IXIC": "🇺🇸", "^RUT": "🇺🇸", "^VIX": "🇺🇸", "^TNX": "🇺🇸", "^GSPTSE": "🇨🇦", "^FTSE": "🇬🇧", "^N225": "🇯🇵", "^STOXX50E": "🇪🇺", "CAD=X": "🇨🇦", "EURUSD=X": "🇪🇺", "GC=F": "🥇", "SI=F": "🥈", "CL=F": "🛢️", "NG=F": "🔥" };
+function tickerLogo(sym) {
+  if (TICKER_DOMAIN[sym]) return `<span class="tk-logo">${favi(TICKER_DOMAIN[sym], "", 128)}<em>${esc(sym.replace(/[-.].*/, "").slice(0, 2))}</em></span>`;
+  if (TICKER_FLAG[sym]) return `<span class="tk-logo tk-flag">${TICKER_FLAG[sym]}</span>`;
+  return "";
+}
 // League logos come from ESPN's own scoreboard data (light + dark versions), remembered between visits
 let leagueLogos = {};
 try { leagueLogos = JSON.parse(localStorage.getItem("dailyhq.leagueLogos") || "{}"); } catch {}
@@ -517,9 +541,18 @@ function captureLeague(path, logos) {
     try { localStorage.setItem("dailyhq.leagueLogos", JSON.stringify(leagueLogos)); } catch {}
   }
 }
+// Official logos before ESPN's scoreboard has told us (ESPN's own CDN)
+const LEAGUE_LOGO_DEFAULT = {
+  nfl: "https://a.espncdn.com/i/teamlogos/leagues/500/nfl.png", nba: "https://a.espncdn.com/i/teamlogos/leagues/500/nba.png",
+  nhl: "https://a.espncdn.com/i/teamlogos/leagues/500/nhl.png", mlb: "https://a.espncdn.com/i/teamlogos/leagues/500/mlb.png",
+  wnba: "https://a.espncdn.com/i/teamlogos/leagues/500/wnba.png", mls: "https://a.espncdn.com/i/leaguelogos/soccer/500/19.png",
+  epl: "https://a.espncdn.com/i/leaguelogos/soccer/500/23.png", ucl: "https://a.espncdn.com/i/leaguelogos/soccer/500/2.png",
+  laliga: "https://a.espncdn.com/i/leaguelogos/soccer/500/15.png", seriea: "https://a.espncdn.com/i/leaguelogos/soccer/500/12.png",
+  bundesliga: "https://a.espncdn.com/i/leaguelogos/soccer/500/10.png", ligue1: "https://a.espncdn.com/i/leaguelogos/soccer/500/9.png",
+};
 function leagueBadge(key, cls = "lg-logo") {
   const m = LEAGUES[key];
-  const lg = leagueLogos[m.path];
+  const lg = leagueLogos[m.path] || (LEAGUE_LOGO_DEFAULT[key] && { light: LEAGUE_LOGO_DEFAULT[key], dark: LEAGUE_LOGO_DEFAULT[key] });
   if (!lg) return `<span class="${cls} lg-emoji">${m.icon}</span>`;
   const dark = document.documentElement.dataset.theme !== "light";
   return `<img class="${cls}" src="${esc(dark ? lg.dark : lg.light)}" alt="${esc(m.name)}" loading="lazy" onerror="this.outerHTML='<span class=&quot;${cls} lg-emoji&quot;>${m.icon}</span>'">`;
@@ -2315,7 +2348,7 @@ function quoteTile(s) {
   if (!q) return `<div class="q"><div class="q-top"><span class="sym">${esc(label(s))}</span></div>${skeleton(2)}</div>`;
   if (q.error) return `<div class="q"><div class="q-top"><span class="sym">${esc(label(s))}</span></div><div class="px">—</div><div class="nm">No data for ${esc(s)}</div></div>`;
   return `<a class="q ${q.change == null ? "" : q.change >= 0 ? "q-up" : "q-down"}" href="https://finance.yahoo.com/quote/${encodeURIComponent(s)}" target="_blank" rel="noopener" title="${esc(q.name)}">
-    <div class="q-top"><span class="sym">${esc(label(s))}</span><span class="pct ${cls(q.change)}">${sign(q.pct)}${fmtNum(q.pct, 2)}%</span></div>
+    <div class="q-top"><span class="sym">${tickerLogo(s)}${esc(label(s))}</span><span class="pct ${cls(q.change)}">${sign(q.pct)}${fmtNum(q.pct, 2)}%</span></div>
     <div class="px">${fmtNum(q.price, priceDigits(q.price))}</div>
     <div class="nm"><span class="${cls(q.change)}">${sign(q.change)}${fmtNum(q.change, priceDigits(q.price))}</span> · ${esc(q.name)}</div>
     ${spark(q.spark, q.prev, q.change >= 0)}
@@ -2325,7 +2358,7 @@ function quoteRow(s) {
   const q = data.quotes[s];
   if (!q || q.error) return `<div class="mk-row"><span class="sym">${esc(label(s))}</span><span class="nm">${q ? "No data" : "Loading…"}</span><span></span><span></span><span></span></div>`;
   return `<a class="mk-row" href="https://finance.yahoo.com/quote/${encodeURIComponent(s)}" target="_blank" rel="noopener">
-    <span class="sym">${esc(label(s))}</span><span class="nm">${esc(q.name)}</span>
+    <span class="sym">${tickerLogo(s)}${esc(label(s))}</span><span class="nm">${esc(q.name)}</span>
     <span class="mini">${spark(q.spark, q.prev, q.change >= 0)}</span>
     <span class="px">${fmtNum(q.price, priceDigits(q.price))}</span>
     <span class="pct ${cls(q.change)}">${sign(q.pct)}${fmtNum(q.pct, 2)}%</span></a>`;
@@ -3759,7 +3792,7 @@ async function fillArticleImages() {
 }
 function newsItemHTML(i, saveBtn, tag = "") {
   return `<div class="item"><div><a class="t" href="${esc(i.link)}" target="_blank" rel="noopener">${esc(i.title)}</a>
-    <div class="meta">${i.ts > prevVisit ? `<span class="new"></span>` : ""}${esc(i.source)}${i.ts ? ` · ${ago(i.ts)}` : ""}${tag ? ` · <span class="re-tag">${esc(tag)}</span>` : ""}${saveBtn(i)}</div></div>
+    <div class="meta">${i.ts > prevVisit ? `<span class="new"></span>` : ""}${favi(pubHost(i))}${esc(i.source)}${i.ts ? ` · ${ago(i.ts)}` : ""}${tag ? ` · <span class="re-tag">${esc(tag)}</span>` : ""}${saveBtn(i)}</div></div>
     ${thumbHTML(i)}</div>`;
 }
 function reRead(c) {
@@ -4235,12 +4268,12 @@ function wInner(w) {
       if (!items.length) return `<div class="w-pad">${head("newspaper", title)}<div class="w-muted">Loading…</div></div>`;
       if (S === "s") { const i = items[0], im = imgFor(i); return `<a class="w-pad wn-s ${im ? "has-img" : ""}" href="${esc(i.link)}" target="_blank" rel="noopener" ${im ? `style="--img:url('${esc(im)}')"` : ""}><small>${esc(i.source || title)}</small><b>${esc(i.title)}</b></a>`; }
       const n = S === "m" ? 3 : 6;
-      return `<div class="w-pad wn">${`<div class="w-h" data-wgo="news">${ic("newspaper", "xs")}<span>${esc(title)}</span>${ic("chevron-right", "xs")}</div>`}${items.slice(0, n).map((i, k) => { const im = imgFor(i); return `<a class="wn-i" href="${esc(i.link)}" target="_blank" rel="noopener"><span><b>${esc(i.title)}</b><small>${esc(i.source || "")}${i.ts ? ` · ${esc(ago(i.ts))}` : ""}</small></span>${S === "l" && im ? `<img src="${esc(im)}" alt="" loading="lazy">` : ""}</a>`; }).join("")}</div>`;
+      return `<div class="w-pad wn">${`<div class="w-h" data-wgo="news">${ic("newspaper", "xs")}<span>${esc(title)}</span>${ic("chevron-right", "xs")}</div>`}${items.slice(0, n).map((i, k) => { const im = imgFor(i); return `<a class="wn-i" href="${esc(i.link)}" target="_blank" rel="noopener"><span><b>${esc(i.title)}</b><small>${favi(pubHost(i))}${esc(i.source || "")}${i.ts ? ` · ${esc(ago(i.ts))}` : ""}</small></span>${S === "l" && im ? `<img src="${esc(im)}" alt="" loading="lazy">` : ""}</a>`; }).join("")}</div>`;
     }
     case "markets": {
       const idx = ["^GSPC", "^DJI", "^IXIC"].map((k) => data.quotes?.[k]).filter((q) => q && !q.error);
       const watch = (cfg.markets.groups.find((g) => /watch/i.test(g.name))?.symbols || []).map((k) => data.quotes?.[k]).filter((q) => q && !q.error);
-      const row = (q, sp) => `<div class="wm-r"><span><b>${esc(FRIENDLY[q.symbol] || q.symbol)}</b>${sp ? `<small>${esc(fmtNum(q.price, q.price > 1000 ? 0 : 2))}</small>` : ""}</span>${sp && q.spark ? `<span class="wm-sp">${spark(q.spark, q.prev, q.pct >= 0)}</span>` : ""}<b class="${q.pct >= 0 ? "up" : "dn"}">${q.pct >= 0 ? "+" : "−"}${fmtNum(Math.abs(q.pct), 2)}%</b></div>`;
+      const row = (q, sp) => `<div class="wm-r"><span><b>${tickerLogo(q.symbol)}${esc(FRIENDLY[q.symbol] || q.symbol)}</b>${sp ? `<small>${esc(fmtNum(q.price, q.price > 1000 ? 0 : 2))}</small>` : ""}</span>${sp && q.spark ? `<span class="wm-sp">${spark(q.spark, q.prev, q.pct >= 0)}</span>` : ""}<b class="${q.pct >= 0 ? "up" : "dn"}">${q.pct >= 0 ? "+" : "−"}${fmtNum(Math.abs(q.pct), 2)}%</b></div>`;
       if (!idx.length) return `<div class="w-pad">${head("trending-up", "Markets")}<div class="w-muted">Loading…</div></div>`;
       const st = `<span class="wm-st ${marketOpen() ? "open" : ""}">${marketOpen() ? "Open" : "Closed"}</span>`;
       if (S === "s") { const q = idx[0]; return `<div class="w-pad wm" data-wgo="markets">${head("trending-up", "Markets", st)}<div class="wm-big"><small>S&amp;P 500</small><b>${esc(fmtNum(q.price, 0))}</b><span class="${q.pct >= 0 ? "up" : "dn"}">${q.pct >= 0 ? "▲" : "▼"} ${fmtNum(Math.abs(q.pct), 2)}%</span></div>${q.spark ? `<div class="wm-spark">${spark(q.spark, q.prev, q.pct >= 0)}</div>` : ""}</div>`; }
@@ -4250,7 +4283,7 @@ function wInner(w) {
       const lbl = (NEARBY_CATS.find(([k]) => k === cfg.nearby?.cat) || [, "Places"])[1];
       const items = (nb.items || []).slice().sort((a, b) => (openNow(b.hours) === true) - (openNow(a.hours) === true) || a.dist - b.dist);
       const openN = (nb.items || []).filter((x) => openNow(x.hours) === true).length;
-      const pl = (it) => `<a class="wnb-i" href="https://maps.apple.com/?daddr=${it.lat},${it.lon}&q=${encodeURIComponent(it.name)}" target="_blank" rel="noopener"><span><b>${esc(it.name)}</b><small>${esc([it.cuisine ? it.cuisine.split(",")[0] : KIND_LABEL[it.kind] || "", fmtDist(it.dist)].filter(Boolean).join(" · "))}</small></span>${openNow(it.hours) === true ? `<i class="nb-open">Open</i>` : ""}</a>`;
+      const pl = (it) => `<a class="wnb-i" href="https://maps.apple.com/?daddr=${it.lat},${it.lon}&q=${encodeURIComponent(it.name)}" target="_blank" rel="noopener">${it.website ? `<span class="wnb-logo">${favi(hostName(/^https?:/.test(it.website) ? it.website : `https://${it.website}`), "", 64)}</span>` : ""}<span><b>${esc(it.name)}</b><small>${esc([it.cuisine ? it.cuisine.split(",")[0] : KIND_LABEL[it.kind] || "", fmtDist(it.dist)].filter(Boolean).join(" · "))}</small></span>${openNow(it.hours) === true ? `<i class="nb-open">Open</i>` : ""}</a>`;
       if (!nb.items) return `<div class="w-pad wnb">${head("compass", "Nearby")}<div class="w-muted">Finding places…</div></div>`;
       if (S === "s") return `<div class="w-pad wnb" data-wgo="nearby">${head("compass", "Nearby")}<div class="wnb-big"><b>${openN || items.length}</b><span>${esc(lbl.toLowerCase())} ${openN ? "open now" : "nearby"}</span></div>${items[0] ? `<div class="wnb-top">${esc(items[0].name)} · ${esc(fmtDist(items[0].dist))}</div>` : ""}</div>`;
       const cats = S === "l" ? `<div class="wnb-cats">${NEARBY_CATS.slice(0, 4).map(([k, l, i]) => `<span data-nbgo="${k}" data-goto="nearby" class="${cfg.nearby?.cat === k ? "on" : ""}">${ic(i, "xs")} ${l}</span>`).join("")}</div>` : "";
@@ -4452,7 +4485,8 @@ function renderNearby() {
       const kind = KIND_LABEL[it.kind] || "";
       const meta = [it.cuisine ? it.cuisine.replace(/^./, (x) => x.toUpperCase()) : kind, fmtDist(it.dist)].filter(Boolean).join(" · ");
       const tags = [o === true ? `<span class="nb-open">Open now</span>` : o === false ? `<span class="nb-closed">Closed</span>` : "", it.takeaway ? "Takeout" : "", it.delivery ? "Delivery" : "", it.outdoor ? "Outdoor seating" : "", ...(it.diet || []).slice(0, 2).map((d) => d.replace(/_/g, " ").replace(/^./, (x) => x.toUpperCase()))].filter(Boolean);
-      return `<div class="nb-card"><div class="nb-top"><b>${esc(it.name)}</b><small>${esc(meta)}</small>${it.addr ? `<small class="nb-addr">${esc(it.addr)}</small>` : ""}${tags.length ? `<div class="nb-tags">${tags.map((t) => t.startsWith("<") ? t : `<span>${esc(t)}</span>`).join("")}</div>` : ""}</div>
+      const brand = it.website ? favi(hostName(/^https?:/.test(it.website) ? it.website : `https://${it.website}`), "nb-logo", 128) : "";
+      return `<div class="nb-card"><div class="nb-top"><span class="nb-badge"><span class="nb-cat">${ic((NEARBY_CATS.find(([k]) => k === cat) || [, , "compass"])[2])}</span>${brand}</span><b>${esc(it.name)}</b><small>${esc(meta)}</small>${it.addr ? `<small class="nb-addr">${esc(it.addr)}</small>` : ""}${tags.length ? `<div class="nb-tags">${tags.map((t) => t.startsWith("<") ? t : `<span>${esc(t)}</span>`).join("")}</div>` : ""}</div>
         <div class="nb-acts"><a href="https://maps.apple.com/?daddr=${it.lat},${it.lon}&q=${encodeURIComponent(it.name)}" target="_blank" rel="noopener">${ic("navigation", "xs")} Directions</a>${it.phone ? `<a href="tel:${esc(it.phone.replace(/[^\d+]/g, ""))}">${ic("phone", "xs")} Call</a>` : ""}${it.website ? `<a href="${esc(/^https?:/.test(it.website) ? it.website : `https://${it.website}`)}" target="_blank" rel="noopener">${ic("globe", "xs")} Website</a>` : ""}<a href="https://www.google.com/maps/search/?api=1&query=${mapsQ(it)}" target="_blank" rel="noopener">${ic("star", "xs")} Reviews</a></div></div>`;
     };
     const full = document.body.dataset.view === "nearby" || nb.all;
@@ -5484,7 +5518,7 @@ document.addEventListener("visibilitychange", () => {
 if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").catch(() => {});
 
 // Keep the installed app current: when it comes back to the screen, see if a newer build is live and load it.
-const APP_BUILD = "dhq-shell-v28";
+const APP_BUILD = "dhq-shell-v29";
 let lastHidden = 0, updating = false;
 async function checkForUpdate(auto) {
   if (updating) return;
