@@ -3970,7 +3970,7 @@ function renderMore() {
       <div class="row"><span class="grow">Temperature</span>${seg("units", [["F", "°F"], ["C", "°C"]], cfg.units)}</div>
       <div class="row"><span class="grow">Text size</span>${seg("textSize", [["standard", "Standard"], ["large", "Larger"]], cfg.textSize)}</div>
       <div class="row"><span class="grow">Markets</span>${seg("mkview", [["tiles", "Tiles"], ["list", "List"]], cfg.markets.view)}</div>
-      <div class="row"><span class="grow">Home on phone</span>${seg("homeStyle", [["cards", "Cards"], ["full", "Full sections"]], cfg.homeStyle === "full" ? "full" : "cards")}</div>
+      <div class="row"><span class="grow">Home on phone</span>${seg("homeStyle", [["full", "Full sections"], ["cards", "Cards"]], cfg.homeStyle === "cards" ? "cards" : "full")}</div>
     </div>
     <button class="btn primary wide" data-config="general">Customize layout, teams, feeds & cities</button>
     <button class="btn wide" data-quick="refresh">${ic("refresh-cw")} Refresh everything</button>
@@ -4044,10 +4044,11 @@ function updateBadges() {
 // ============================================================ Today (phone Home): one glanceable card per section, tap to open it
 let todayT;
 function queueToday() { clearTimeout(todayT); todayT = setTimeout(renderToday, 120); }
+document.body.classList.toggle("home-full", cfg.homeStyle !== "cards");
 function renderToday() {
   const box = $("#today");
   if (!box) return;
-  document.body.classList.toggle("home-full", cfg.homeStyle === "full");
+  document.body.classList.toggle("home-full", cfg.homeStyle !== "cards");
   const card = (view, icon, title, body, cls = "", sub = "") => `<button class="tcard ${cls}" data-goto="${view}"><div class="tc-h"><span class="tc-ic tc-${view}">${ic(icon)}</span><b>${title}</b>${sub ? `<small>${sub}</small>` : ""}${ic("chevron-right", "xs")}</div><div class="tc-b">${body}</div></button>`;
   const out = [];
   // glance order: weather, your teams, next event + markets side by side, headlines
@@ -5205,7 +5206,7 @@ document.addEventListener("visibilitychange", () => {
 if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").catch(() => {});
 
 // Keep the installed app current: when it comes back to the screen, see if a newer build is live and load it.
-const APP_BUILD = "dhq-shell-v21";
+const APP_BUILD = "dhq-shell-v22";
 let lastHidden = 0, updating = false;
 async function checkForUpdate(auto) {
   if (updating) return;
