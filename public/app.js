@@ -874,8 +874,9 @@ async function loadSports() {
       }
     })
   );
-  anyLive = data.sports.some((r) => r.events?.some((e) => e.state === "in"));
+  anyLive = data.sports.some((r) => r.events?.some((e) => e.state === "in" || (voiceOn(e.id) && e.state === "pre" && new Date(e.date) - Date.now() < 15 * 60e3)));
   renderSports();
+  voiceCheck();
   renderCalendar();
   stamp("sports", data.sports.some((r) => r.stale || r.error));
   updateGlance();
@@ -903,6 +904,85 @@ function pickGames(L, events) {
   return out.sort((a, b) => rank[a.state] - rank[b.state] || (a.state === "post" ? new Date(b.date) - new Date(a.date) : new Date(a.date) - new Date(b.date)));
 }
 
+// ============================================================ voice alerts, switched on per game
+// Spoken while Daily HQ is open: start, every score, end of each period, final. The phone stays awake during a voiced game.
+cfg.voiceGames = cfg.voiceGames || {};
+const voiceOn = (id) => !!cfg.voiceGames?.[id];
+function voiceBtn(e, big) {
+  if (!e || e.golf || e.cricket || e.state === "post" || !("speechSynthesis" in window)) return "";
+  const on = voiceOn(e.id);
+  return big ? `<button class="btn ${on ? "primary" : ""} gv-big" data-gvoice="${esc(e.id)}">${ic(on ? "volume-2" : "volume-x", "xs")} Voice alerts ${on ? "on" : "off"}</button>`
+    : `<button class="g-voice ${on ? "on" : ""}" data-gvoice="${esc(e.id)}" aria-pressed="${on}" aria-label="Voice alerts ${on ? "on" : "off"} for this game" title="Voice alerts">${ic(on ? "volume-2" : "volume-x", "xs")}</button>`;
+}
+const findGame = (id) => { for (const r of data.sports || []) for (const e of r.events || []) if (e.id === id) return { e, L: r.L }; return null; };
+const sides = (e) => { const a = e.teams.find((t) => t.homeAway === "away") || e.teams[0], h = e.teams.find((t) => t.homeAway === "home") || e.teams[1]; return [a, h]; };
+const scoreLine = (e) => { const [a, h] = sides(e); const sa = +a.score || 0, sh = +h.score || 0; return sa === sh ? `tied at ${sa}` : sa > sh ? `${a.name} ${sa}, ${h.name} ${sh}` : `${h.name} ${sh}, ${a.name} ${sa}`; };
+// ESPN's "12:03 - 2nd" → "12:03 left in the 2nd"
+const spokenClock = (d) => { const m = (d || "").match(/^(\d+:\d+)\s*-\s*(.+)$/); return m ? `${m[1].replace(/^0(?=\d)/, "")} left in the ${m[2]}` : (d || ""); };
+let voiceQ = [];
+function say(text) {
+  toast(`🔊 ${text}`);
+  try {
+    const u = new SpeechSynthesisUtterance(text);
+    u.rate = 1.02; u.lang = "en-US";
+    speechSynthesis.speak(u);
+  } catch {}
+}
+const voiceSnap = {};
+function voiceCheck() {
+  const ids = Object.keys(cfg.voiceGames || {});
+  if (!ids.length) return voiceWake(false);
+  let keepAwake = false, changed = false;
+  for (const id of ids) {
+    const f = findGame(id);
+    if (!f) { if (Date.now() - (cfg.voiceGames[id].at || 0) > 2 * 86400e3) { delete cfg.voiceGames[id]; changed = true; } continue; }
+    const { e } = f, [a, h] = sides(e);
+    const snap = { state: e.state, sa: +a.score || 0, sh: +h.score || 0, detail: e.detail };
+    const p = voiceSnap[id];
+    voiceSnap[id] = snap;
+    if (e.state === "in" || (e.state === "pre" && new Date(e.date) - Date.now() < 20 * 60e3)) keepAwake = true;
+    if (!p) continue; // first look: just remember where things stand
+    if (p.state === "pre" && e.state === "in") say(`${a.name} at ${h.name} is under way${e.broadcasts?.length ? `, on ${e.broadcasts[0]}` : ""}.`);
+    if (e.state !== "pre") {
+      if (snap.sa > p.sa || snap.sh > p.sh) {
+        const who = snap.sa - p.sa >= snap.sh - p.sh ? a : h;
+        const pts = Math.max(snap.sa - p.sa, snap.sh - p.sh);
+        say(`${who.name} score${pts > 1 && /nba|wnba|basketball|football|nfl/i.test(f.L.key) ? ` ${pts}` : ""}! ${scoreLine(e)[0].toUpperCase()}${scoreLine(e).slice(1)}${e.state === "in" ? `, ${spokenClock(e.detail)}` : ""}.`);
+      } else if (e.state === "in" && p.detail !== e.detail && /^(end|half|halftime|intermission|ot)/i.test(e.detail)) say(`${e.detail}. ${scoreLine(e)[0].toUpperCase()}${scoreLine(e).slice(1)}.`);
+    }
+    if (p.state === "in" && e.state === "post") {
+      const w = snap.sa === snap.sh ? null : snap.sa > snap.sh ? a : h;
+      say(`Final${/OT|SO/.test(e.detail) ? ` in ${/SO/.test(e.detail) ? "a shootout" : "overtime"}` : ""}: ${w ? `${w.name} win, ` : ""}${scoreLine(e)}.`);
+      delete cfg.voiceGames[id]; changed = true;
+    }
+  }
+  if (changed) { save(); renderSports(); }
+  voiceWake(keepAwake);
+}
+// keep the screen on while a voiced game is live, so the phone doesn't sleep and go quiet
+let wakeLock = null;
+async function voiceWake(on) {
+  try {
+    if (on && !wakeLock && navigator.wakeLock && !document.hidden) { wakeLock = await navigator.wakeLock.request("screen"); wakeLock.addEventListener("release", () => { wakeLock = null; }); }
+    if (!on && wakeLock) { await wakeLock.release(); wakeLock = null; }
+  } catch {}
+}
+document.addEventListener("visibilitychange", () => { if (!document.hidden && Object.keys(cfg.voiceGames || {}).length) voiceCheck(); });
+function toggleVoice(id) {
+  const f = findGame(id);
+  if (!f) return toast("Voice alerts work for games on your scoreboard");
+  const [a, h] = sides(f.e);
+  if (voiceOn(id)) { delete cfg.voiceGames[id]; save(); try { speechSynthesis.cancel(); } catch {} say(`Voice alerts off for ${a.name} at ${h.name}.`); }
+  else {
+    cfg.voiceGames[id] = { at: Date.now(), name: `${a.name} at ${h.name}` };
+    save();
+    // speaking now (from the tap) also unlocks speech on iPhone
+    say(f.e.state === "in" ? `Voice alerts on. ${a.name} at ${h.name}, ${scoreLine(f.e)}, ${spokenClock(f.e.detail)}.` : `Voice alerts on for ${a.name} at ${h.name}. I'll call it when it starts.`);
+    voiceSnap[id] = null; delete voiceSnap[id];
+  }
+  voiceCheck(); renderSports();
+  const vb = $("#modal:not([hidden]) [data-gvoice]"); if (vb) vb.outerHTML = voiceBtn(f.e, true);
+}
 function gameHTML(e, watched) {
   const teams = [...e.teams].sort((a, b) => (a.homeAway === "away" ? 0 : 1) - (b.homeAway === "away" ? 0 : 1));
   const pill =
@@ -926,7 +1006,7 @@ function gameHTML(e, watched) {
   if (e.state === "pre" && e.odds && cfg.sports.odds !== false) meta.push(`<span class="odds" title="Betting line">${esc(e.odds.details)}${e.odds.ou != null ? ` · O/U ${esc(e.odds.ou)}` : ""}</span>`);
   if (e.note) meta.push(esc(e.note));
   if (e.link) meta.push(`<a href="${esc(e.link)}" target="_blank" rel="noopener">Game ${ic("external-link", "xs")}</a>`);
-  return `<div class="game ${e.state === "in" ? "is-live" : e.state === "post" ? "is-final" : ""}" data-game="${esc(e.id)}" data-path="${esc(gameHTML.path || "")}" role="button" tabindex="0" title="Tap for game details"><div class="g-status">${pill}</div>${rows}${meta.length ? `<div class="g-meta">${meta.join("<span>·</span>")}</div>` : ""}</div>`;
+  return `<div class="game ${e.state === "in" ? "is-live" : e.state === "post" ? "is-final" : ""}" data-game="${esc(e.id)}" data-path="${esc(gameHTML.path || "")}" role="button" tabindex="0" title="Tap for game details"><div class="g-status">${pill}${voiceBtn(e)}</div>${rows}${meta.length ? `<div class="g-meta">${meta.join("<span>·</span>")}</div>` : ""}</div>`;
 }
 
 function golfHTML(e) {
@@ -2998,7 +3078,8 @@ async function showGame(path, id) {
   const load = async () => {
     try {
       const d = await espnOrProxy(`${ESPN}${path}/summary?event=${id}`, `/api/sports?path=${path}&kind=summary&event=${id}`);
-      $("#modalBody").innerHTML = gameDetailHTML(d, path, id);
+      const fg = findGame(id);
+      $("#modalBody").innerHTML = (fg && fg.e.state !== "post" ? `<div class="gv-bar">${voiceBtn(fg.e, true)}<small>Calls out the start, every score and the final while Daily HQ is open</small></div>` : "") + gameDetailHTML(d, path, id);
       const st = d.header?.competitions?.[0]?.status?.type?.state;
       if (st !== "in") clearInterval(openModal.timer);
     } catch { $("#modalBody").innerHTML = `<div class="err">Couldn't load game details right now.</div>`; }
@@ -4811,6 +4892,9 @@ function toggleFlag(obj, key, id, box, btn) {
 // ============================================================ main page events
 document.addEventListener("click", async (e) => {
   const t = e.target;
+  if (t.closest("[data-voiceoff]")) { cfg.voiceGames = {}; save(); try { speechSynthesis.cancel(); } catch {} voiceWake(false); toast("Voice alerts off"); renderSports(); renderSettings?.(); return; }
+  const gv = t.closest("[data-gvoice]");
+  if (gv) { e.preventDefault(); e.stopPropagation(); toggleVoice(gv.dataset.gvoice); return; }
   if (t.closest("#bellPop [data-game], #bellPop [data-goto], #bellPop [data-open-url]")) $("#bellPop").hidden = true;
   const ou = t.closest("[data-open-url]");
   if (ou) { window.open(ou.dataset.openUrl, "_blank", "noopener"); return; }
@@ -5380,6 +5464,7 @@ function setAlerts() {
   </div>
   ${alertCat("sports", "trophy", "Sports", "Your teams' games", A.gameStart || A.finals || A.pregame, `
     <div class="row"><span class="grow">30 minutes before a game</span>${sw("al-pregame", A.pregame)}</div>
+    <div class="row"><span class="grow">Voice alerts<small style="display:block;color:var(--muted)">Tap ${ic("volume-x", "xs")} on any game to hear its start, scores and final${Object.keys(cfg.voiceGames || {}).length ? ` · on for ${Object.keys(cfg.voiceGames).length} game${Object.keys(cfg.voiceGames).length > 1 ? "s" : ""}` : ""}</small></span>${Object.keys(cfg.voiceGames || {}).length ? `<button class="btn" data-voiceoff>Turn all off</button>` : ""}</div>
     <div class="row"><span class="grow">When a game starts</span>${sw("al-gameStart", A.gameStart)}</div>
     <div class="row"><span class="grow">Final scores</span>${sw("al-finals", A.finals)}</div>
     ${cfg.sports.leagues.filter((L) => (L.teams || []).length && !LEAGUES[L.key]?.kind).length ? `<p class="hint al-sub">Tap to turn alerts off for a league or team</p>
@@ -5779,7 +5864,7 @@ document.addEventListener("visibilitychange", () => {
 if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").catch(() => {});
 
 // Keep the installed app current: when it comes back to the screen, see if a newer build is live and load it.
-const APP_BUILD = "dhq-shell-v40";
+const APP_BUILD = "dhq-shell-v41";
 let lastHidden = 0, updating = false;
 async function checkForUpdate(auto) {
   if (updating) return;
