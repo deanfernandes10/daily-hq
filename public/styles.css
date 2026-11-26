@@ -1524,3 +1524,11 @@ body.drawer-open .as-launcher { display: none; }
 .lf-t small b.w { color: #22c55e; } .lf-t small b.l { color: #ef4444; }
 .lg-fav > .ic { width: 16px; height: 16px; color: var(--muted); flex: none; }
 .lg-fav.add { justify-content: center; min-height: 44px; border-style: dashed; color: var(--muted); font-weight: 600; font-size: 14px; }
+
+/* Sports news: by league / by team */
+.news-mode { display: flex; width: 100%; margin: 0 0 10px; }
+.news-mode button { flex: 1; min-height: 42px; display: inline-flex; align-items: center; justify-content: center; gap: 6px; font-weight: 700; font-size: 14.5px; }
+.news-mode button .ic { width: 15px; height: 15px; }
+.sel-logo { width: 22px; height: 22px; object-fit: contain; flex: none; }
+.news-pane { border: 1px solid var(--line); border-radius: 14px; background: var(--panel-2); padding: 4px 12px 8px; }
+.news-pane > .sch-day { margin-top: 10px; }
