@@ -1214,6 +1214,8 @@ document.addEventListener("change", (e) => {
   const nr = e.target.closest?.("[data-nbrad]");
   if (nr) { cfg.nearby = { ...(cfg.nearby || {}), radius: +nr.value }; save(); if (nb.search) nbRunSearch(nb.search.q); else loadNearby(); return; }
   if (e.target.closest?.("[data-resform]")) { nbResLinks(); return; }
+  const nso = e.target.closest?.("[data-nbsort]");
+  if (nso) { cfg.nearby = { ...(cfg.nearby || {}), sort: nso.value }; save(); renderNearby(); return; }
   const nl = e.target.closest?.("[data-newsleague]");
   if (nl) { cfg.sports.newsLeague = nl.value; save(); renderSports(); return; }
   const nt = e.target.closest?.("[data-newsteam]");
@@ -4553,6 +4555,10 @@ function renderNearby() {
     const topC = Object.entries(cuisines).sort((a, b) => b[1] - a[1]).slice(0, 12).map(([c]) => c);
     if (nb.cuisine) items = items.filter((it) => (it.cuisine || "").split(", ").includes(nb.cuisine));
     if (nb.openOnly) items = items.filter((it) => isOpen(it) === true);
+    const sortBy = cfg.nearby.sort || "near";
+    const openRank = (it) => { const o = isOpen(it); return o === true ? 0 : o == null ? 1 : 2; };
+    items = [...items].sort(sortBy === "az" ? (a, b) => a.name.localeCompare(b.name) : sortBy === "open" ? (a, b) => openRank(a) - openRank(b) || a.dist - b.dist : sortBy === "rating" ? (a, b) => (b.rating || 0) - (a.rating || 0) || a.dist - b.dist : (a, b) => a.dist - b.dist);
+    const sortSel = `<label class="nb-sort">${ic("list-ordered", "xs")}<select data-nbsort aria-label="Sort">${[["near", "Nearest"], ["open", "Open now first"], ["az", "A–Z"], ...(items.some((it) => it.rating) ? [["rating", "Top rated"]] : [])].map(([k, l]) => `<option value="${k}" ${sortBy === k ? "selected" : ""}>${l}</option>`).join("")}</select>${ic("chevron-down", "xs")}</label>`;
     const filters = `<div class="nb-filters"><button data-nbopen class="${nb.openOnly ? "on" : ""}">${ic("clock", "xs")} Open now</button>${topC.map((c) => `<button data-nbcuisine="${esc(c)}" class="${nb.cuisine === c ? "on" : ""}">${esc(c.replace(/^./, (x) => x.toUpperCase()))}</button>`).join("")}</div>`;
     const mapsQ = (it) => encodeURIComponent(`${it.name} ${it.addr || where?.name || ""}`);
     nb.shown = items;
@@ -4573,7 +4579,8 @@ function renderNearby() {
     };
     const full = document.body.dataset.view === "nearby" || nb.all || S;
     const lim = full ? 60 : 5;
-    const head = S ? `<div class="nb-count nb-sres">${items.length} result${items.length === 1 ? "" : "s"} for <b>“${esc(S.q)}”</b> within ${cfg.nearby.radius} ${unit} <button class="link" data-nbclear>Clear</button></div>` : `<div class="nb-count">${items.length} place${items.length > 1 ? "s" : ""} within ${cfg.nearby.radius} ${unit}${nb.cuisine ? ` · ${esc(nb.cuisine)}` : ""}${nb.refreshing ? ` · <span class="nb-upd">${ic("refresh-cw", "xs")} updating</span>` : ""}</div>`;
+    const headTxt = S ? `<div class="nb-count nb-sres">${items.length} result${items.length === 1 ? "" : "s"} for <b>“${esc(S.q)}”</b> within ${cfg.nearby.radius} ${unit} <button class="link" data-nbclear>Clear</button></div>` : `<div class="nb-count">${items.length} place${items.length > 1 ? "s" : ""} within ${cfg.nearby.radius} ${unit}${nb.cuisine ? ` · ${esc(nb.cuisine)}` : ""}${nb.refreshing ? ` · <span class="nb-upd">${ic("refresh-cw", "xs")} updating</span>` : ""}</div>`;
+    const head = items.length > 1 ? `<div class="nb-counthead">${headTxt}${sortSel}</div>` : headTxt;
     const none = S ? `<div class="empty">No matches for “${esc(S.q)}” within ${cfg.nearby.radius} ${unit}. Try a bigger distance, or <a href="${gmaps(S.q)}" target="_blank" rel="noopener">search Google Maps</a>.</div>` : `<div class="empty">Nothing found${nb.openOnly ? " open right now" : ""}. Try a bigger distance${nb.cuisine || nb.openOnly ? " or clear the filters" : ""}.</div>`;
     list = (items.length || nb.cuisine || nb.openOnly ? filters : "") + head + (items.length ? `<div class="nb-list">${items.slice(0, lim).map(card).join("")}</div><div class="nb-nomatch" hidden>No places on this list match. Tap <b>Search</b> on the keyboard to look everywhere nearby.</div>${items.length > lim ? `<button class="btn nb-all" data-nball>See all ${Math.min(items.length, 60)} places ${ic("chevron-right", "xs")}</button>` : ""}${S ? `<a class="nb-gm" href="${gmaps(S.q)}" target="_blank" rel="noopener">${ic("map", "xs")} See “${esc(S.q)}” on Google Maps</a>` : ""}` : none);
   }
@@ -5691,7 +5698,7 @@ document.addEventListener("visibilitychange", () => {
 if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").catch(() => {});
 
 // Keep the installed app current: when it comes back to the screen, see if a newer build is live and load it.
-const APP_BUILD = "dhq-shell-v35";
+const APP_BUILD = "dhq-shell-v36";
 let lastHidden = 0, updating = false;
 async function checkForUpdate(auto) {
   if (updating) return;
