@@ -1532,3 +1532,12 @@ body.drawer-open .as-launcher { display: none; }
 .sel-logo { width: 22px; height: 22px; object-fit: contain; flex: none; }
 .news-pane { border: 1px solid var(--line); border-radius: 14px; background: var(--panel-2); padding: 4px 12px 8px; }
 .news-pane > .sch-day { margin-top: 10px; }
+
+/* Favorites: league scope chips */
+.fav-scope { display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none; margin: 0 0 10px; }
+.fav-scope::-webkit-scrollbar { display: none; }
+.fav-scope button { flex: none; display: inline-flex; align-items: center; gap: 5px; min-height: 36px; padding: 0 12px; border: 1px solid var(--line); border-radius: 999px; background: var(--panel); color: var(--text); font: inherit; font-size: 13.5px; font-weight: 600; }
+.fav-scope button.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+.fav-scope .lg-logo { width: 16px; height: 16px; }
+.sp-main button { font-size: 14.5px; }
+.sp-main button { white-space: nowrap; }

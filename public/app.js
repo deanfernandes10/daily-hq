@@ -924,7 +924,7 @@ function renderSports() {
   ensureTeamNames();
   const main = sportsMain();
   const mainBar = sportsMainBar(main);
-  if (main === "fav") return renderTeamHub(body, mainBar + teamHubBar());
+  if (main === "fav") return renderTeamHub(body, mainBar + favLeagueChips() + teamHubBar());
   const hubBar = mainBar;
   if (cfg.sports.lgPage && LEAGUES[cfg.sports.lgPage] && cfg.sports.leagues.some((x) => x.key === cfg.sports.lgPage)) return renderLeaguePage(body, mainBar);
   if (view !== "scores") return renderSportsAlt(body, hubBar + seg, view);
@@ -933,11 +933,13 @@ function renderSports() {
   const byst = byState("scores");
   const byBar = byBarHTML("scores", byst);
   if (byst.mode === "team") mode = "mine";
+  const onlyLeague = byst.mode === "team" && byst.lg !== "all" ? byst.lg : "";
 
   const upnext = "";
   const tiles = data.sports
     .map(({ L, events, error, stale }) => {
       const meta = LEAGUES[L.key];
+      if (onlyLeague && L.key !== onlyLeague) return "";
       if (!meta) return "";
       let inner;
       if (error) inner = `<div class="err">Couldn't load ${meta.name} right now — will retry.</div>`;
@@ -1162,7 +1164,7 @@ document.addEventListener("change", (e) => {
     cfg.sports.newsTeam = nt.value; save(); renderSports(); return;
   }
   const lgs = e.target.closest?.("[data-lgsel]");
-  if (lgs) { cfg.sports.lgPage = lgs.value; save(); renderSports(); return; }
+  if (lgs) { cfg.sports.lgPage = lgs.value; cfg.sports.newsLeague = lgs.value; save(); renderSports(); return; }
   const hb = e.target.closest?.("[data-hub]");
   if (hb) { cfg.sports.hub = hb.value; cfg.sports.main = "fav"; save(); renderSports(); return; }
   const ns = e.target.closest?.("[data-news-sel]");
@@ -1300,7 +1302,8 @@ async function fillSportsNews() {
   const fy = $("#forYou");
   if (!fy) return;
   const jobs = [];
-  for (const L of cfg.sports.leagues) { if (!LEAGUES[L.key] || LEAGUES[L.key].kind) continue; for (const ab of L.teams || []) jobs.push(loadSportsNews(L.key, ab).then((items) => items.map((a) => ({ ...a, tag: (teamCache[L.key] || []).find((t) => t.abbr === ab)?.short || ab }))).catch(() => [])); }
+  const onlyLg = fy.dataset.lg || "";
+  for (const L of cfg.sports.leagues) { if (!LEAGUES[L.key] || LEAGUES[L.key].kind || (onlyLg && L.key !== onlyLg)) continue; for (const ab of L.teams || []) jobs.push(loadSportsNews(L.key, ab).then((items) => items.map((a) => ({ ...a, tag: (teamCache[L.key] || []).find((t) => t.abbr === ab)?.short || ab }))).catch(() => [])); }
   const seen = new Set();
   const all = (await Promise.all(jobs)).flat().filter((a) => !seen.has(a.link) && seen.add(a.link)).sort((a, b) => Date.parse(b.date || 0) - Date.parse(a.date || 0));
   if (!fy.isConnected) return;
@@ -1405,11 +1408,18 @@ async function ensureTeamNames() {
   teamNamesBusy = false;
   renderSports();
 }
-function hubTeams() {
+// The league you're looking at (picked under Leagues); favourites are shown for that league only.
+function curLeague() {
+  const k = cfg.sports.newsLeague;
+  return k && k !== "all" && LEAGUES[k] && !LEAGUES[k].kind && cfg.sports.leagues.some((x) => x.key === k && (x.teams || []).length) ? k : "";
+}
+function hubTeams(scoped = true) {
   const out = [];
+  const only = scoped ? curLeague() : "";
   for (const L of cfg.sports.leagues) {
     const m = LEAGUES[L.key];
     if (!m || m.kind) continue;
+    if (only && L.key !== only) continue;
     for (const ab of L.teams || []) out.push({ key: L.key, ab, fav: true });
   }
   return out;
@@ -1420,14 +1430,23 @@ function hubCurrent() {
   return list.find((t) => t.key === key && t.ab === ab) || list[0] || null;
 }
 // Top switch: Favorites (your teams, one page each) or Leagues (scores, schedules, standings and news by league)
+if (cfg.sports && cfg.sports.main === "fav") { cfg.sports.main = "leagues"; }
 function sportsMain() {
-  if (!hubTeams().length) return "leagues";
-  return cfg.sports.main === "leagues" ? "leagues" : "fav";
+  if (!hubTeams(false).length) return "leagues";
+  return cfg.sports.main === "fav" ? "fav" : "leagues";
 }
 function sportsMainBar(main) {
   const n = hubTeams().length;
-  if (!n) return "";
-  return `<div class="sp-main seg" role="tablist"><button data-spmain="fav" class="${main === "fav" ? "on" : ""}">★ Favorites <small>${n}</small></button><button data-spmain="leagues" class="${main === "leagues" ? "on" : ""}">${ic("trophy", "xs")} Leagues</button></div>`;
+  if (!hubTeams(false).length) return "";
+  const lg = curLeague();
+  return `<div class="sp-main seg" role="tablist"><button data-spmain="leagues" class="${main === "leagues" ? "on" : ""}">${ic("trophy", "xs")} Leagues</button><button data-spmain="fav" class="${main === "fav" ? "on" : ""}">★ Favorites <small>${lg ? esc(LEAGUES[lg].name) : n}</small></button></div>`;
+}
+// Favorites: which league's favourites to show
+function favLeagueChips() {
+  const ls = cfg.sports.leagues.filter((x) => LEAGUES[x.key] && !LEAGUES[x.key].kind && (x.teams || []).length);
+  if (ls.length < 2) return "";
+  const cur = curLeague() || "all";
+  return `<div class="fav-scope">${[["all", "All leagues"], ...ls.map((x) => [x.key, LEAGUES[x.key].name])].map(([k, l]) => `<button data-favlg="${k}" class="${cur === k ? "on" : ""}">${k === "all" ? "" : leagueBadge(k)} ${esc(l)}</button>`).join("")}</div>`;
 }
 const teamName = (key, ab, short) => { const t = (teamCache[key] || []).find((x) => x.abbr === ab); return (short ? t?.short : t?.name) || ab; };
 function teamHubBar() {
@@ -1600,14 +1619,18 @@ function teamLeadersHTML(key, groups) {
 function byState(view) {
   const leagues = cfg.sports.leagues.filter((x) => LEAGUES[x.key] && (view !== "news" || LEAGUES[x.key].kind !== "cricket"));
   const mode = cfg.sports.newsMode === "team" ? "team" : "league";
-  const teams = [];
-  for (const L of leagues) if (!LEAGUES[L.key].kind) for (const ab of schedTeams(L)) teams.push({ key: L.key, ab, fav: (L.teams || []).includes(ab) });
-  const allowAllLeagues = view === "scores", allowMine = view !== "sched";
+  const allTeams = [];
+  for (const L of leagues) if (!LEAGUES[L.key].kind) for (const ab of schedTeams(L)) allTeams.push({ key: L.key, ab, fav: (L.teams || []).includes(ab) });
+  const allowAllLeagues = view === "scores" || mode === "team", allowMine = view !== "sched";
   let lg = cfg.sports.newsLeague;
   if (!(lg === "all" && allowAllLeagues) && !leagues.some((x) => x.key === lg)) lg = allowAllLeagues ? "all" : leagues[0]?.key;
+  // By team: only the chosen league's teams (or every league's with "All my leagues")
+  const teamLeagues = leagues.filter((x) => !LEAGUES[x.key].kind && schedTeams(x).length);
+  if (mode === "team" && lg !== "all" && !teamLeagues.some((x) => x.key === lg)) lg = "all";
+  const teams = mode === "team" && lg !== "all" ? allTeams.filter((t) => t.key === lg) : allTeams;
   let tm = cfg.sports.newsTeam || "";
   if (!((tm === "mine" && allowMine && teams.length > 1) || teams.some((t) => `${t.key}|${t.ab}` === tm))) tm = teams.length > 1 && allowMine ? "mine" : teams[0] ? `${teams[0].key}|${teams[0].ab}` : "";
-  return { leagues, teams, mode, lg, tm, allowAllLeagues, allowMine };
+  return { leagues, teams, mode, lg, tm, allowAllLeagues, allowMine, teamLeagues };
 }
 function byBarHTML(view, st) {
   const { leagues, teams, mode, lg, tm, allowAllLeagues, allowMine } = st;
@@ -1618,7 +1641,8 @@ function byBarHTML(view, st) {
   if (!teams.length) return modeBar + `<div class="empty">No favorite teams yet. <button class="linkish" data-open-settings="sports">Pick your teams</button></div>`;
   const groups = [...new Set(teams.map((t) => t.key))].map((k) => `<optgroup label="${esc(LEAGUES[k].name)}">${teams.filter((t) => t.key === k).map((t) => `<option value="${t.key}|${t.ab}" ${tm === `${t.key}|${t.ab}` ? "selected" : ""}>${t.fav ? "★ " : ""}${esc(teamName(t.key, t.ab))}</option>`).join("")}</optgroup>`).join("");
   const logo = tm && tm !== "mine" ? (teamCache[tm.split("|")[0]] || []).find((x) => x.abbr === tm.split("|")[1])?.logo : "";
-  return modeBar + `<div class="sch-bar"><label class="sch-sel">${logo ? `<img class="sel-logo" src="${esc(logo)}" alt="">` : ic("star", "xs")}<select data-newsteam aria-label="Team">${allowMine && teams.length > 1 ? `<option value="mine" ${tm === "mine" ? "selected" : ""}>All my teams</option>` : ""}${groups}<option value="__add">＋ Add or remove teams…</option></select>${ic("chevron-down", "xs")}</label></div>`;
+  const lgPick = st.teamLeagues.length > 1 ? `<div class="sch-bar"><label class="sch-sel">${lg === "all" ? ic("layout-grid", "xs") : leagueBadge(lg)}<select data-newsleague aria-label="League">${`<option value="all" ${lg === "all" ? "selected" : ""}>All my leagues</option>`}${st.teamLeagues.map((x) => `<option value="${x.key}" ${x.key === lg ? "selected" : ""}>${esc(LEAGUES[x.key].name)}</option>`).join("")}</select>${ic("chevron-down", "xs")}</label></div>` : "";
+  return modeBar + lgPick + `<div class="sch-bar"><label class="sch-sel">${logo ? `<img class="sel-logo" src="${esc(logo)}" alt="">` : ic("star", "xs")}<select data-newsteam aria-label="Team">${allowMine && teams.length > 1 ? `<option value="mine" ${tm === "mine" ? "selected" : ""}>${lg === "all" ? "All my teams" : `All my ${esc(LEAGUES[lg].name)} teams`}</option>` : ""}${groups}<option value="__add">＋ Add or remove teams…</option></select>${ic("chevron-down", "xs")}</label></div>`;
 }
 function renderByView(body, seg, view) {
   const st = byState(view);
@@ -1638,7 +1662,7 @@ function renderByView(body, seg, view) {
     else if (view === "sched") { inner = leagueSchedHTML(L, row.events || [], "all").replace(/<div class="sch-bar">[\s\S]*?<\/label><\/div>/, ""); after = fillTeamSchedules; }
     else { inner = `<div data-news-key="${key}|all">${skeleton(5)}</div>`; after = fillSportsNews; }
   } else {
-    if (st.tm === "mine") { label = "All my teams"; inner = `<div id="forYou">${skeleton(5)}</div>`; after = fillSportsNews; }
+    if (st.tm === "mine") { label = st.lg === "all" ? "All my teams" : `All my ${LEAGUES[st.lg].name} teams`; inner = `<div id="forYou" data-lg="${st.lg === "all" ? "" : st.lg}">${skeleton(5)}</div>`; after = fillSportsNews; }
     else {
       const [key, ab] = st.tm.split("|");
       const nm = teamName(key, ab);
@@ -3940,6 +3964,8 @@ function profilesHTML() {
 }
 
 function setView(v) {
+  // Opening Sports always starts on Leagues
+  if (v === "sports" && (cfg.sports.main === "fav" || cfg.sports.lgPage)) { cfg.sports.main = "leagues"; cfg.sports.lgPage = ""; save(); renderSports(); }
   if (v !== "home" && cfg.collapsed?.[v]) {
     delete cfg.collapsed[v]; save();
     const el = $(`#sec-${v}`);
@@ -4173,16 +4199,18 @@ document.addEventListener("click", async (e) => {
   const spv = t.closest("[data-spview]");
   if (spv) { cfg.sports.view = spv.dataset.spview; save(); renderSports(); return; }
   const opt = t.closest("[data-open-team]");
-  if (opt) { cfg.sports.hub = opt.dataset.openTeam; cfg.sports.hubTab = "home"; cfg.sports.main = "fav"; save(); renderSports(); $("#sec-sports")?.scrollIntoView({ block: "start" }); return; }
+  if (opt) { cfg.sports.newsLeague = opt.dataset.openTeam.split("|")[0]; cfg.sports.hub = opt.dataset.openTeam; cfg.sports.hubTab = "home"; cfg.sports.main = "fav"; save(); renderSports(); $("#sec-sports")?.scrollIntoView({ block: "start" }); return; }
   const ops = t.closest("[data-open-settings]");
   if (ops) { openSettings(ops.dataset.openSettings); return; }
   const lgp = t.closest("[data-lgpage]");
-  if (lgp) { const [k, tb] = lgp.dataset.lgpage.split("|"); cfg.sports.lgPage = k; cfg.sports.lgTab = tb; cfg.sports.main = "leagues"; save(); renderSports(); $("#sec-sports")?.scrollIntoView({ block: "start" }); return; }
+  if (lgp) { const [k, tb] = lgp.dataset.lgpage.split("|"); cfg.sports.lgPage = k; cfg.sports.newsLeague = k; cfg.sports.lgTab = tb; cfg.sports.main = "leagues"; save(); renderSports(); $("#sec-sports")?.scrollIntoView({ block: "start" }); return; }
   if (t.closest("[data-lgback]")) { cfg.sports.lgPage = ""; save(); renderSports(); $("#sec-sports")?.scrollIntoView({ block: "start" }); return; }
   const lgt = t.closest("[data-lgtab]");
   if (lgt) { cfg.sports.lgTab = lgt.dataset.lgtab; save(); renderSports(); return; }
   const nv = t.closest("[data-newsview]");
   if (nv) { cfg.sports.view = nv.dataset.newsview; save(); renderSports(); return; }
+  const flg = t.closest("[data-favlg]");
+  if (flg) { cfg.sports.newsLeague = flg.dataset.favlg; save(); renderSports(); return; }
   const nmode = t.closest("[data-newsmode]");
   if (nmode) { cfg.sports.newsMode = nmode.dataset.newsmode; save(); renderSports(); return; }
   const lgd = t.closest("[data-lgday]");
@@ -4192,7 +4220,7 @@ document.addEventListener("click", async (e) => {
   const hlg = t.closest("[data-hub-league]");
   if (hlg) {
     const k = hlg.dataset.hubLeague;
-    cfg.sports.main = "leagues"; cfg.sports.lgPage = k; cfg.sports.lgTab = "scores";
+    cfg.sports.main = "leagues"; cfg.sports.lgPage = k; cfg.sports.lgTab = "scores"; cfg.sports.newsLeague = k;
     cfg.sports.collapsed = { ...(cfg.sports.collapsed || {}), [k]: false };
     save(); renderSports();
     requestAnimationFrame(() => (document.querySelector(`[data-league-toggle="${k}"]`) || $("#sec-sports"))?.scrollIntoView({ block: "start", behavior: "smooth" }));
@@ -4937,7 +4965,7 @@ document.addEventListener("visibilitychange", () => {
 if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").catch(() => {});
 
 // Keep the installed app current: when it comes back to the screen, see if a newer build is live and load it.
-const APP_BUILD = "dhq-shell-v19";
+const APP_BUILD = "dhq-shell-v20";
 let lastHidden = 0, updating = false;
 async function checkForUpdate(auto) {
   if (updating) return;
