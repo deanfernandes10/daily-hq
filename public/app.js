@@ -983,6 +983,28 @@ async function voiceWake(on) {
   } catch {}
 }
 document.addEventListener("visibilitychange", () => { if (!document.hidden && Object.keys(cfg.voiceGames || {}).length) voiceCheck(); });
+// Voiced games get their own fast check from the live game feed (fresher than the scoreboard)
+async function voicePoll() {
+  if (document.hidden) return;
+  const ids = Object.keys(cfg.voiceGames || {});
+  let any = false;
+  for (const id of ids) {
+    const f = findGame(id);
+    if (!f || f.e.state === "post" || (f.e.state === "pre" && new Date(f.e.date) - Date.now() > 20 * 60e3)) continue;
+    const path = LEAGUES[f.L.key]?.path; if (!path) continue;
+    try {
+      const d = await espnOrProxy(`${ESPN}${path}/summary?event=${id}`, `/api/sports?path=${path}&kind=summary&event=${id}`);
+      const c = d.header?.competitions?.[0]; if (!c) continue;
+      const st = c.status?.type || {};
+      if (st.state) f.e.state = st.state;
+      f.e.detail = st.shortDetail || st.detail || f.e.detail;
+      for (const t of f.e.teams) { const m = (c.competitors || []).find((x) => x.team?.abbreviation === t.abbr || x.homeAway === t.homeAway); if (m && m.score != null) t.score = espnScore(m.score); }
+      any = true;
+    } catch {}
+  }
+  if (any) { voiceCheck(); if (document.body.dataset.view === "sports") renderSports(); }
+}
+setInterval(voicePoll, 20000);
 function toggleVoice(id) {
   const f = findGame(id);
   if (!f) return toast("Voice alerts work for games on your scoreboard");
@@ -3098,7 +3120,7 @@ async function showGame(path, id) {
       showGame.d = d;
       const keepTop = $("#modalBody").scrollTop;
       const fg = findGame(id);
-      $("#modalBody").innerHTML = (fg && fg.e.state !== "post" ? `<div class="gv-bar">${voiceBtn(fg.e, true)}<small>Calls out the start, every score and the final while Daily HQ is open</small></div>` : "") + gameDetailHTML(d, path, id);
+      $("#modalBody").innerHTML = (fg && fg.e.state !== "post" ? `<div class="gv-bar">${voiceBtn(fg.e, true)}<small>Calls out the start, every score and the final while Daily HQ is open</small><button class="btn gv-test" data-vtest>Test</button></div>` : "") + gameDetailHTML(d, path, id);
       $("#modalBody").scrollTop = keepTop;
       const st = d.header?.competitions?.[0]?.status?.type?.state;
       if (st !== "in") clearInterval(openModal.timer);
@@ -4987,9 +5009,10 @@ document.addEventListener("click", async (e) => {
     if (gdt.dataset.gdteam) gdState.team = +gdt.dataset.gdteam;
     if (gdt.dataset.gdper) gdState.period = gdt.dataset.gdper;
     const fg = findGame(showGame.id);
-    $("#modalBody").innerHTML = (fg && fg.e.state !== "post" ? `<div class="gv-bar">${voiceBtn(fg.e, true)}<small>Calls out the start, every score and the final while Daily HQ is open</small></div>` : "") + gameDetailHTML(showGame.d, showGame.path, showGame.id);
+    $("#modalBody").innerHTML = (fg && fg.e.state !== "post" ? `<div class="gv-bar">${voiceBtn(fg.e, true)}<small>Calls out the start, every score and the final while Daily HQ is open</small><button class="btn gv-test" data-vtest>Test</button></div>` : "") + gameDetailHTML(showGame.d, showGame.path, showGame.id);
     return;
   }
+  if (t.closest("[data-vtest]")) { say("Voice alerts are working. You'll hear every score."); return; }
   const gv = t.closest("[data-gvoice]");
   if (gv) { e.preventDefault(); e.stopPropagation(); toggleVoice(gv.dataset.gvoice); return; }
   if (t.closest("#bellPop [data-game], #bellPop [data-goto], #bellPop [data-open-url]")) $("#bellPop").hidden = true;
@@ -5961,7 +5984,7 @@ document.addEventListener("visibilitychange", () => {
 if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").catch(() => {});
 
 // Keep the installed app current: when it comes back to the screen, see if a newer build is live and load it.
-const APP_BUILD = "dhq-shell-v44";
+const APP_BUILD = "dhq-shell-v45";
 let lastHidden = 0, updating = false;
 async function checkForUpdate(auto) {
   if (updating) return;

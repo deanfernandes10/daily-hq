@@ -1,6 +1,6 @@
 // Network-first service worker: makes Daily HQ installable and opens instantly offline with the last shell.
-const CACHE = "dhq-shell-v44";
-const SHELL = ["/", "/index.html", "/app.js?v=44", "/beta.js", "/styles.css", "/manifest.webmanifest", "/icon.svg", "/icon-192.png"];
+const CACHE = "dhq-shell-v45";
+const SHELL = ["/", "/index.html", "/app.js?v=45", "/beta.js", "/styles.css", "/manifest.webmanifest", "/icon.svg", "/icon-192.png"];
 
 self.addEventListener("install", (e) => {
   e.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL)).then(() => self.skipWaiting()));
