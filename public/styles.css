@@ -1953,3 +1953,7 @@ body.drawer-open .as-launcher { display: none; }
 .pw-stat.out { border-color: color-mix(in srgb, #ef4444 40%, transparent); background: color-mix(in srgb, #ef4444 8%, var(--panel)); }
 .pw-stat.out b { color: #dc2626; }
 .pw-links { margin-bottom: 14px; }
+.wx-pow { flex-wrap: wrap; }
+.wx-pow.out b { color: #dc2626; font-weight: 700; }
+.wx-pow-btn { margin-left: auto; display: inline-flex; align-items: center; gap: 3px; padding: 4px 9px; border: 1px solid var(--line); border-radius: 999px; background: var(--panel); color: var(--accent); font-weight: 600; font-size: 12px; text-decoration: none; white-space: nowrap; }
+.wx-pow-btn .ic { width: 11px !important; height: 11px !important; color: inherit !important; }

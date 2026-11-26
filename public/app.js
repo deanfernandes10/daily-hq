@@ -2208,14 +2208,18 @@ async function loadPower() {
   }));
   if (jobs.length) { renderWeather(); if ($("#wxDet")) drawWxDetail(); queueToday?.(); }
 }
-// one line on each city card
+// one row on each city card: status + a button straight to the utility's outage map (same for every city)
 function powerLine(c) {
   const u = powerFor(c); if (!u) return "";
   const p = data.power[c.name];
-  if (!u.live) return `<div class="wx-pow">${ic("zap", "xs")} Power: <span>${esc(u.name)} outage map in details</span></div>`;
-  if (!p) return `<div class="wx-pow">${ic("zap", "xs")} Power: <span>checking ${esc(u.name)}…</span></div>`;
-  if (p.error) return `<div class="wx-pow">${ic("zap", "xs")} Power: <span>${esc(u.name)} status unavailable</span></div>`;
-  return p.out ? "" : `<div class="wx-pow ok">${ic("zap", "xs")} Power: <b>no outages</b> <span>· ${esc(u.name)}</span></div>`;
+  let st = `<span>${esc(u.name)}</span>`, cls = "";
+  if (u.live) {
+    if (!p) st = `<span>Checking ${esc(u.name)}…</span>`;
+    else if (p.error) st = `<span>${esc(u.name)} · check the map</span>`;
+    else if (p.out) { st = `<b>${p.out.toLocaleString()} out</b> <span>· ${esc(u.name)}</span>`; cls = "out"; }
+    else { st = `<b>No outages</b> <span>· ${esc(u.name)}</span>`; cls = "ok"; }
+  }
+  return `<div class="wx-pow ${cls}">${ic("zap", "xs")} Power: ${st}<a class="wx-pow-btn" href="${esc(u.map)}" target="_blank" rel="noopener">Outage map ${ic("external-link", "xs")}</a></div>`;
 }
 // red banner on the card when customers are out
 function powerBanner(c) {
@@ -5775,7 +5779,7 @@ document.addEventListener("visibilitychange", () => {
 if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").catch(() => {});
 
 // Keep the installed app current: when it comes back to the screen, see if a newer build is live and load it.
-const APP_BUILD = "dhq-shell-v39";
+const APP_BUILD = "dhq-shell-v40";
 let lastHidden = 0, updating = false;
 async function checkForUpdate(auto) {
   if (updating) return;
