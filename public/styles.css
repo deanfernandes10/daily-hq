@@ -1841,3 +1841,9 @@ body.drawer-open .as-launcher { display: none; }
 .wgrid.editing .wdg { animation-duration: .35s; }
 
 @media (max-width: 680px) { body[data-view="brief"] .jump, body[data-view="brief"] .apps-bar, body[data-view="brief"] .ticker { display: none !important; } }
+.nb-wait { display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 14px; margin: 6px 0 10px; }
+.nb-wait .ic { width: 18px; height: 18px; color: #0d9488; animation: nbspin 1.4s linear infinite; }
+@keyframes nbspin { to { transform: rotate(360deg); } }
+.nb-fail { display: flex; flex-direction: column; gap: 8px; align-items: stretch; text-align: center; padding: 14px; border: 1px dashed var(--line); border-radius: 14px; }
+.nb-fail span { color: var(--muted); font-size: 13px; }
+.nb-fail .btn { justify-content: center; min-height: 42px; }

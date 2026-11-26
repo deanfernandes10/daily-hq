@@ -1,3 +1,4 @@
+import { getStore } from "@netlify/blobs";
 import { json } from "../lib/shared.mts";
 
 // Places near a point, from OpenStreetMap (free, no key), via the Overpass API.
@@ -21,7 +22,12 @@ const CATS: Record<string, string[]> = {
     'nwr["amenity"="library"]["name"]',
   ],
 };
-const ENDPOINTS = ["https://overpass-api.de/api/interpreter", "https://overpass.kumi.systems/api/interpreter"];
+const ENDPOINTS = [
+  "https://overpass-api.de/api/interpreter",
+  "https://overpass.private.coffee/api/interpreter",
+  "https://maps.mail.ru/osm/tools/overpass/api/interpreter",
+  "https://overpass.kumi.systems/api/interpreter",
+];
 
 const toRad = (d: number) => (d * Math.PI) / 180;
 const distM = (a: number, b: number, c: number, d: number) => {
@@ -39,17 +45,28 @@ export default async (req: Request) => {
   if (!CATS[cat]) return json({ error: "Bad category" }, 400);
   // round the point so nearby requests share the cache
   const la = Math.round(lat * 200) / 200, lo = Math.round(lon * 200) / 200;
-  const body = `[out:json][timeout:20];(${CATS[cat].map((s) => `${s}(around:${r},${la},${lo});`).join("")});out center tags 400;`;
-  let data: any = null, lastErr = "";
-  for (const ep of ENDPOINTS) {
+  const body = `[out:json][timeout:12];(${CATS[cat].map((s) => `${s}(around:${r},${la},${lo});`).join("")});out center tags qt 300;`;
+  const store = getStore({ name: "nearby-cache", consistency: "eventual" });
+  const ck = `${cat}/${la}/${lo}/${r}`;
+  // Ask every public Overpass server at once and take the first good answer
+  const ask = (ep: string, signal: AbortSignal) =>
+    fetch(ep, { method: "POST", body: "data=" + encodeURIComponent(body), headers: { "content-type": "application/x-www-form-urlencoded", "user-agent": "DailyHQ/1.0 (personal dashboard)" }, signal })
+      .then(async (res) => { if (!res.ok) throw new Error(String(res.status)); const j = await res.json(); if (!Array.isArray(j.elements)) throw new Error("bad"); return j; });
+  const ctl = new AbortController();
+  const timer = setTimeout(() => ctl.abort(), 14000);
+  let data: any = null;
+  try { data = await Promise.any(ENDPOINTS.map((ep) => ask(ep, ctl.signal))); } catch {}
+  clearTimeout(timer);
+  ctl.abort();
+  if (!data) {
+    // fall back to the last answer we saved for this spot (up to a week old)
     try {
-      const res = await fetch(ep, { method: "POST", body: "data=" + encodeURIComponent(body), headers: { "content-type": "application/x-www-form-urlencoded", "user-agent": "DailyHQ/1.0 (personal dashboard)" }, signal: AbortSignal.timeout(20000) });
-      if (!res.ok) { lastErr = `${res.status}`; continue; }
-      data = await res.json();
-      break;
-    } catch (e: any) { lastErr = e?.message || "timeout"; }
+      const cached: any = await store.get(ck, { type: "json" });
+      if (cached?.items && Date.now() - cached.at < 7 * 86400e3) return json({ items: cached.items, cached: true }, 200, 600);
+    } catch {}
+    console.log("nearby failed", cat, "all endpoints");
+    return json({ error: "Places are busy right now — try again in a minute" }, 502);
   }
-  if (!data) { console.log("nearby failed", cat, lastErr); return json({ error: "Places are unavailable right now" }, 502); }
   const seen = new Set<string>();
   const items = (data.elements || [])
     .map((e: any) => {
@@ -74,7 +91,8 @@ export default async (req: Request) => {
     .filter(Boolean)
     .sort((a: any, b: any) => a.dist - b.dist)
     .slice(0, 150);
-  return json({ items }, 200, 3600);
+  try { await store.setJSON(ck, { at: Date.now(), items }); } catch {}
+  return json({ items }, 200, 6 * 3600);
 };
 
 export const config = { path: "/api/nearby" };

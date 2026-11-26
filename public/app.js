@@ -4371,20 +4371,54 @@ function nbWhere() {
   const pick = cities.find((c) => c.name === cfg.nearby?.city) || cities[0];
   return pick ? { name: pick.name.split(",")[0], lat: pick.lat, lon: pick.lon } : null;
 }
+// Ask OpenStreetMap's Overpass servers straight from the phone (no shared server limits), racing several at once.
+const OVP_CATS = {
+  food: ['nwr["amenity"~"^(restaurant|fast_food|food_court)$"]["name"]'],
+  coffee: ['nwr["amenity"="cafe"]["name"]', 'nwr["shop"~"^(bakery|pastry|coffee)$"]["name"]', 'nwr["amenity"="ice_cream"]["name"]'],
+  bars: ['nwr["amenity"~"^(bar|pub|biergarten|nightclub)$"]["name"]', 'nwr["craft"~"^(brewery|winery|distillery)$"]["name"]'],
+  todo: ['nwr["tourism"~"^(attraction|museum|gallery|zoo|theme_park|aquarium|viewpoint)$"]["name"]', 'nwr["amenity"~"^(cinema|theatre|arts_centre|casino)$"]["name"]', 'nwr["leisure"~"^(bowling_alley|escape_game|miniature_golf|ice_rink|amusement_arcade|golf_course|water_park|trampoline_park)$"]["name"]'],
+  parks: ['nwr["leisure"~"^(park|nature_reserve|garden|beach_resort)$"]["name"]', 'nwr["natural"="beach"]["name"]'],
+  family: ['nwr["leisure"~"^(playground|water_park|trampoline_park|miniature_golf|amusement_arcade)$"]["name"]', 'nwr["tourism"~"^(zoo|aquarium|theme_park)$"]["name"]', 'nwr["amenity"="library"]["name"]'],
+};
+const OVP_EP = ["https://overpass-api.de/api/interpreter", "https://overpass.private.coffee/api/interpreter", "https://maps.mail.ru/osm/tools/overpass/api/interpreter", "https://overpass.kumi.systems/api/interpreter"];
+function distM(a, b, c, d) { const R = 6371000, r = (x) => (x * Math.PI) / 180, x = r(c - a), y = r(d - b); const h = Math.sin(x / 2) ** 2 + Math.cos(r(a)) * Math.cos(r(c)) * Math.sin(y / 2) ** 2; return 2 * R * Math.asin(Math.sqrt(h)); }
+function ovpItems(els, lat, lon) {
+  const seen = new Set();
+  return (els || []).map((e) => {
+    const t = e.tags || {}, plat = e.lat ?? e.center?.lat, plon = e.lon ?? e.center?.lon;
+    if (plat == null || !t.name) return null;
+    const k = `${t.name.toLowerCase()}|${Math.round(plat * 1000)}|${Math.round(plon * 1000)}`;
+    if (seen.has(k)) return null; seen.add(k);
+    const street = [t["addr:housenumber"], t["addr:street"]].filter(Boolean).join(" ");
+    return { id: `${e.type}/${e.id}`, name: t.name, kind: t.amenity || t.tourism || t.leisure || t.shop || t.craft || t.natural || "", cuisine: (t.cuisine || "").replace(/_/g, " ").split(";").slice(0, 3).join(", "),
+      lat: plat, lon: plon, dist: Math.round(distM(lat, lon, plat, plon)), addr: [street, t["addr:city"]].filter(Boolean).join(", "), phone: t.phone || t["contact:phone"] || "", website: t.website || t["contact:website"] || "",
+      hours: t.opening_hours || "", diet: Object.keys(t).filter((x) => x.startsWith("diet:") && /yes|only/.test(t[x])).map((x) => x.slice(5)), takeaway: t.takeaway === "yes", delivery: t.delivery === "yes", outdoor: t.outdoor_seating === "yes" };
+  }).filter(Boolean).sort((a, b) => a.dist - b.dist).slice(0, 150);
+}
+async function nearbyFetch(where, cat, rM) {
+  const ctl = new AbortController();
+  const stop = setTimeout(() => ctl.abort(), 25000);
+  const q = `[out:json][timeout:12];(${OVP_CATS[cat].map((x) => `${x}(around:${rM},${where.lat.toFixed(4)},${where.lon.toFixed(4)});`).join("")});out center tags qt 300;`;
+  const direct = OVP_EP.map((ep) => fetch(ep, { method: "POST", body: "data=" + encodeURIComponent(q), headers: { "content-type": "application/x-www-form-urlencoded" }, signal: ctl.signal })
+    .then(async (r) => { if (!r.ok) throw new Error(r.status); const j = await r.json(); if (!Array.isArray(j.elements)) throw new Error("bad"); return ovpItems(j.elements, where.lat, where.lon); }));
+  const server = fetch(`/api/nearby?lat=${where.lat}&lon=${where.lon}&cat=${cat}&r=${rM}`, { signal: ctl.signal }).then(async (r) => { if (!r.ok) throw new Error(r.status); return (await r.json()).items || []; });
+  try { return await Promise.any([...direct, server]); }
+  finally { clearTimeout(stop); ctl.abort(); }
+}
 async function loadNearby(force) {
   const where = nbWhere();
   cfg.nearby = { cat: "food", radius: 5, ...(cfg.nearby || {}) };
   if (!where) { nb.items = []; nb.err = "Add a city in Weather (or use your location) to see what's nearby."; return renderNearby(); }
   const rM = Math.round((cfg.nearby.radius || 5) * (cfg.units === "F" ? 1609 : 1000));
   const key = `${cfg.nearby.cat}|${where.lat.toFixed(3)}|${where.lon.toFixed(3)}|${rM}`;
-  if (!force && nb.key === key && nb.items) return renderNearby();
+  if (!force && nb.key === key && nb.items && !nb.err) return renderNearby();
   nb.key = key; nb.loading = true; nb.err = ""; nb.items = null; nb.where = where; nb.cuisine = "";
   renderNearby();
   try {
-    const d = await api(`/api/nearby?lat=${where.lat}&lon=${where.lon}&cat=${cfg.nearby.cat}&r=${rM}`);
+    const items = await nearbyFetch(where, cfg.nearby.cat, rM);
     if (nb.key !== key) return;
-    nb.items = d.items || [];
-  } catch { if (nb.key === key) { nb.items = []; nb.err = "Couldn't load places right now. Try again in a minute."; } }
+    nb.items = items;
+  } catch { if (nb.key === key) { nb.items = []; nb.err = "The map service is busy right now."; } }
   nb.loading = false;
   renderNearby();
   queueToday();
@@ -4402,8 +4436,8 @@ function renderNearby() {
     <label class="sch-sel nb-rad"><select data-nbrad aria-label="Distance">${[1, 2, 5, 10, 15].map((r) => `<option value="${r}" ${cfg.nearby.radius == r ? "selected" : ""}>${r} ${unit}</option>`).join("")}</select>${ic("chevron-down", "xs")}</label></div>`;
   let list = "";
   if (cat === "events") list = `<div id="nbEvents">${skeleton(5)}</div>`;
-  else if (nb.loading || !nb.items) list = skeleton(6);
-  else if (nb.err) list = `<div class="err">${esc(nb.err)}</div>`;
+  else if (nb.loading || !nb.items) list = `<div class="nb-wait">${ic("compass")} Finding ${esc((NEARBY_CATS.find(([k]) => k === cat) || [, "places"])[1].toLowerCase())} near ${esc(where?.name || "you")}…</div>${skeleton(4)}`;
+  else if (nb.err) list = `<div class="nb-fail"><b>${esc(nb.err)}</b><span>Place listings come from OpenStreetMap's free servers, which get busy at times.</span><button class="btn primary" data-nbretry>${ic("refresh-cw", "xs")} Try again</button><a class="btn" href="https://www.google.com/maps/search/${encodeURIComponent(((NEARBY_CATS.find(([k]) => k === cat) || [, "restaurants"])[1]).toLowerCase())}/@${where?.lat},${where?.lon},14z" target="_blank" rel="noopener">${ic("map", "xs")} Open in Google Maps</a></div>`;
   else {
     let items = nb.items;
     const cuisines = {};
@@ -4696,6 +4730,7 @@ document.addEventListener("click", async (e) => {
   if (nbc) { cfg.nearby = { ...(cfg.nearby || {}), cat: nbc.dataset.nbcat }; save(); if (nbc.dataset.nbcat === "events") renderNearby(); else loadNearby(); return; }
   const nbcu = t.closest("[data-nbcuisine]");
   if (nbcu) { nb.cuisine = nb.cuisine === nbcu.dataset.nbcuisine ? "" : nbcu.dataset.nbcuisine; renderNearby(); return; }
+  if (t.closest("[data-nbretry]")) { loadNearby(true); return; }
   if (t.closest("[data-nball]")) { if (matchMedia("(max-width: 680px)").matches) goToSection("nearby", "Home"); else { nb.all = true; renderNearby(); } return; }
   if (t.closest("[data-nbopen]")) { nb.openOnly = !nb.openOnly; renderNearby(); return; }
   const nmode = t.closest("[data-newsmode]");
@@ -5449,7 +5484,7 @@ document.addEventListener("visibilitychange", () => {
 if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").catch(() => {});
 
 // Keep the installed app current: when it comes back to the screen, see if a newer build is live and load it.
-const APP_BUILD = "dhq-shell-v27";
+const APP_BUILD = "dhq-shell-v28";
 let lastHidden = 0, updating = false;
 async function checkForUpdate(auto) {
   if (updating) return;
