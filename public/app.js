@@ -3959,6 +3959,9 @@ function renderMore() {
       <button class="more-sec" data-more-view="calendar"><span class="ms-ic" style="--c:#ec4899">${ic("calendar-days")}</span><span><b>Calendar</b><small>Today and the next two days</small></span>${ic("chevron-right", "xs")}</button>
       <button class="more-sec" data-more-view="markets"><span class="ms-ic" style="--c:#22c27a">${ic("trending-up")}</span><span><b>Markets</b><small>${sp && !sp.error ? `S&amp;P ${sp.pct >= 0 ? "▲" : "▼"} ${fmtNum(Math.abs(sp.pct), 2)}%` : "Indexes, boards, real estate, mortgage"}</small></span>${ic("chevron-right", "xs")}</button>
     </div>
+    ${cfg.homeStyle !== "cards" ? `<h3>Your apps</h3>
+    <div class="apps-grid">${(cfg.apps || []).map((a) => `<a class="app-tile" href="${esc(a.url)}" target="_blank" rel="noopener">${appIcon(a)}<span>${esc(a.name)}</span></a>`).join("")}
+      <button class="app-tile" data-config="apps"><span class="app-ico plus">${ic("plus")}</span><span>Add / edit</span></button></div>` : ""}
     <h3>Track a flight</h3>
     <div class="inline flight"><input id="flightNo" placeholder="Flight number, e.g. UA 1234" autocapitalize="characters"><button class="btn" data-quick="flight">${ic("plane")} Track</button></div>
     ${alertLogHTML()}
@@ -5206,7 +5209,7 @@ document.addEventListener("visibilitychange", () => {
 if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").catch(() => {});
 
 // Keep the installed app current: when it comes back to the screen, see if a newer build is live and load it.
-const APP_BUILD = "dhq-shell-v22";
+const APP_BUILD = "dhq-shell-v23";
 let lastHidden = 0, updating = false;
 async function checkForUpdate(auto) {
   if (updating) return;
