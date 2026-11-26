@@ -69,6 +69,27 @@ export default async (req: Request) => {
       return json({ items }, 200, 86400);
     }
 
+    if (kind === "power") {
+      // JCP&L / FirstEnergy "MyTown" page: live outage numbers for one town (the numbers are in the page itself)
+      const st = (q.get("state") || "").toLowerCase(), county = q.get("county") || "", town = q.get("town") || "";
+      if (!/^[a-z]{2}$/.test(st) || !/^[\w .'-]{2,40}$/.test(county) || !/^[\w .'-]{2,60}$/.test(town)) return json({ error: "Bad town" }, 400);
+      const url = `https://www.firstenergycorp.com/outages_help/current_outages_maps/my-town.html/${st}/${encodeURIComponent(county)}/${encodeURIComponent(town)}`;
+      const r = await fetch(url, { headers: { "user-agent": UA, accept: "text/html" }, signal: AbortSignal.timeout(9000) });
+      if (!r.ok) throw new Error(String(r.status));
+      const text = (await r.text()).replace(/<script[\s\S]*?<\/script>|<style[\s\S]*?<\/style>/gi, " ").replace(/<[^>]+>/g, " ").replace(/&nbsp;|&#160;/g, " ").replace(/&lt;/g, "<").replace(/&amp;/g, "&").replace(/\s+/g, " ");
+      const grab = (label: string, re: string) => (text.match(new RegExp(label + "\\s*(?:info_i\\s*)?" + re)) || [])[1]?.trim() || "";
+      const n = (v: string) => (/^[\d,]+$/.test(v) ? Number(v.replace(/,/g, "")) : null);
+      const out = n(grab("Number Customers Affected", "([\\d,]+)"));
+      const served = n(grab("Customers Served", "([\\d,]+)"));
+      const pct = grab("Percent of Customers Affected", "(<?\\s?\\d+%)");
+      const updated = grab("Last Updated", "(\\d{2}/\\d{2}/\\d{4} \\d{1,2}:\\d{2} [AP]M|No Information Available)");
+      const etr = grab("Estimated Restoration Time", "(\\d{2}/\\d{2}/\\d{4} \\d{1,2}:\\d{2} [AP]M|No Information Available)");
+      const cause = grab("Current Outage Caused By", "([A-Za-z][A-Za-z /&-]{2,40}?)(?=\\s+(?:Earliest|Number|Estimated|Restoration|Date)\\b|\\s*$)");
+      console.log("power", town, JSON.stringify({ out, served, pct, updated }));
+      if (out == null) return json({ error: "Couldn't read outage numbers", url }, 502);
+      return json({ out, served, pct, updated: /No Information/.test(updated) ? "" : updated, etr: /No Information/.test(etr) ? "" : etr, cause: /No Information/.test(cause) ? "" : cause, url }, 200, 600);
+    }
+
     if (kind === "route") {
       const p = (s: string | null) => { const [a, b] = (s || "").split(",").map(Number); return Number.isFinite(a) && Number.isFinite(b) && Math.abs(a) <= 90 && Math.abs(b) <= 180 ? [a, b] : null; };
       const from = p(q.get("from")), to = p(q.get("to"));

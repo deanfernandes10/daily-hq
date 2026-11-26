@@ -2077,6 +2077,7 @@ async function loadWeather() {
     })
   );
   renderWeather();
+  loadPower();
   stamp("weather", data.weather.some((w) => w.stale || w.error));
   updateGlance();
 }
@@ -2114,7 +2115,7 @@ function renderWeather() {
         .map((a) => `<a class="wx-alert ${sev(a)}" href="${esc(a.url)}" target="_blank" rel="noopener" title="${esc(a.headline || a.event)} — ${esc(a.source)}">${ic("triangle-alert")} <b>${esc(a.event)}</b>${a.ends ? ` · until ${esc(when(a.ends))}` : ""}</a>`)
         .join("");
       return `<div class="wx ${alerts?.length ? "has-alert" : ""} " data-wx="${idx}" data-wx-name="${esc(c.name)}" role="button" tabindex="0" aria-label="${esc(c.name)} — open full forecast">
-        ${alertHTML}
+        ${alertHTML}${powerBanner(c)}
         <div class="wx-top"><div class="wx-ico">${ico}</div>
           <span class="wx-chev wx-more" aria-hidden="true">${ic("chevron-right")}</span>
           <div><div class="wx-city">${esc(c.name)}</div><div class="wx-temp">${Math.round(cur.temperature_2m)}°</div></div>
@@ -2122,6 +2123,7 @@ function renderWeather() {
             ${cur._next ? `<div class="wx-next">${ic(/starting/.test(cur._next) ? "umbrella" : "clock")} ${esc(cur._next)}</div>` : ""}
             <div>H ${Math.round(dl.temperature_2m_max[0])}° · L ${Math.round(dl.temperature_2m_min[0])}° · Feels ${Math.round(cur.apparent_temperature)}°</div>
             <div class="wx-stats"><span title="Wind">${ic("wind")}${Math.round(cur.wind_speed_10m)} ${wind}</span><span title="Humidity">${ic("droplets")}${cur.relative_humidity_2m}%</span><span title="Chance of rain today">${ic("umbrella")}${dl.precipitation_probability_max[0] ?? 0}%</span></div>
+            ${powerLine(c)}
             <div class="wx-stats">${aqi != null ? `<span class="aq ${aqiCls(aqi)}" title="US Air Quality Index: ${aqiLabel(aqi)}">AQI ${Math.round(aqi)}</span>` : ""}${dl.uv_index_max?.[0] != null ? `<span class="uv" title="UV index today: ${uvLabel(dl.uv_index_max[0])}">UV ${Math.round(dl.uv_index_max[0])}</span>` : ""}</div>
           </div></div>
         <div class="wx-hours">${hours.join("")}</div>
@@ -2186,6 +2188,55 @@ function tempChart(vals, labels) {
   const pts = vals.map((v, i) => `${x(i)},${y(v).toFixed(1)}`).join(" ");
   return `<svg class="wxd-chart" width="${W}" height="${H}" viewBox="0 0 ${W} ${H}"><defs><linearGradient id="tg" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stop-color="var(--accent)" stop-opacity=".35"/><stop offset="1" stop-color="var(--accent)" stop-opacity="0"/></linearGradient></defs>
     <polygon points="${x(0)},${H} ${pts} ${x(vals.length - 1)},${H}" fill="url(#tg)"/><polyline points="${pts}" fill="none" stroke="var(--accent)" stroke-width="2"/>${vals.map((v, i) => `<circle cx="${x(i)}" cy="${y(v).toFixed(1)}" r="2.5" fill="var(--accent)"/>`).join("")}</svg>`;
+}
+// ============================================================ power outages (by the utility that serves each city)
+const POWER = [
+  { re: /manalapan/i, name: "JCP&L", full: "Jersey Central Power & Light", live: { state: "nj", county: "Monmouth", town: "Manalapan Township" },
+    map: "https://outages.firstenergycorp.com/nj.html", report: "https://www.firstenergycorp.com/outages_help.html", phone: "1-888-544-4877", sms: "Text OUT to 544487", alerts: "https://www.firstenergycorp.com/outages_help/outage_alerts.html", logo: "firstenergycorp.com" },
+  { re: /mississauga/i, name: "Alectra", full: "Alectra Utilities", map: "https://experience.arcgis.com/experience/8371de586076441192a1fa7058816c00",
+    report: "https://alectrautilities.com/report-outage", phone: "1-833-253-2872", note: "Press 1 for outages", x: "https://x.com/AlectraNews", logo: "alectrautilities.com" },
+];
+const powerFor = (c) => POWER.find((u) => u.re.test(c?.name || ""));
+data.power = data.power || {};
+async function loadPower() {
+  const jobs = (data.weather || []).map(({ c }) => ({ c, u: powerFor(c) })).filter(({ u }) => u?.live);
+  await Promise.all(jobs.map(async ({ c, u }) => {
+    const prev = data.power[c.name];
+    if (prev && Date.now() - prev.at < 10 * 60e3) return;
+    try { data.power[c.name] = { at: Date.now(), ...(await api(`/api/extras?kind=power&state=${u.live.state}&county=${encodeURIComponent(u.live.county)}&town=${encodeURIComponent(u.live.town)}`)) }; }
+    catch { data.power[c.name] = { at: Date.now(), error: true }; }
+  }));
+  if (jobs.length) { renderWeather(); if ($("#wxDet")) drawWxDetail(); queueToday?.(); }
+}
+// one line on each city card
+function powerLine(c) {
+  const u = powerFor(c); if (!u) return "";
+  const p = data.power[c.name];
+  if (!u.live) return `<div class="wx-pow">${ic("zap", "xs")} Power: <span>${esc(u.name)} outage map in details</span></div>`;
+  if (!p) return `<div class="wx-pow">${ic("zap", "xs")} Power: <span>checking ${esc(u.name)}…</span></div>`;
+  if (p.error) return `<div class="wx-pow">${ic("zap", "xs")} Power: <span>${esc(u.name)} status unavailable</span></div>`;
+  return p.out ? "" : `<div class="wx-pow ok">${ic("zap", "xs")} Power: <b>no outages</b> <span>· ${esc(u.name)}</span></div>`;
+}
+// red banner on the card when customers are out
+function powerBanner(c) {
+  const u = powerFor(c), p = data.power[c.name];
+  if (!u || !p || p.error || !p.out) return "";
+  return `<a class="wx-alert sev-mid wx-powout" href="${esc(p.url || u.map)}" target="_blank" rel="noopener">${ic("zap")} <b>Power outage</b> · ${p.out.toLocaleString()} customer${p.out === 1 ? "" : "s"} out${p.pct ? ` (${esc(p.pct)})` : ""}${p.etr ? ` · back by ${esc(p.etr.slice(11).replace(/^0/, ""))}` : ""}</a>`;
+}
+// full block in the city's detail sheet
+function powerHTML(c) {
+  const u = powerFor(c); if (!u) return "";
+  const p = data.power[c.name];
+  const status = u.live ? (p && !p.error ? `<div class="pw-stat ${p.out ? "out" : "ok"}"><b>${p.out ? `${p.out.toLocaleString()} customers out` : "No outages reported"}</b><span>${p.served ? `${p.pct || "0%"} of ${p.served.toLocaleString()} customers in ${esc(u.live.town.replace(/ Township$/, ""))}` : ""}${p.cause ? ` · Cause: ${esc(p.cause)}` : ""}${p.etr ? ` · Estimated restoration ${esc(p.etr)}` : ""}${p.updated ? ` · Updated ${esc(p.updated.slice(11))}` : ""}</span></div>` : `<div class="pw-stat"><span>${p?.error ? "Live status unavailable right now — check the map." : "Checking…"}</span></div>`) : `<div class="pw-stat"><span>${esc(u.full)} shares outages on its live map.</span></div>`;
+  const lk = (href, icon, label, sub) => `<a class="res-opt" href="${href}" ${href.startsWith("tel:") ? "" : 'target="_blank" rel="noopener"'}>${icon}<span><b>${label}</b>${sub ? `<small>${sub}</small>` : ""}</span></a>`;
+  return `<h5 class="sch-day">Power outages <small>${esc(u.full)}</small></h5>${status}<div class="res-opts pw-links">
+    ${lk(u.map, `<img src="https://www.google.com/s2/favicons?domain=${u.logo}&sz=64" alt="" onerror="this.style.visibility='hidden'">`, "Outage map", "Live map of current outages")}
+    ${p?.url ? lk(p.url, ic("map-pin"), `${esc(u.live.town.replace(/ Township$/, ""))} town page`, "Cause, crews and restoration time") : ""}
+    ${lk(u.report, ic("triangle-alert"), "Report an outage", "Online")}
+    ${lk(`tel:${u.phone.replace(/\D/g, "")}`, ic("phone"), `Call ${u.phone}`, u.sms || u.note || "")}
+    ${u.alerts ? lk(u.alerts, ic("bell"), "Get outage texts", "Sign up for alerts from JCP&L") : ""}
+    ${u.x ? lk(u.x, ic("newspaper"), "@AlectraNews on X", "Updates during big outages") : ""}
+  </div>`;
 }
 function drawWxDetail() {
   const box = $("#wxDet");
@@ -2256,6 +2307,7 @@ function drawWxDetail() {
      <div class="wxd-hours"><div class="wxd-hscroll"><div class="wxd-temps">${temps}</div>${chart}<div class="wxd-hrow">${hrs}</div></div></div>
      <h5 class="sch-day">10-day forecast <small>Tap a day for its hours</small></h5><div class="wxd-days">${days}</div>
      <div class="wxd-tiles">${tiles}</div>${aqHTML}
+     ${powerHTML(c)}
      <h5 class="sch-day">Radar</h5><div id="wxRadar"><button class="btn wide" data-wxradar>${ic("map", "xs")} Show live radar</button></div>
      <div class="meta" style="justify-content:center;margin-top:10px">Forecast: Open-Meteo · Now: ${esc(w.d.current._src || "Forecast model")}</div>`;
 }
@@ -5723,7 +5775,7 @@ document.addEventListener("visibilitychange", () => {
 if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").catch(() => {});
 
 // Keep the installed app current: when it comes back to the screen, see if a newer build is live and load it.
-const APP_BUILD = "dhq-shell-v38";
+const APP_BUILD = "dhq-shell-v39";
 let lastHidden = 0, updating = false;
 async function checkForUpdate(auto) {
   if (updating) return;
