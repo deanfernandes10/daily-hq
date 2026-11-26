@@ -75,7 +75,7 @@
   function copy(text, what) { navigator.clipboard.writeText(text).then(() => toast(`${what} copied`), () => prompt("Copy this:", text)); }
 
   function lockScreen(msg = "") {
-    $("#app").innerHTML = `<div class="lock"><div class="logo" style="margin:0 auto 14px;width:56px;height:56px">HQ</div><h1>Beta testers</h1>
+    $("#app").innerHTML = `<div class="lock"><img src="/icon.svg?v=2" alt="" style="display:block;margin:0 auto 14px;width:56px;height:56px;border-radius:13px"><h1>Beta testers</h1>
       <p class="meta">Enter your admin key to manage Daily HQ beta invites.</p>
       <form id="lk"><input id="k" type="password" placeholder="Admin key" autocomplete="current-password"><button class="primary" style="width:100%">Open</button></form>
       <p class="off" style="min-height:20px">${esc(msg)}</p></div>`;
@@ -104,7 +104,7 @@
     const devices = inv.reduce((a, i) => a + i.devices.length, 0);
     const week = inv.filter((i) => i.devices.some((d) => d.last > Date.now() - 7 * day) && !i.owner).length;
     $("#app").innerHTML = `
-      <div class="top"><div class="logo">HQ</div><div class="grow"><h1>Beta testers</h1><div class="meta">Create invites, see who's using Daily HQ, and switch access off.</div></div>
+      <div class="top"><img src="/icon.svg?v=2" alt="" style="width:40px;height:40px;border-radius:10px;flex:none"><div class="grow"><h1>Beta testers</h1><div class="meta">Create invites, see who's using Daily HQ, and switch access off.</div></div>
         <button id="refresh">Refresh</button><button id="logout" class="sm">Lock</button></div>
       <div class="stats">
         <div class="stat"><span>Active testers</span><b>${active.length}</b></div>

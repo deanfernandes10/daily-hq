@@ -2039,3 +2039,5 @@ body.drawer-open .as-launcher { display: none; }
 .gd-news .wn-i b { display: block; font-size: 14px; }
 .gd-news .wn-i small { color: var(--muted); }
 .gv-test { flex: none; margin-left: auto; }
+.logo { background: #0f172a !important; padding: 5px; box-sizing: border-box; }
+.logo svg { width: 100%; height: 100%; display: block; }

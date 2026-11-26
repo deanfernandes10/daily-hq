@@ -5984,7 +5984,7 @@ document.addEventListener("visibilitychange", () => {
 if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").catch(() => {});
 
 // Keep the installed app current: when it comes back to the screen, see if a newer build is live and load it.
-const APP_BUILD = "dhq-shell-v45";
+const APP_BUILD = "dhq-shell-v46";
 let lastHidden = 0, updating = false;
 async function checkForUpdate(auto) {
   if (updating) return;
