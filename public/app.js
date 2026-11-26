@@ -919,9 +919,18 @@ const sides = (e) => { const a = e.teams.find((t) => t.homeAway === "away") || e
 const scoreLine = (e) => { const [a, h] = sides(e); const sa = +a.score || 0, sh = +h.score || 0; return sa === sh ? `tied at ${sa}` : sa > sh ? `${a.name} ${sa}, ${h.name} ${sh}` : `${h.name} ${sh}, ${a.name} ${sa}`; };
 // ESPN's "12:03 - 2nd" → "12:03 left in the 2nd"
 const spokenClock = (d) => { const m = (d || "").match(/^(\d+:\d+)\s*-\s*(.+)$/); return m ? `${m[1].replace(/^0(?=\d)/, "")} left in the ${m[2]}` : (d || ""); };
-let voiceQ = [];
+let voiceUnlocked = false;
+function unlockVoice() {
+  if (voiceUnlocked || !("speechSynthesis" in window)) return;
+  try { const u = new SpeechSynthesisUtterance(" "); u.volume = 0; speechSynthesis.speak(u); voiceUnlocked = true; } catch {}
+  if (voicePending) { const t = voicePending; voicePending = ""; setTimeout(() => say(t), 300); }
+}
+["pointerdown", "touchend", "keydown"].forEach((ev) => document.addEventListener(ev, unlockVoice, { capture: true, passive: true }));
+let voicePending = "";
 function say(text) {
   toast(`🔊 ${text}`);
+  // iPhone won't speak until the screen has been tapped since the app opened; hold the latest call until then
+  if (!voiceUnlocked && /iP(hone|ad|od)/.test(navigator.userAgent)) { voicePending = text; return; }
   try {
     const u = new SpeechSynthesisUtterance(text);
     u.rate = 1.02; u.lang = "en-US";
@@ -938,8 +947,9 @@ function voiceCheck() {
     if (!f) { if (Date.now() - (cfg.voiceGames[id].at || 0) > 2 * 86400e3) { delete cfg.voiceGames[id]; changed = true; } continue; }
     const { e } = f, [a, h] = sides(e);
     const snap = { state: e.state, sa: +a.score || 0, sh: +h.score || 0, detail: e.detail };
-    const p = voiceSnap[id];
+    const p = voiceSnap[id] || cfg.voiceGames[id].s || null;
     voiceSnap[id] = snap;
+    if (JSON.stringify(cfg.voiceGames[id].s) !== JSON.stringify(snap)) { cfg.voiceGames[id].s = snap; changed = true; }
     if (e.state === "in" || (e.state === "pre" && new Date(e.date) - Date.now() < 20 * 60e3)) keepAwake = true;
     if (!p) continue; // first look: just remember where things stand
     if (p.state === "pre" && e.state === "in") say(`${a.name} at ${h.name} is under way${e.broadcasts?.length ? `, on ${e.broadcasts[0]}` : ""}.`);
@@ -960,8 +970,9 @@ function voiceCheck() {
       delete cfg.voiceGames[id]; changed = true;
     }
   }
-  if (changed) { save(); renderSports(); }
+  if (changed) { save(); if (!Object.keys(cfg.voiceGames).length || ids.some((x) => !cfg.voiceGames[x])) renderSports(); }
   voiceWake(keepAwake);
+  if (keepAwake && !voiceUnlocked && !voiceCheck.nagged) { voiceCheck.nagged = true; toast("🔊 Tap the screen once so voice alerts can speak"); }
 }
 // keep the screen on while a voiced game is live, so the phone doesn't sleep and go quiet
 let wakeLock = null;
@@ -978,11 +989,11 @@ function toggleVoice(id) {
   const [a, h] = sides(f.e);
   if (voiceOn(id)) { delete cfg.voiceGames[id]; save(); try { speechSynthesis.cancel(); } catch {} say(`Voice alerts off for ${a.name} at ${h.name}.`); }
   else {
-    cfg.voiceGames[id] = { at: Date.now(), name: `${a.name} at ${h.name}` };
+    cfg.voiceGames[id] = { at: Date.now(), name: `${a.name} at ${h.name}`, s: { state: f.e.state, sa: +a.score || 0, sh: +h.score || 0, detail: f.e.detail } };
     save();
     // speaking now (from the tap) also unlocks speech on iPhone
     say(f.e.state === "in" ? `Voice alerts on. ${a.name} at ${h.name}, ${scoreLine(f.e)}, ${spokenClock(f.e.detail)}.` : `Voice alerts on for ${a.name} at ${h.name}. I'll call it when it starts.`);
-    voiceSnap[id] = null; delete voiceSnap[id];
+    voiceSnap[id] = cfg.voiceGames[id].s;
   }
   voiceCheck(); renderSports();
   const vb = $("#modal:not([hidden]) [data-gvoice]"); if (vb) vb.outerHTML = voiceBtn(f.e, true);
@@ -5950,7 +5961,7 @@ document.addEventListener("visibilitychange", () => {
 if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").catch(() => {});
 
 // Keep the installed app current: when it comes back to the screen, see if a newer build is live and load it.
-const APP_BUILD = "dhq-shell-v43";
+const APP_BUILD = "dhq-shell-v44";
 let lastHidden = 0, updating = false;
 async function checkForUpdate(auto) {
   if (updating) return;
