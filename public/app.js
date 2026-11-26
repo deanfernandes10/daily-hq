@@ -944,10 +944,14 @@ function voiceCheck() {
     if (!p) continue; // first look: just remember where things stand
     if (p.state === "pre" && e.state === "in") say(`${a.name} at ${h.name} is under way${e.broadcasts?.length ? `, on ${e.broadcasts[0]}` : ""}.`);
     if (e.state !== "pre") {
-      if (snap.sa > p.sa || snap.sh > p.sh) {
-        const who = snap.sa - p.sa >= snap.sh - p.sh ? a : h;
-        const pts = Math.max(snap.sa - p.sa, snap.sh - p.sh);
-        say(`${who.name} score${pts > 1 && /nba|wnba|basketball|football|nfl/i.test(f.L.key) ? ` ${pts}` : ""}! ${scoreLine(e)[0].toUpperCase()}${scoreLine(e).slice(1)}${e.state === "in" ? `, ${spokenClock(e.detail)}` : ""}.`);
+      const da = snap.sa - p.sa, dh = snap.sh - p.sh;
+      const line = `${scoreLine(e)[0].toUpperCase()}${scoreLine(e).slice(1)}${e.state === "in" ? `, ${spokenClock(e.detail)}` : ""}.`;
+      const big = /nba|wnba|basketball|football|nfl/i.test(f.L.key);
+      if (da < 0 || dh < 0) say(`Score change: ${da < 0 && dh < 0 ? "both scores" : `${(da < 0 ? a : h).name} score`} taken back after review. ${line}`);
+      else if (da > 0 && dh > 0) say(`Both teams scored. ${line}`);
+      else if (da > 0 || dh > 0) {
+        const who = da > 0 ? a : h, pts = Math.max(da, dh);
+        say(`${who.name} score${pts > 1 && big ? ` ${pts}` : ""}! ${line}`);
       } else if (e.state === "in" && p.detail !== e.detail && /^(end|half|halftime|intermission|ot)/i.test(e.detail)) say(`${e.detail}. ${scoreLine(e)[0].toUpperCase()}${scoreLine(e).slice(1)}.`);
     }
     if (p.state === "in" && e.state === "post") {
@@ -5864,7 +5868,7 @@ document.addEventListener("visibilitychange", () => {
 if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").catch(() => {});
 
 // Keep the installed app current: when it comes back to the screen, see if a newer build is live and load it.
-const APP_BUILD = "dhq-shell-v41";
+const APP_BUILD = "dhq-shell-v42";
 let lastHidden = 0, updating = false;
 async function checkForUpdate(auto) {
   if (updating) return;
