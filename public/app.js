@@ -4398,7 +4398,7 @@ function openNow(spec, d = new Date()) {
   return result;
 }
 if (cfg.nearby?.useGps && navigator.geolocation) navigator.geolocation.getCurrentPosition((p) => { nb.gps = { lat: p.coords.latitude, lon: p.coords.longitude }; if (document.body.dataset.view === "nearby") loadNearby(); }, () => {}, { timeout: 10000, maximumAge: 300000 });
-const isOpen = (it) => (it.open === true || it.open === false ? it.open : isOpen(it));
+const isOpen = (it) => (it.open === true || it.open === false ? it.open : openNow(it.hours));
 const stars = (r) => `<span class="nb-stars" style="--r:${(r / 5) * 100}%">★★★★★</span>`;
 function nbWhere() {
   if (cfg.nearby?.useGps && nb.gps) return { name: "Current location", lat: nb.gps.lat, lon: nb.gps.lon };
@@ -5578,7 +5578,7 @@ document.addEventListener("visibilitychange", () => {
 if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").catch(() => {});
 
 // Keep the installed app current: when it comes back to the screen, see if a newer build is live and load it.
-const APP_BUILD = "dhq-shell-v31";
+const APP_BUILD = "dhq-shell-v32";
 let lastHidden = 0, updating = false;
 async function checkForUpdate(auto) {
   if (updating) return;
