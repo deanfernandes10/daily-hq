@@ -34,7 +34,7 @@ const G_TYPES: Record<string, string[]> = {
   parks: ["park", "national_park", "hiking_area", "beach", "state_park"],
   family: ["amusement_center", "amusement_park", "playground", "zoo", "aquarium", "library"],
 };
-const G_FIELDS = ["id", "displayName", "shortFormattedAddress", "location", "rating", "userRatingCount", "priceLevel", "currentOpeningHours.openNow", "regularOpeningHours.weekdayDescriptions", "primaryTypeDisplayName", "googleMapsUri", "websiteUri", "nationalPhoneNumber", "photos", "takeout", "delivery", "outdoorSeating", "servesVegetarianFood"].map((f) => `places.${f}`).join(",");
+const G_FIELDS = ["id", "displayName", "shortFormattedAddress", "location", "rating", "userRatingCount", "priceLevel", "currentOpeningHours.openNow", "regularOpeningHours.weekdayDescriptions", "primaryTypeDisplayName", "googleMapsUri", "websiteUri", "nationalPhoneNumber"].map((f) => `places.${f}`).join(",");
 const PRICE: Record<string, string> = { PRICE_LEVEL_FREE: "Free", PRICE_LEVEL_INEXPENSIVE: "$", PRICE_LEVEL_MODERATE: "$$", PRICE_LEVEL_EXPENSIVE: "$$$", PRICE_LEVEL_VERY_EXPENSIVE: "$$$$" };
 async function googleNearby(key: string, lat: number, lon: number, cat: string, r: number) {
   const res = await fetch("https://places.googleapis.com/v1/places:searchNearby", {
@@ -54,8 +54,7 @@ function mapGoogle(places: any[], lat: number, lon: number) {
     addr: p.shortFormattedAddress || "", phone: p.nationalPhoneNumber || "", website: p.websiteUri || "",
     hours: "", open: p.currentOpeningHours?.openNow ?? null, week: p.regularOpeningHours?.weekdayDescriptions || [],
     rating: p.rating ?? null, reviews: p.userRatingCount ?? 0, price: PRICE[p.priceLevel] || "",
-    photo: p.photos?.[0]?.name || "", maps: p.googleMapsUri || "",
-    takeaway: !!p.takeout, delivery: !!p.delivery, outdoor: !!p.outdoorSeating, diet: p.servesVegetarianFood ? ["vegetarian"] : [],
+    photo: "", maps: p.googleMapsUri || "", diet: [],
   })).filter((x: any) => x.name && x.lat != null);
 }
 
@@ -131,6 +130,17 @@ async function geoSearch(key: string, lat: number, lon: number, text: string, r:
   return items;
 }
 
+// Free allowance guard: Google gives 1,000 free calls a month per kind; cap at 30 a day each, then use Geoapify
+const G_DAILY = 30;
+async function googleBudget(kind: string) {
+  const store = getStore({ name: "nearby-cache", consistency: "strong" });
+  const k = `gcount/${new Date().toISOString().slice(0, 10)}/${kind}`;
+  let n = 0;
+  try { n = Number(await store.get(k)) || 0; } catch {}
+  if (n >= G_DAILY) return false;
+  try { await store.set(k, String(n + 1)); } catch {}
+  return true;
+}
 async function googleText(key: string, lat: number, lon: number, text: string, r: number) {
   const res = await fetch("https://places.googleapis.com/v1/places:searchText", {
     method: "POST",
@@ -165,7 +175,7 @@ export default async (req: Request) => {
   if (!Number.isFinite(lat) || !Number.isFinite(lon) || Math.abs(lat) > 90 || Math.abs(lon) > 180) return json({ error: "Bad location" }, 400);
   const text = (q.get("q") || "").trim().slice(0, 80);
   if (text) {
-    if (gkey) {
+    if (gkey && (await googleBudget("text"))) {
       try { return json({ items: await googleText(gkey, lat, lon, text, r), provider: "google" }, 200, 300); }
       catch (e: any) { console.log("google search failed", e?.message); }
     }
@@ -181,7 +191,7 @@ export default async (req: Request) => {
     } catch (e: any) { console.log("search failed", e?.message); return json({ error: "Search failed", items: [] }, 502); }
   }
   if (!CATS[cat]) return json({ error: "Bad category" }, 400);
-  if (gkey) {
+  if (gkey && (await googleBudget("nearby"))) {
     try { return json({ items: await googleNearby(gkey, lat, lon, cat, r), provider: "google" }, 200, 300); }
     catch (e: any) { console.log("google places failed, using OpenStreetMap", e?.message); }
   }
