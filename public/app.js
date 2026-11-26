@@ -4406,12 +4406,12 @@ function nbWhere() {
 }
 // Ask OpenStreetMap's Overpass servers straight from the phone (no shared server limits), racing several at once.
 const OVP_CATS = {
-  food: ['nwr["amenity"~"^(restaurant|fast_food|food_court)$"]["name"]'],
-  coffee: ['nwr["amenity"="cafe"]["name"]', 'nwr["shop"~"^(bakery|pastry|coffee)$"]["name"]', 'nwr["amenity"="ice_cream"]["name"]'],
-  bars: ['nwr["amenity"~"^(bar|pub|biergarten|nightclub)$"]["name"]', 'nwr["craft"~"^(brewery|winery|distillery)$"]["name"]'],
-  todo: ['nwr["tourism"~"^(attraction|museum|gallery|zoo|theme_park|aquarium|viewpoint)$"]["name"]', 'nwr["amenity"~"^(cinema|theatre|arts_centre|casino)$"]["name"]', 'nwr["leisure"~"^(bowling_alley|escape_game|miniature_golf|ice_rink|amusement_arcade|golf_course|water_park|trampoline_park)$"]["name"]'],
+  food: ['nw["amenity"~"^(restaurant|fast_food|food_court)$"]["name"]'],
+  coffee: ['nw["amenity"~"^(cafe|ice_cream)$"]["name"]', 'nw["shop"~"^(bakery|pastry|coffee)$"]["name"]'],
+  bars: ['nw["amenity"~"^(bar|pub|biergarten|nightclub)$"]["name"]', 'nw["craft"~"^(brewery|winery|distillery)$"]["name"]'],
+  todo: ['nw["tourism"~"^(attraction|museum|gallery|zoo|theme_park|aquarium|viewpoint)$"]["name"]', 'nw["amenity"~"^(cinema|theatre|arts_centre|casino)$"]["name"]', 'nw["leisure"~"^(bowling_alley|escape_game|miniature_golf|ice_rink|amusement_arcade|golf_course|water_park|trampoline_park)$"]["name"]'],
   parks: ['nwr["leisure"~"^(park|nature_reserve|garden|beach_resort)$"]["name"]', 'nwr["natural"="beach"]["name"]'],
-  family: ['nwr["leisure"~"^(playground|water_park|trampoline_park|miniature_golf|amusement_arcade)$"]["name"]', 'nwr["tourism"~"^(zoo|aquarium|theme_park)$"]["name"]', 'nwr["amenity"="library"]["name"]'],
+  family: ['nw["leisure"~"^(playground|water_park|trampoline_park|miniature_golf|amusement_arcade)$"]["name"]', 'nw["tourism"~"^(zoo|aquarium|theme_park)$"]["name"]', 'nw["amenity"="library"]["name"]'],
 };
 const OVP_EP = ["https://overpass-api.de/api/interpreter", "https://overpass.private.coffee/api/interpreter", "https://maps.mail.ru/osm/tools/overpass/api/interpreter", "https://overpass.kumi.systems/api/interpreter"];
 function distM(a, b, c, d) { const R = 6371000, r = (x) => (x * Math.PI) / 180, x = r(c - a), y = r(d - b); const h = Math.sin(x / 2) ** 2 + Math.cos(r(a)) * Math.cos(r(c)) * Math.sin(y / 2) ** 2; return 2 * R * Math.asin(Math.sqrt(h)); }
@@ -4431,30 +4431,71 @@ function ovpItems(els, lat, lon) {
 async function nearbyFetch(where, cat, rM) {
   const ctl = new AbortController();
   const stop = setTimeout(() => ctl.abort(), 25000);
-  const q = `[out:json][timeout:12];(${OVP_CATS[cat].map((x) => `${x}(around:${rM},${where.lat.toFixed(4)},${where.lon.toFixed(4)});`).join("")});out center tags qt 300;`;
+  const q = `[out:json][timeout:10];(${OVP_CATS[cat].map((x) => `${x}(around:${rM},${where.lat.toFixed(4)},${where.lon.toFixed(4)});`).join("")});out center tags qt 300;`;
   const direct = OVP_EP.map((ep) => fetch(ep, { method: "POST", body: "data=" + encodeURIComponent(q), headers: { "content-type": "application/x-www-form-urlencoded" }, signal: ctl.signal })
     .then(async (r) => { if (!r.ok) throw new Error(r.status); const j = await r.json(); if (!Array.isArray(j.elements)) throw new Error("bad"); return ovpItems(j.elements, where.lat, where.lon); }));
   const server = fetch(`/api/nearby?lat=${where.lat}&lon=${where.lon}&cat=${cat}&r=${rM}`, { signal: ctl.signal }).then(async (r) => { if (!r.ok) throw new Error(r.status); return (await r.json()).items || []; });
   try { return await Promise.any([...direct, server]); }
   finally { clearTimeout(stop); ctl.abort(); }
 }
+// Results are kept on the phone, so Nearby opens instantly and refreshes quietly in the background
+const NB_STORE = "dailyhq.nearby.cache";
+const nbCache = (() => { try { return JSON.parse(localStorage.getItem(NB_STORE) || "{}"); } catch { return {}; } })();
+function nbRemember(key, items) {
+  nbCache[key] = { at: Date.now(), items };
+  const keys = Object.keys(nbCache).sort((x, y) => nbCache[y].at - nbCache[x].at);
+  for (const k of keys.slice(24)) delete nbCache[k];
+  try { localStorage.setItem(NB_STORE, JSON.stringify(nbCache)); } catch {}
+}
+const nbInflight = {};
+function nbKeyFor(cat, where) {
+  const rM = Math.round((cfg.nearby.radius || 5) * (cfg.units === "F" ? 1609 : 1000));
+  return { rM, key: `${cat}|${where.lat.toFixed(3)}|${where.lon.toFixed(3)}|${rM}` };
+}
+function nbFetchCached(cat, where, rM, key) {
+  if (!nbInflight[key]) nbInflight[key] = nearbyFetch(where, cat, rM).then((items) => { nbRemember(key, items); return items; }).finally(() => delete nbInflight[key]);
+  return nbInflight[key];
+}
 async function loadNearby(force) {
   const where = nbWhere();
   cfg.nearby = { cat: "food", radius: 5, ...(cfg.nearby || {}) };
   if (!where) { nb.items = []; nb.err = "Add a city in Weather (or use your location) to see what's nearby."; return renderNearby(); }
-  const rM = Math.round((cfg.nearby.radius || 5) * (cfg.units === "F" ? 1609 : 1000));
-  const key = `${cfg.nearby.cat}|${where.lat.toFixed(3)}|${where.lon.toFixed(3)}|${rM}`;
-  if (!force && nb.key === key && nb.items && !nb.err) return renderNearby();
-  nb.key = key; nb.loading = true; nb.err = ""; nb.items = null; nb.where = where; nb.cuisine = "";
-  renderNearby();
+  const cat = cfg.nearby.cat;
+  const { rM, key } = nbKeyFor(cat, where);
+  const cached = nbCache[key];
+  const fresh = cached && Date.now() - cached.at < 6 * 3600e3;
+  if (!force && nb.key === key && nb.items && !nb.err && (fresh || nb.refreshing)) return renderNearby();
+  nb.key = key; nb.where = where; nb.err = ""; nb.cuisine = nb.key === key ? nb.cuisine : "";
+  if (cached && !force) {
+    // show what we had straight away
+    nb.items = cached.items; nb.loading = false;
+    renderNearby(); queueToday();
+    if (fresh) { prefetchNearby(where); return; }
+    nb.refreshing = true;
+  } else { nb.items = null; nb.loading = true; renderNearby(); }
   try {
-    const items = await nearbyFetch(where, cfg.nearby.cat, rM);
+    const items = await nbFetchCached(cat, where, rM, key);
     if (nb.key !== key) return;
     nb.items = items;
-  } catch { if (nb.key === key) { nb.items = []; nb.err = "The map service is busy right now."; } }
-  nb.loading = false;
+  } catch { if (nb.key === key && !cached) { nb.items = []; nb.err = "The map service is busy right now."; } }
+  nb.loading = false; nb.refreshing = false;
   renderNearby();
   queueToday();
+  prefetchNearby(where);
+}
+// Quietly fetch the other categories one at a time, so switching tabs is instant too
+let nbPrefetching = false;
+async function prefetchNearby(where) {
+  if (nbPrefetching) return;
+  nbPrefetching = true;
+  try {
+    for (const [cat] of NEARBY_CATS) {
+      const { rM, key } = nbKeyFor(cat, where);
+      if (nbCache[key] && Date.now() - nbCache[key].at < 6 * 3600e3) continue;
+      try { await nbFetchCached(cat, where, rM, key); } catch {}
+      await new Promise((r) => setTimeout(r, 1500));
+    }
+  } finally { nbPrefetching = false; }
 }
 function renderNearby() {
   const box = $("#nearby-body");
@@ -4491,7 +4532,7 @@ function renderNearby() {
     };
     const full = document.body.dataset.view === "nearby" || nb.all;
     const lim = full ? 60 : 5;
-    list = filters + (items.length ? `<div class="nb-count">${items.length} place${items.length > 1 ? "s" : ""} within ${cfg.nearby.radius} ${unit}${nb.cuisine ? ` · ${esc(nb.cuisine)}` : ""}</div><div class="nb-list">${items.slice(0, lim).map(card).join("")}</div>${items.length > lim ? `<button class="btn nb-all" data-nball>See all ${Math.min(items.length, 60)} places ${ic("chevron-right", "xs")}</button>` : ""}` : `<div class="empty">Nothing found${nb.openOnly ? " open right now" : ""}. Try a bigger distance${nb.cuisine || nb.openOnly ? " or clear the filters" : ""}.</div>`);
+    list = filters + (items.length ? `<div class="nb-count">${items.length} place${items.length > 1 ? "s" : ""} within ${cfg.nearby.radius} ${unit}${nb.cuisine ? ` · ${esc(nb.cuisine)}` : ""}${nb.refreshing ? ` · <span class="nb-upd">${ic("refresh-cw", "xs")} updating</span>` : ""}</div><div class="nb-list">${items.slice(0, lim).map(card).join("")}</div>${items.length > lim ? `<button class="btn nb-all" data-nball>See all ${Math.min(items.length, 60)} places ${ic("chevron-right", "xs")}</button>` : ""}` : `<div class="empty">Nothing found${nb.openOnly ? " open right now" : ""}. Try a bigger distance${nb.cuisine || nb.openOnly ? " or clear the filters" : ""}.</div>`);
   }
   queueSummaries();
   queueToday();
@@ -4524,7 +4565,7 @@ async function refresh(ids) {
   await Promise.all(
     list.map((id) => {
       if (id === "markets") return (sectionOn("markets") || cfg.ticker.on || widgetWants("markets")) ? loadMarkets() : null;
-      return sectionOn(id) || widgetWants(id) ? loaders[id]() : null;
+      return sectionOn(id) || widgetWants(id) || id === "nearby" ? loaders[id]() : null;
     })
   );
   btn.classList.remove("spin");
@@ -5518,7 +5559,7 @@ document.addEventListener("visibilitychange", () => {
 if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").catch(() => {});
 
 // Keep the installed app current: when it comes back to the screen, see if a newer build is live and load it.
-const APP_BUILD = "dhq-shell-v29";
+const APP_BUILD = "dhq-shell-v30";
 let lastHidden = 0, updating = false;
 async function checkForUpdate(auto) {
   if (updating) return;

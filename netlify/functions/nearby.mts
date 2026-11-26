@@ -7,7 +7,7 @@ import { json } from "../lib/shared.mts";
 // Returns { items: [{ id, name, kind, cuisine, lat, lon, dist, addr, phone, website, hours, diet, takeaway, delivery, outdoor }] }
 
 const CATS: Record<string, string[]> = {
-  food: ['nwr["amenity"~"^(restaurant|fast_food|food_court)$"]["name"]'],
+  food: ['nw["amenity"~"^(restaurant|fast_food|food_court)$"]["name"]'],
   coffee: ['nwr["amenity"="cafe"]["name"]', 'nwr["shop"~"^(bakery|pastry|coffee)$"]["name"]', 'nwr["amenity"="ice_cream"]["name"]'],
   bars: ['nwr["amenity"~"^(bar|pub|biergarten|nightclub)$"]["name"]', 'nwr["craft"~"^(brewery|winery|distillery)$"]["name"]'],
   todo: [
@@ -45,7 +45,7 @@ export default async (req: Request) => {
   if (!CATS[cat]) return json({ error: "Bad category" }, 400);
   // round the point so nearby requests share the cache
   const la = Math.round(lat * 200) / 200, lo = Math.round(lon * 200) / 200;
-  const body = `[out:json][timeout:12];(${CATS[cat].map((s) => `${s}(around:${r},${la},${lo});`).join("")});out center tags qt 300;`;
+  const body = `[out:json][timeout:10];(${CATS[cat].map((s) => `${s}(around:${r},${la},${lo});`).join("")});out center tags qt 300;`;
   const store = getStore({ name: "nearby-cache", consistency: "eventual" });
   const ck = `${cat}/${la}/${lo}/${r}`;
   // Ask every public Overpass server at once and take the first good answer
