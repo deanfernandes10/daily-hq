@@ -463,7 +463,8 @@ html[data-text="large"] body { zoom: 1.13; }
   body[data-view="weather"] .grid > .card:not([data-sec="weather"]),
   body[data-view="news"] .grid > .card:not([data-sec="news"]),
   body[data-view="markets"] .grid > .card:not([data-sec="markets"]),
-  body[data-view="calendar"] .grid > .card:not([data-sec="calendar"]) { display: none; }
+  body[data-view="calendar"] .grid > .card:not([data-sec="calendar"]),
+  body[data-view="brief"] .grid > .card:not([data-sec="brief"]) { display: none; }
   body:not([data-view="home"]) .apps-bar { display: none; }
   body[data-view="more"] .grid { display: none; }
   body[data-view="more"] .more-panel { display: block; padding: 16px 14px; }
@@ -1838,3 +1839,5 @@ body.drawer-open .as-launcher { display: none; }
 .wt-weather .ww-hours { margin-top: 6px; }
 .ww-r b { max-width: 190px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .wgrid.editing .wdg { animation-duration: .35s; }
+
+@media (max-width: 680px) { body[data-view="brief"] .jump, body[data-view="brief"] .apps-bar, body[data-view="brief"] .ticker { display: none !important; } }

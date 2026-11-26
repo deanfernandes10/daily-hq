@@ -4254,7 +4254,7 @@ function wInner(w) {
       if (!nb.items) return `<div class="w-pad wnb">${head("compass", "Nearby")}<div class="w-muted">Finding places…</div></div>`;
       if (S === "s") return `<div class="w-pad wnb" data-wgo="nearby">${head("compass", "Nearby")}<div class="wnb-big"><b>${openN || items.length}</b><span>${esc(lbl.toLowerCase())} ${openN ? "open now" : "nearby"}</span></div>${items[0] ? `<div class="wnb-top">${esc(items[0].name)} · ${esc(fmtDist(items[0].dist))}</div>` : ""}</div>`;
       const cats = S === "l" ? `<div class="wnb-cats">${NEARBY_CATS.slice(0, 4).map(([k, l, i]) => `<span data-nbgo="${k}" data-goto="nearby" class="${cfg.nearby?.cat === k ? "on" : ""}">${ic(i, "xs")} ${l}</span>`).join("")}</div>` : "";
-      return `<div class="w-pad wnb">${`<div class="w-h" data-wgo="nearby">${ic("compass", "xs")}<span>${esc(lbl)} near ${esc(nbWhere()?.name || "you")}</span>${ic("chevron-right", "xs")}</div>`}${cats}${items.slice(0, S === "m" ? 3 : 6).map(pl).join("") || `<div class="w-muted">Nothing found nearby</div>`}</div>`;
+      return `<div class="w-pad wnb">${`<div class="w-h" data-wgo="nearby">${ic("compass", "xs")}<span>Nearby <small>${esc(lbl)} · ${esc(nbWhere()?.name || "you")}</small></span>${ic("chevron-right", "xs")}</div>`}${cats}${items.slice(0, S === "m" ? 3 : 6).map(pl).join("") || `<div class="w-muted">Nothing found nearby</div>`}</div>`;
     }
     case "commute": {
       if (!cfg.commute?.on) return `<div class="w-pad">${head("map-pin", "Commute")}<div class="w-muted">Set up your commute in Customize → General.</div></div>`;
@@ -4287,13 +4287,33 @@ function renderToday() {
       <div class="w-ctl-b">${W_TYPES[w.type].sizes.map((z) => `<button data-wsize="${w.id}|${z}" class="${w.size === z ? "on" : ""}">${{ s: "S", m: "M", l: "L" }[z]}</button>`).join("")}
       <button data-wmove="${w.id}|-1" ${i ? "" : "disabled"} aria-label="Move up">${ic("chevron-up", "xs")}</button><button data-wmove="${w.id}|1" ${i < ws.length - 1 ? "" : "disabled"} aria-label="Move down">${ic("chevron-down", "xs")}</button>
       ${["weather", "team", "news"].includes(w.type) ? `<button data-wopt="${w.id}" aria-label="Choose">${ic("settings", "xs")}</button>` : ""}</div></div>` : "";
-  box.innerHTML = `<div class="wgrid ${wEdit ? "editing" : ""}">${ws.map((w, i) => `<div class="wdg wdg-${w.size} wt-${w.type}" data-wid="${w.id}">${wInner(w)}${ctl(w, i)}</div>`).join("")}</div>
+  const goOf = (w) => ({ weather: "weather", teams: "sports", calendar: "calendar", news: "news", markets: "markets", nearby: "nearby", commute: "brief", brief: "brief" })[w.type] || (w.type === "team" && w.opt ? `team:${w.opt}` : w.type === "team" ? "sports" : "");
+  box.innerHTML = `<div class="wgrid ${wEdit ? "editing" : ""}">${ws.map((w, i) => `<div class="wdg wdg-${w.size} wt-${w.type}" data-wid="${w.id}" ${goOf(w) ? `data-wgo="${esc(goOf(w))}"` : ""}>${wInner(w)}${ctl(w, i)}</div>`).join("")}</div>
     <div class="w-foot">${wEdit ? `<button class="btn" data-wadd>${ic("plus", "xs")} Add widget</button><button class="btn primary" data-wedit>Done</button>` : `<button class="btn" data-wedit>${ic("settings", "xs")} Edit Home</button><button class="btn" data-quick="refresh">${ic("refresh-cw", "xs")} Refresh</button>`}</div>`;
   // team widget headlines
   for (const el of box.querySelectorAll("[data-wteam-news]")) {
     const [k, ab] = el.dataset.wteamNews.split("|");
     loadSportsNews(k, ab).then((items) => { el.innerHTML = items.slice(0, 3).map((a) => `<a class="wn-i" href="${esc(a.link)}" target="_blank" rel="noopener"><span><b>${esc(a.title)}</b><small>${esc(ago(Date.parse(a.date)))}</small></span></a>`).join(""); }).catch(() => { el.innerHTML = ""; });
   }
+}
+// Widgets need their data even when the matching Home section is switched off
+function widgetWants(id) {
+  if (!useWidgets() || !Array.isArray(cfg.widgets)) return false;
+  const map = { weather: ["weather"], sports: ["teams", "team"], calendar: ["calendar"], news: ["news"], markets: ["markets"], nearby: ["nearby"] };
+  return cfg.widgets.some((w) => (map[id] || []).includes(w.type));
+}
+// A widget opens exactly what its menu tab opens
+function openFromWidget(g) {
+  if (g.startsWith("team:")) { cfg.sports.sel = `tm:${g.slice(5)}`; cfg.sports.hubTab = "home"; save(); g = "sports"; }
+  else if (g === "sports") { cfg.sports.sel = "all"; save(); }
+  // a widget can live on Home even when its section is switched off — switch it on so the screen has something to show
+  if (!sectionOn(g) && SECTION_META[g]) {
+    const sec = cfg.sections.find((x) => x.id === g);
+    if (sec) sec.on = true; else cfg.sections.push({ id: g, on: true, w: 12 });
+    save(); buildShell(); refresh([g === "brief" ? "brief" : g]);
+  }
+  setView(g);
+  if (g === "sports") renderSports();
 }
 function openWidgetGallery() {
   openModal(`${ic("plus")} Add a widget`, `<div class="wgal">${Object.entries(W_TYPES).map(([k, t]) => `<div class="wgal-i"><span class="wgal-ic">${ic(t.icon)}</span><span class="wgal-t"><b>${t.name}</b><small>${t.desc}</small></span><span class="wgal-s">${t.sizes.map((z) => `<button class="btn" data-wnew="${k}|${z}">${{ s: "Small", m: "Medium", l: "Large" }[z]}</button>`).join("")}</span></div>`).join("")}</div>`);
@@ -4435,8 +4455,8 @@ async function refresh(ids) {
   if (list.includes("brief")) list = ["sports", "news", "weather", "markets", "calendar"];
   await Promise.all(
     list.map((id) => {
-      if (id === "markets") return (sectionOn("markets") || cfg.ticker.on) ? loadMarkets() : null;
-      return sectionOn(id) ? loaders[id]() : null;
+      if (id === "markets") return (sectionOn("markets") || cfg.ticker.on || widgetWants("markets")) ? loadMarkets() : null;
+      return sectionOn(id) || widgetWants(id) ? loaders[id]() : null;
     })
   );
   btn.classList.remove("spin");
@@ -4497,9 +4517,7 @@ document.addEventListener("click", async (e) => {
   const wgo = !wEdit && !t.closest("a, [data-game], [data-config], [data-nbgo]") && t.closest("[data-wgo]");
   if (wgo) {
     const g = wgo.dataset.wgo;
-    if (g.startsWith("team:")) { setView("sports"); setSportsSel(`tm:${g.slice(5)}`, { hubTab: "home" }); return; }
-    if (g === "nearby") { setView("nearby"); return; }
-    goToSection(g, "Home"); return;
+    openFromWidget(g); return;
   }
   if (wEdit && t.closest("#today .wdg")) return;
   const nbg = t.closest("[data-nbgo]");
@@ -5431,7 +5449,7 @@ document.addEventListener("visibilitychange", () => {
 if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").catch(() => {});
 
 // Keep the installed app current: when it comes back to the screen, see if a newer build is live and load it.
-const APP_BUILD = "dhq-shell-v26";
+const APP_BUILD = "dhq-shell-v27";
 let lastHidden = 0, updating = false;
 async function checkForUpdate(auto) {
   if (updating) return;
