@@ -4005,6 +4005,7 @@ function renderMore() {
     <h3>Go to</h3>
     <div class="more-secs">
       <button class="more-sec" data-more-view="calendar"><span class="ms-ic" style="--c:#ec4899">${ic("calendar-days")}</span><span><b>Calendar</b><small>Today and the next two days</small></span>${ic("chevron-right", "xs")}</button>
+      ${cfg.homeStyle !== "full" && (cfg.apps || []).length ? `<button class="more-sec" data-allapps><span class="ms-ic" style="--c:#6366f1">${ic("layout-grid")}</span><span><b>Your apps</b><small>${(cfg.apps || []).length} shortcuts</small></span>${ic("chevron-right", "xs")}</button>` : ""}
       <button class="more-sec" data-more-view="markets"><span class="ms-ic" style="--c:#22c27a">${ic("trending-up")}</span><span><b>Markets</b><small>${sp && !sp.error ? `S&amp;P ${sp.pct >= 0 ? "▲" : "▼"} ${fmtNum(Math.abs(sp.pct), 2)}%` : "Indexes, boards, real estate, mortgage"}</small></span>${ic("chevron-right", "xs")}</button>
     </div>
     ${cfg.homeStyle === "full" ? `<h3>Your apps</h3>
@@ -4044,6 +4045,15 @@ function renderMore() {
   more.insertAdjacentHTML("afterbegin", `<button class="mini-btn back-home more-back" data-back-home>${ic("chevron-left")} Home</button>`);
 }
 
+// Every app in one sheet (the Apps widget shows only as many as fit)
+function openAllApps() {
+  const apps = cfg.apps || [];
+  openModal(`${ic("layout-grid")} Your apps <small class="aa-n">${apps.length}</small>`, `${apps.length > 8 ? `<div class="nb-search aa-search"><span class="nb-s-ic">${ic("search", "xs")}</span><input id="aaFilter" type="search" placeholder="Find an app" autocomplete="off" aria-label="Find an app"></div>` : ""}
+    <div class="apps-grid aa-grid">${apps.map((a) => `<a class="app-tile" data-aa="${esc(a.name.toLowerCase())}" href="${esc(a.url)}" target="_blank" rel="noopener">${appIcon(a)}<span>${esc(a.name)}</span></a>`).join("")}
+    <button class="app-tile" data-config="apps"><span class="app-ico plus">${ic("plus")}</span><span>Add / edit</span></button></div>
+    <div class="aa-none" hidden>No apps match.</div>`);
+  if (apps.length > 12) $("#modal").classList.add("sheet-full");
+}
 function renderAppsPop() {
   $("#appsPop").innerHTML = `<div class="apps-pop-h"><span>Your apps</span><button class="pop-x" data-pop-close aria-label="Close">${ic("x")}</button></div><div class="apps-grid">${(cfg.apps || []).map((a) => `<a class="app-tile" href="${esc(a.url)}" target="_blank" rel="noopener">${appIcon(a)}<span>${esc(a.name)}</span></a>`).join("")}
     <button class="app-tile" data-config="apps"><span class="app-ico plus">${ic("plus")}</span><span>Add / edit</span></button></div>`;
@@ -4300,6 +4310,7 @@ function wInner(w) {
     case "apps": {
       const apps = cfg.apps || [];
       const n = S === "s" ? 4 : S === "m" ? 8 : 12;
+      if (apps.length > n) return `<div class="w-pad wapps wapps-${S}">${apps.slice(0, n - 1).map((a) => `<a class="wa" href="${esc(a.url)}" target="_blank" rel="noopener">${appIcon(a)}${S !== "s" ? `<span>${esc(a.name)}</span>` : ""}</a>`).join("")}<button class="wa wa-more" data-allapps aria-label="All ${apps.length} apps"><span class="app-ico wa-more-ico">${apps.slice(n - 1, n + 3).map((a) => `<i>${appIcon(a)}</i>`).join("")}</span>${S !== "s" ? `<span>All ${apps.length}</span>` : ""}</button></div>`;
       return `<div class="w-pad wapps wapps-${S}">${apps.slice(0, n).map((a) => `<a class="wa" href="${esc(a.url)}" target="_blank" rel="noopener">${appIcon(a)}${S !== "s" ? `<span>${esc(a.name)}</span>` : ""}</a>`).join("")}${apps.length < n ? `<button class="wa add" data-config="apps"><span class="app-ico plus">${ic("plus")}</span>${S !== "s" ? `<span>Add</span>` : ""}</button>` : ""}</div>`;
     }
     case "brief": {
@@ -4323,7 +4334,7 @@ function renderToday() {
       <div class="w-ctl-b">${W_TYPES[w.type].sizes.map((z) => `<button data-wsize="${w.id}|${z}" class="${w.size === z ? "on" : ""}">${{ s: "S", m: "M", l: "L" }[z]}</button>`).join("")}
       <button data-wmove="${w.id}|-1" ${i ? "" : "disabled"} aria-label="Move up">${ic("chevron-up", "xs")}</button><button data-wmove="${w.id}|1" ${i < ws.length - 1 ? "" : "disabled"} aria-label="Move down">${ic("chevron-down", "xs")}</button>
       ${["weather", "team", "news"].includes(w.type) ? `<button data-wopt="${w.id}" aria-label="Choose">${ic("settings", "xs")}</button>` : ""}</div></div>` : "";
-  const goOf = (w) => ({ weather: "weather", teams: "sports", calendar: "calendar", news: "news", markets: "markets", nearby: "nearby", commute: "brief", brief: "brief" })[w.type] || (w.type === "team" && w.opt ? `team:${w.opt}` : w.type === "team" ? "sports" : "");
+  const goOf = (w) => ({ weather: "weather", teams: "sports", calendar: "calendar", news: "news", markets: "markets", nearby: "nearby", commute: "brief", brief: "brief", apps: "apps" })[w.type] || (w.type === "team" && w.opt ? `team:${w.opt}` : w.type === "team" ? "sports" : "");
   box.innerHTML = `<div class="wgrid ${wEdit ? "editing" : ""}">${ws.map((w, i) => `<div class="wdg wdg-${w.size} wt-${w.type}" data-wid="${w.id}" ${goOf(w) ? `data-wgo="${esc(goOf(w))}"` : ""}>${wInner(w)}${ctl(w, i)}</div>`).join("")}</div>
     <div class="w-foot">${wEdit ? `<button class="btn" data-wadd>${ic("plus", "xs")} Add widget</button><button class="btn primary" data-wedit>Done</button>` : `<button class="btn" data-wedit>${ic("settings", "xs")} Edit Home</button><button class="btn" data-quick="refresh">${ic("refresh-cw", "xs")} Refresh</button>`}</div>`;
   // team widget headlines
@@ -4340,6 +4351,7 @@ function widgetWants(id) {
 }
 // A widget opens exactly what its menu tab opens
 function openFromWidget(g) {
+  if (g === "apps") return openAllApps();
   if (g.startsWith("team:")) { cfg.sports.sel = `tm:${g.slice(5)}`; cfg.sports.hubTab = "home"; save(); g = "sports"; }
   else if (g === "sports") { cfg.sports.sel = "all"; save(); }
   // a widget can live on Home even when its section is switched off — switch it on so the screen has something to show
@@ -4740,6 +4752,8 @@ document.addEventListener("click", async (e) => {
   const bev = t.closest("[data-brief-ev]");
   if (bev) { const ev = briefEvents[+bev.dataset.briefEv]; if (ev) { calUI.sel = sod(new Date()); calUI.month = new Date(calUI.sel.getFullYear(), calUI.sel.getMonth(), 1); renderCalendar(); showEvent(ev); } return; }
   if (t.closest("[data-wedit]")) { wEdit = !wEdit; renderToday(); return; }
+  if (!wEdit && t.closest("[data-allapps]")) { openAllApps(); return; }
+  if (t.closest(".aa-grid [data-config]")) closeModal();
   if (t.closest("[data-wadd]")) { openWidgetGallery(); return; }
   const wnew = t.closest("[data-wnew]");
   if (wnew) { const [type, size] = wnew.dataset.wnew.split("|"); widgetList(); cfg.widgets.push({ id: wid(), type, size }); save(); closeModal(); renderToday(); return; }
@@ -5078,6 +5092,7 @@ document.addEventListener("change", (e) => {
   if (f === "freq" || f === "years" || f === "ontario") updateMortgageOut();
 });
 document.addEventListener("input", (e) => {
+  if (e.target.id === "aaFilter") { const v = e.target.value.trim().toLowerCase(); let n = 0; for (const a of document.querySelectorAll(".aa-grid [data-aa]")) { a.hidden = !!v && !a.dataset.aa.includes(v); if (!a.hidden) n++; } $(".aa-none").hidden = !v || n > 0; }
   if (e.target.id === "nbSearch") { nb.q = e.target.value; const x = e.target.form?.querySelector("[data-nbclear]"); if (x) x.hidden = !e.target.value; if (!e.target.value && nb.search) nbClearSearch(); else nbFilterTyped(); }
   if (e.target.closest?.("[data-resform]")) nbResLinks();
   if (e.target.dataset?.mort && e.target.tagName === "INPUT" && e.target.type !== "checkbox") { mortgageDefaults()[e.target.dataset.mort] = e.target.value; save(); updateMortgageOut(); }
@@ -5698,7 +5713,7 @@ document.addEventListener("visibilitychange", () => {
 if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").catch(() => {});
 
 // Keep the installed app current: when it comes back to the screen, see if a newer build is live and load it.
-const APP_BUILD = "dhq-shell-v36";
+const APP_BUILD = "dhq-shell-v37";
 let lastHidden = 0, updating = false;
 async function checkForUpdate(auto) {
   if (updating) return;
