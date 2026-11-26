@@ -917,7 +917,7 @@ function renderSports() {
   const body = $("#sports-body");
   if (!body) return;
   if (!data.sports.length) return;
-  const mode = cfg.sports.mode || "mine";
+  let mode = cfg.sports.mode || "mine";
   const view = cfg.sports.view || "scores";
   const seg = `<div class="sp-bar sp-views"><div class="seg" role="tablist">${SP_VIEWS.map(([v, l, i]) => `<button data-spview="${v}" class="${view === v ? "on" : ""}">${ic(i)} ${l}</button>`).join("")}</div></div>` +
     (view === "scores" ? `<div class="sp-bar"><div class="seg" role="tablist">${SP_MODES.map(([v, l]) => `<button data-spmode="${v}" class="${mode === v ? "on" : ""}">${l}</button>`).join("")}</div></div>` : "");
@@ -928,6 +928,11 @@ function renderSports() {
   const hubBar = mainBar;
   if (cfg.sports.lgPage && LEAGUES[cfg.sports.lgPage] && cfg.sports.leagues.some((x) => x.key === cfg.sports.lgPage)) return renderLeaguePage(body, mainBar);
   if (view !== "scores") return renderSportsAlt(body, hubBar + seg, view);
+  const segNoDays = `<div class="sp-bar sp-views"><div class="seg" role="tablist">${SP_VIEWS.map(([v, l, i]) => `<button data-spview="${v}" class="${view === v ? "on" : ""}">${ic(i)} ${l}</button>`).join("")}</div></div>`;
+  if (renderByView(body, hubBar + segNoDays, "scores")) return;
+  const byst = byState("scores");
+  const byBar = byBarHTML("scores", byst);
+  if (byst.mode === "team") mode = "mine";
 
   const upnext = "";
   const tiles = data.sports
@@ -972,7 +977,7 @@ function renderSports() {
         <div class="league-body">${inner}</div></div>`;
     })
     .join("");
-  body.innerHTML = hubBar + seg + upnext + `<div class="leagues">${tiles}</div>`;
+  body.innerHTML = hubBar + segNoDays + byBar + (byst.mode === "team" ? "" : seg.replace(segNoDays, "")) + upnext + `<div class="leagues">${tiles}</div>`;
   updateBadges();
 }
 
@@ -1343,6 +1348,20 @@ function lgSel(kind, L) {
   return v && (v === "all" || schedTeams(L).includes(v)) ? v : "all";
 }
 const onLeaguePage = () => !!(cfg.sports.lgPage && (cfg.sports.main || "") === "leagues");
+// One league's scores with Yesterday / Today / Tomorrow (and My teams)
+function leagueScoresHTML(key, events) {
+  const meta = LEAGUES[key];
+  const L = cfg.sports.leagues.find((x) => x.key === key);
+  if (meta.kind === "golf") return events.length ? events.map(golfHTML).join("") : `<div class="empty">No ${esc(meta.name)} event this week.</div>`;
+  const days = [...((L.teams || []).length ? [["mine", "My teams"]] : []), ["-1", "Yesterday"], ["0", "Today"], ["1", "Tomorrow"]];
+  let d = cfg.sports.lgDay || "0";
+  if (!days.some(([v]) => v === d)) d = "0";
+  const rank = { in: 0, pre: 1, post: 2 };
+  const games = d === "mine" ? pickGames(L, events) : events.filter((e) => sameDay(new Date(e.date), addDays(+d)) || (d === "0" && e.state === "in")).sort((a, b) => rank[a.state] - rank[b.state] || new Date(a.date) - new Date(b.date));
+  gameHTML.path = meta.path;
+  return `<div class="sp-bar"><div class="seg">${days.map(([v, l]) => `<button data-lgday="${v}" class="${d === v ? "on" : ""}">${l}</button>`).join("")}</div></div>` +
+    (games.length ? (meta.kind === "cricket" ? games.map((g) => cricketHTML(g, L.teams || [])) : games.map((g) => gameHTML(g, L.teams || []))).join("") : `<div class="empty">No ${esc(meta.name)} games ${d === "mine" ? "for your teams this week" : d === "0" ? "today" : d === "1" ? "tomorrow" : "yesterday"}.</div>`);
+}
 function renderLeaguePage(body, mainBar) {
   const key = cfg.sports.lgPage;
   const meta = LEAGUES[key];
@@ -1360,17 +1379,7 @@ function renderLeaguePage(body, mainBar) {
   const events = row.events || [];
   if (row.error) inner = `<div class="err">Couldn't load ${esc(meta.name)} right now — will retry.</div>`;
   else if (tab === "scores") {
-    if (meta.kind === "golf") inner = events.length ? events.map(golfHTML).join("") : `<div class="empty">No ${esc(meta.name)} event this week.</div>`;
-    else {
-      const days = [...((L.teams || []).length ? [["mine", "My teams"]] : []), ["-1", "Yesterday"], ["0", "Today"], ["1", "Tomorrow"]];
-      let d = cfg.sports.lgDay || "0";
-      if (!days.some(([v]) => v === d)) d = "0";
-      const rank = { in: 0, pre: 1, post: 2 };
-      const games = d === "mine" ? pickGames(L, events) : events.filter((e) => sameDay(new Date(e.date), addDays(+d)) || (d === "0" && e.state === "in")).sort((a, b) => rank[a.state] - rank[b.state] || new Date(a.date) - new Date(b.date));
-      gameHTML.path = meta.path;
-      inner = `<div class="sp-bar"><div class="seg">${days.map(([v, l]) => `<button data-lgday="${v}" class="${d === v ? "on" : ""}">${l}</button>`).join("")}</div></div>` +
-        (games.length ? (meta.kind === "cricket" ? games.map((g) => cricketHTML(g, L.teams || [])) : games.map((g) => gameHTML(g, L.teams || []))).join("") : `<div class="empty">No ${esc(meta.name)} games ${d === "mine" ? "for your teams this week" : d === "0" ? "today" : d === "1" ? "tomorrow" : "yesterday"}.</div>`);
-    }
+    inner = leagueScoresHTML(key, events);
   } else if (tab === "sched") inner = leagueSchedHTML(L, events, lgSel("sched", L));
   else if (tab === "news") { const ns = meta.kind ? "all" : lgSel("news", L); inner = sportsNewsPicker(L, ns) + `<div data-news-key="${key}|${esc(ns)}">${skeleton(5)}</div>`; }
   else {
@@ -1587,38 +1596,65 @@ function teamLeadersHTML(key, groups) {
   const cur = cats.find((c) => c.name === cfg.sports.lbCat?.[`t-${key}`]) || cats[0];
   return catChips(`t-${key}`, cats, cur.name) + lbList(cur.leaders, mine);
 }
-// Sports news: By league (only that league's headlines) or By team (only that team's, or a mix of all your teams)
-function renderSportsNews(body, seg) {
-  const leagues = cfg.sports.leagues.filter((x) => LEAGUES[x.key] && LEAGUES[x.key].kind !== "cricket");
-  if (!leagues.length) { body.innerHTML = seg + `<div class="empty">Follow a league in Customize → Sports to see its news.</div>`; return; }
+// Scores, Schedule and News: By league (one league only) or By team (one team only). The pick is shared across the three views.
+function byState(view) {
+  const leagues = cfg.sports.leagues.filter((x) => LEAGUES[x.key] && (view !== "news" || LEAGUES[x.key].kind !== "cricket"));
   const mode = cfg.sports.newsMode === "team" ? "team" : "league";
   const teams = [];
   for (const L of leagues) if (!LEAGUES[L.key].kind) for (const ab of schedTeams(L)) teams.push({ key: L.key, ab, fav: (L.teams || []).includes(ab) });
+  const allowAllLeagues = view === "scores", allowMine = view !== "sched";
+  let lg = cfg.sports.newsLeague;
+  if (!(lg === "all" && allowAllLeagues) && !leagues.some((x) => x.key === lg)) lg = allowAllLeagues ? "all" : leagues[0]?.key;
+  let tm = cfg.sports.newsTeam || "";
+  if (!((tm === "mine" && allowMine && teams.length > 1) || teams.some((t) => `${t.key}|${t.ab}` === tm))) tm = teams.length > 1 && allowMine ? "mine" : teams[0] ? `${teams[0].key}|${teams[0].ab}` : "";
+  return { leagues, teams, mode, lg, tm, allowAllLeagues, allowMine };
+}
+function byBarHTML(view, st) {
+  const { leagues, teams, mode, lg, tm, allowAllLeagues, allowMine } = st;
   const modeBar = `<div class="seg news-mode">${[["league", "By league", "trophy"], ["team", "By team", "star"]].map(([v, l, i]) => `<button data-newsmode="${v}" class="${mode === v ? "on" : ""}">${ic(i, "xs")} ${l}</button>`).join("")}</div>`;
-  let picker, key, sel, label;
   if (mode === "league") {
-    key = leagues.some((x) => x.key === cfg.sports.newsLeague) ? cfg.sports.newsLeague : leagues[0].key;
-    sel = "all";
-    label = `${LEAGUES[key].name} news`;
-    picker = `<div class="sch-bar"><label class="sch-sel">${leagueBadge(key)}<select data-newsleague aria-label="League">${leagues.map((x) => `<option value="${x.key}" ${x.key === key ? "selected" : ""}>${esc(LEAGUES[x.key].name)}</option>`).join("")}</select>${ic("chevron-down", "xs")}</label></div>`;
-  } else {
-    const cur = cfg.sports.newsTeam || "";
-    const valid = cur === "mine" || teams.some((t) => `${t.key}|${t.ab}` === cur);
-    const v = valid ? cur : teams.length ? `${teams[0].key}|${teams[0].ab}` : "";
-    const groups = [...new Set(teams.map((t) => t.key))].map((k) => `<optgroup label="${esc(LEAGUES[k].name)}">${teams.filter((t) => t.key === k).map((t) => `<option value="${t.key}|${t.ab}" ${v === `${t.key}|${t.ab}` ? "selected" : ""}>${t.fav ? "★ " : ""}${esc(teamName(t.key, t.ab))}</option>`).join("")}</optgroup>`).join("");
-    const logo = v && v !== "mine" ? (teamCache[v.split("|")[0]] || []).find((x) => x.abbr === v.split("|")[1])?.logo : "";
-    picker = teams.length ? `<div class="sch-bar"><label class="sch-sel">${logo ? `<img class="sel-logo" src="${esc(logo)}" alt="">` : ic("star", "xs")}<select data-newsteam aria-label="Team">${teams.length > 1 ? `<option value="mine" ${v === "mine" ? "selected" : ""}>All my teams</option>` : ""}${groups}<option value="__add">＋ Add or remove teams…</option></select>${ic("chevron-down", "xs")}</label></div>` : "";
-    if (!teams.length) { body.innerHTML = seg + modeBar + `<div class="empty">No favorite teams yet. <button class="linkish" data-open-settings="sports">Pick your teams</button></div>`; return; }
-    if (v === "mine") { key = ""; sel = "mine"; label = "All my teams"; }
-    else { [key, sel] = v.split("|"); label = `${teamName(key, sel)} news`; }
+    return modeBar + `<div class="sch-bar"><label class="sch-sel">${lg === "all" ? ic("layout-grid", "xs") : leagueBadge(lg)}<select data-newsleague aria-label="League">${allowAllLeagues ? `<option value="all" ${lg === "all" ? "selected" : ""}>All my leagues</option>` : ""}${leagues.map((x) => `<option value="${x.key}" ${x.key === lg ? "selected" : ""}>${esc(LEAGUES[x.key].name)}</option>`).join("")}</select>${ic("chevron-down", "xs")}</label></div>`;
   }
-  const list = sel === "mine" ? `<div id="forYou">${skeleton(5)}</div>` : `<div data-news-key="${key}|${esc(sel)}">${skeleton(5)}</div>`;
-  body.innerHTML = seg + modeBar + picker + `<div class="news-pane"><h5 class="sch-day">${esc(label)}</h5>${list}</div>`;
+  if (!teams.length) return modeBar + `<div class="empty">No favorite teams yet. <button class="linkish" data-open-settings="sports">Pick your teams</button></div>`;
+  const groups = [...new Set(teams.map((t) => t.key))].map((k) => `<optgroup label="${esc(LEAGUES[k].name)}">${teams.filter((t) => t.key === k).map((t) => `<option value="${t.key}|${t.ab}" ${tm === `${t.key}|${t.ab}` ? "selected" : ""}>${t.fav ? "★ " : ""}${esc(teamName(t.key, t.ab))}</option>`).join("")}</optgroup>`).join("");
+  const logo = tm && tm !== "mine" ? (teamCache[tm.split("|")[0]] || []).find((x) => x.abbr === tm.split("|")[1])?.logo : "";
+  return modeBar + `<div class="sch-bar"><label class="sch-sel">${logo ? `<img class="sel-logo" src="${esc(logo)}" alt="">` : ic("star", "xs")}<select data-newsteam aria-label="Team">${allowMine && teams.length > 1 ? `<option value="mine" ${tm === "mine" ? "selected" : ""}>All my teams</option>` : ""}${groups}<option value="__add">＋ Add or remove teams…</option></select>${ic("chevron-down", "xs")}</label></div>`;
+}
+function renderByView(body, seg, view) {
+  const st = byState(view);
+  if (!st.leagues.length) { body.innerHTML = seg + `<div class="empty">Follow a league in Customize → Sports.</div>`; return true; }
+  // "All my leagues" scores, and "All my teams" scores, use the original multi-league board
+  if (view === "scores" && ((st.mode === "league" && st.lg === "all") || (st.mode === "team" && (st.tm === "mine" || !st.tm)))) return false;
+  const bar = byBarHTML(view, st);
+  if (st.mode === "team" && !st.teams.length) { body.innerHTML = seg + bar; updateBadges(); return true; }
+  let label, inner, after;
+  if (st.mode === "league") {
+    const key = st.lg, meta = LEAGUES[key];
+    const row = data.sports.find((r) => r.L.key === key) || { L: cfg.sports.leagues.find((x) => x.key === key), events: [] };
+    const L = row.L;
+    label = view === "news" ? `${meta.name} news` : view === "sched" ? `${meta.name} schedule` : `${meta.name} scores`;
+    if (row.error) inner = `<div class="err">Couldn't load ${esc(meta.name)} right now — will retry.</div>`;
+    else if (view === "scores") inner = leagueScoresHTML(key, row.events || []);
+    else if (view === "sched") { inner = leagueSchedHTML(L, row.events || [], "all").replace(/<div class="sch-bar">[\s\S]*?<\/label><\/div>/, ""); after = fillTeamSchedules; }
+    else { inner = `<div data-news-key="${key}|all">${skeleton(5)}</div>`; after = fillSportsNews; }
+  } else {
+    if (st.tm === "mine") { label = "All my teams"; inner = `<div id="forYou">${skeleton(5)}</div>`; after = fillSportsNews; }
+    else {
+      const [key, ab] = st.tm.split("|");
+      const nm = teamName(key, ab);
+      label = view === "news" ? `${nm} news` : view === "sched" ? `${nm} schedule` : `${nm} scores`;
+      if (view === "scores") inner = hubGamesHTML(key, ab) + `<button class="lg-more sch-exp" data-newsview="sched">${ic("calendar", "xs")} Full season schedule</button>`;
+      else if (view === "sched") { inner = `<div class="sch-team" data-sched-team="${esc(key)}|${esc(ab)}">${skeleton(6)}</div>`; after = fillTeamSchedules; }
+      else { inner = `<div data-news-key="${esc(key)}|${esc(ab)}">${skeleton(5)}</div>`; after = fillSportsNews; }
+    }
+  }
+  body.innerHTML = seg + bar + `<div class="news-pane"><h5 class="sch-day">${esc(label)}</h5>${inner}</div>`;
   updateBadges();
-  fillSportsNews();
+  after?.();
+  return true;
 }
 function renderSportsAlt(body, seg, view) {
-  if (view === "news") return renderSportsNews(body, seg);
+  if ((view === "news" || view === "sched") && renderByView(body, seg, view)) return;
   const tiles = data.sports.map(({ L, events, error }) => {
     const meta = LEAGUES[L.key];
     if (!meta) return "";
@@ -4145,6 +4181,8 @@ document.addEventListener("click", async (e) => {
   if (t.closest("[data-lgback]")) { cfg.sports.lgPage = ""; save(); renderSports(); $("#sec-sports")?.scrollIntoView({ block: "start" }); return; }
   const lgt = t.closest("[data-lgtab]");
   if (lgt) { cfg.sports.lgTab = lgt.dataset.lgtab; save(); renderSports(); return; }
+  const nv = t.closest("[data-newsview]");
+  if (nv) { cfg.sports.view = nv.dataset.newsview; save(); renderSports(); return; }
   const nmode = t.closest("[data-newsmode]");
   if (nmode) { cfg.sports.newsMode = nmode.dataset.newsmode; save(); renderSports(); return; }
   const lgd = t.closest("[data-lgday]");
@@ -4899,7 +4937,7 @@ document.addEventListener("visibilitychange", () => {
 if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").catch(() => {});
 
 // Keep the installed app current: when it comes back to the screen, see if a newer build is live and load it.
-const APP_BUILD = "dhq-shell-v18";
+const APP_BUILD = "dhq-shell-v19";
 let lastHidden = 0, updating = false;
 async function checkForUpdate(auto) {
   if (updating) return;
