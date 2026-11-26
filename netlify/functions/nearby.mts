@@ -135,11 +135,13 @@ const G_DAILY = 30;
 async function googleBudget(kind: string) {
   const store = getStore({ name: "nearby-cache", consistency: "strong" });
   const k = `gcount/${new Date().toISOString().slice(0, 10)}/${kind}`;
-  let n = 0;
-  try { n = Number(await store.get(k)) || 0; } catch {}
-  if (n >= G_DAILY) return false;
-  try { await store.set(k, String(n + 1)); } catch {}
-  return true;
+  // if the counter can't be read or saved, don't call Google (fail safe = free)
+  try {
+    const n = Number(await store.get(k)) || 0;
+    if (n >= G_DAILY) return false;
+    await store.set(k, String(n + 1));
+    return true;
+  } catch { return false; }
 }
 async function googleText(key: string, lat: number, lon: number, text: string, r: number) {
   const res = await fetch("https://places.googleapis.com/v1/places:searchText", {
