@@ -54,11 +54,49 @@ async function googleNearby(key: string, lat: number, lon: number, cat: string, 
   })).filter((x: any) => x.name && x.lat != null);
 }
 
+// ---------- Geoapify (managed OpenStreetMap data), used when GEOAPIFY_KEY is set: fast and reliable, caching allowed
+const GEO_CATS: Record<string, string> = {
+  food: "catering.restaurant,catering.fast_food",
+  coffee: "catering.cafe,catering.ice_cream,commercial.food_and_drink.bakery",
+  bars: "catering.bar,catering.pub,catering.biergarten,production.brewery,production.winery",
+  todo: "tourism.attraction,entertainment.museum,entertainment.cinema,entertainment.culture.theatre,entertainment.bowling_alley,entertainment.miniature_golf,entertainment.escape_game,entertainment.amusement_arcade,entertainment.theme_park",
+  parks: "leisure.park,national_park,natural.protected_area,beach",
+  family: "leisure.playground,education.library,entertainment.zoo,entertainment.aquarium,entertainment.activity_park.trampoline,entertainment.theme_park",
+};
+async function geoNearby(key: string, lat: number, lon: number, cat: string, r: number) {
+  const u = `https://api.geoapify.com/v2/places?categories=${GEO_CATS[cat]}&filter=circle:${lon},${lat},${Math.round(r)}&bias=proximity:${lon},${lat}&limit=100&apiKey=${key}`;
+  const res = await fetch(u, { signal: AbortSignal.timeout(8000) });
+  if (!res.ok) throw new Error(`geoapify ${res.status} ${(await res.text()).slice(0, 200)}`);
+  const d: any = await res.json();
+  const seen = new Set<string>();
+  return (d.features || []).map((f: any) => {
+    const p = f.properties || {}, t = p.datasource?.raw || {};
+    const name = p.name || t.name;
+    if (!name || p.lat == null) return null;
+    const k = `${name.toLowerCase()}|${Math.round(p.lat * 1000)}|${Math.round(p.lon * 1000)}`;
+    if (seen.has(k)) return null;
+    seen.add(k);
+    const street = [p.housenumber, p.street].filter(Boolean).join(" ");
+    const leaf = (p.categories || []).filter((c: string) => c.split(".").length === 2).map((c: string) => c.split(".")[1])[0] || "";
+    return {
+      id: p.place_id || `${f.geometry?.coordinates}`, name, kind: t.amenity || t.tourism || t.leisure || t.shop || t.craft || t.natural || leaf,
+      cuisine: (t.cuisine || p.catering?.cuisine || "").replace(/_/g, " ").split(";").slice(0, 3).join(", "),
+      lat: p.lat, lon: p.lon, dist: Math.round(p.distance ?? distM(lat, lon, p.lat, p.lon)),
+      addr: [street, p.city].filter(Boolean).join(", ") || p.address_line2 || "",
+      phone: p.contact?.phone || t.phone || t["contact:phone"] || "", website: p.website || t.website || t["contact:website"] || "",
+      hours: p.opening_hours || t.opening_hours || "",
+      diet: Object.keys(t).filter((x) => x.startsWith("diet:") && /yes|only/.test(t[x])).map((x) => x.slice(5)),
+      takeaway: t.takeaway === "yes", delivery: t.delivery === "yes", outdoor: t.outdoor_seating === "yes", brand: t.brand || "",
+    };
+  }).filter(Boolean).sort((a: any, b: any) => a.dist - b.dist).slice(0, 150);
+}
+
 export default async (req: Request) => {
   const q = new URL(req.url).searchParams;
   const gkey = Netlify.env.get("GOOGLE_PLACES_KEY") || "";
   // A place photo: ask Google for the image address (keeps the key on the server) and send the phone there
-  if (q.get("probe")) return json({ google: !!gkey }, 200, 300);
+  const geokey = Netlify.env.get("GEOAPIFY_KEY") || "";
+  if (q.get("probe")) return json({ google: !!gkey, geo: !!geokey }, 200, 300);
   const photo = q.get("photo");
   if (photo) {
     if (!gkey || !/^places\/[\w-]+\/photos\/[\w-]+$/.test(photo)) return json({ error: "Bad photo" }, 400);
@@ -83,6 +121,18 @@ export default async (req: Request) => {
   const body = `[out:json][timeout:10];(${CATS[cat].map((s) => `${s}(around:${r},${la},${lo});`).join("")});out center tags qt 300;`;
   const store = getStore({ name: "nearby-cache", consistency: "eventual" });
   const ck = `${cat}/${la}/${lo}/${r}`;
+  if (geokey) {
+    // a fresh saved answer for this spot (under 6 hours) saves a call
+    try {
+      const c: any = await store.get(`geo/${ck}`, { type: "json" });
+      if (c?.items && Date.now() - c.at < 6 * 3600e3) return json({ items: c.items, provider: "geoapify" }, 200, 3600);
+    } catch {}
+    try {
+      const items = await geoNearby(geokey, la, lo, cat, r);
+      try { await store.setJSON(`geo/${ck}`, { at: Date.now(), items }); await store.setJSON(ck, { at: Date.now(), items }); } catch {}
+      return json({ items, provider: "geoapify" }, 200, 3600);
+    } catch (e: any) { console.log("geoapify failed, using Overpass", e?.message); }
+  }
   // Ask every public Overpass server at once and take the first good answer
   const ask = (ep: string, signal: AbortSignal) =>
     fetch(ep, { method: "POST", body: "data=" + encodeURIComponent(body), headers: { "content-type": "application/x-www-form-urlencoded", "user-agent": "DailyHQ/1.0 (personal dashboard)" }, signal })

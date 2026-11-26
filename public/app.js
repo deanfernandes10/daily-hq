@@ -4430,17 +4430,19 @@ function ovpItems(els, lat, lon) {
       hours: t.opening_hours || "", diet: Object.keys(t).filter((x) => x.startsWith("diet:") && /yes|only/.test(t[x])).map((x) => x.slice(5)), takeaway: t.takeaway === "yes", delivery: t.delivery === "yes", outdoor: t.outdoor_seating === "yes" };
   }).filter(Boolean).sort((a, b) => a.dist - b.dist).slice(0, 150);
 }
-// Is Google Places switched on (a key on the server)? Asked once per visit.
-let nbGoogle = null;
+// Which place provider is switched on (a key on the server)? Asked once per visit.
+let nbGoogle = null, nbGeo = false;
 async function nbProbe() {
   if (nbGoogle !== null) return nbGoogle;
-  try { nbGoogle = !!(await (await fetch("/api/nearby?probe=1")).json()).google; } catch { nbGoogle = false; }
+  try { const p = await (await fetch("/api/nearby?probe=1")).json(); nbGoogle = !!p.google; nbGeo = !!p.geo; } catch { nbGoogle = false; }
   return nbGoogle;
 }
 async function nearbyFetch(where, cat, rM) {
-  if (await nbProbe()) {
-    const r = await fetch(`/api/nearby?lat=${where.lat.toFixed(4)}&lon=${where.lon.toFixed(4)}&cat=${cat}&r=${rM}`);
-    if (r.ok) { const d = await r.json(); if (d.provider === "google") return Object.assign(d.items || [], { google: true }); if (d.items) return d.items; }
+  if ((await nbProbe()) || nbGeo) {
+    try {
+      const r = await fetch(`/api/nearby?lat=${where.lat.toFixed(4)}&lon=${where.lon.toFixed(4)}&cat=${cat}&r=${rM}`, { signal: AbortSignal.timeout(15000) });
+      if (r.ok) { const d = await r.json(); if (d.provider === "google") return Object.assign(d.items || [], { google: true }); if (d.items) return Object.assign(d.items, { geo: d.provider === "geoapify" }); }
+    } catch {}
   }
   const ctl = new AbortController();
   const stop = setTimeout(() => ctl.abort(), 25000);
@@ -4452,7 +4454,7 @@ async function nearbyFetch(where, cat, rM) {
   finally { clearTimeout(stop); ctl.abort(); }
 }
 // Results are kept on the phone, so Nearby opens instantly and refreshes quietly in the background
-const NB_STORE = "dailyhq.nearby.cache";
+const NB_STORE = "dailyhq.nearby.cache2";
 const nbCache = (() => { try { return JSON.parse(localStorage.getItem(NB_STORE) || "{}"); } catch { return {}; } })();
 function nbRemember(key, items) {
   nbCache[key] = { at: Date.now(), items };
@@ -4492,7 +4494,7 @@ async function loadNearby(force) {
   try {
     const items = await nbFetchCached(cat, where, rM, key);
     if (nb.key !== key) return;
-    nb.items = items; nb.google = !!items.google; nb.at = Date.now();
+    nb.items = items; nb.google = !!items.google; nb.geo = !!items.geo; nb.at = Date.now();
   } catch { if (nb.key === key && !cached) { nb.items = []; nb.err = "The map service is busy right now."; } }
   nb.loading = false; nb.refreshing = false;
   renderNearby();
@@ -4506,7 +4508,7 @@ async function prefetchNearby(where) {
   if (nbPrefetching) return;
   nbPrefetching = true;
   try {
-    for (const [cat] of NEARBY_CATS.filter(([k]) => k === "food" || k === "coffee")) {
+    for (const [cat] of NEARBY_CATS.filter(([k]) => nbGeo || k === "food" || k === "coffee")) {
       const { rM, key } = nbKeyFor(cat, where);
       if (nbCache[key] && Date.now() - nbCache[key].at < 6 * 3600e3) continue;
       try { await nbFetchCached(cat, where, rM, key); } catch {}
@@ -4528,7 +4530,7 @@ function renderNearby() {
   let list = "";
   if (cat === "events") list = `<div id="nbEvents">${skeleton(5)}</div>`;
   else if (nb.loading || !nb.items) list = `<div class="nb-wait">${ic("compass")} Finding ${esc((NEARBY_CATS.find(([k]) => k === cat) || [, "places"])[1].toLowerCase())} near ${esc(where?.name || "you")}…</div>${skeleton(4)}`;
-  else if (nb.err) list = `<div class="nb-fail"><b>${esc(nb.err)}</b><span>Place listings come from OpenStreetMap's free servers, which get busy at times.</span><button class="btn primary" data-nbretry>${ic("refresh-cw", "xs")} Try again</button><a class="btn" href="https://www.google.com/maps/search/${encodeURIComponent(((NEARBY_CATS.find(([k]) => k === cat) || [, "restaurants"])[1]).toLowerCase())}/@${where?.lat},${where?.lon},14z" target="_blank" rel="noopener">${ic("map", "xs")} Open in Google Maps</a></div>`;
+  else if (nb.err) list = `<div class="nb-fail"><b>${esc(nb.err)}</b><span>Couldn't reach the place listings just now.</span><button class="btn primary" data-nbretry>${ic("refresh-cw", "xs")} Try again</button><a class="btn" href="https://www.google.com/maps/search/${encodeURIComponent(((NEARBY_CATS.find(([k]) => k === cat) || [, "restaurants"])[1]).toLowerCase())}/@${where?.lat},${where?.lon},14z" target="_blank" rel="noopener">${ic("map", "xs")} Open in Google Maps</a></div>`;
   else {
     let items = nb.items;
     const cuisines = {};
@@ -4557,7 +4559,7 @@ function renderNearby() {
   queueToday();
   const sub = $("#nearby-sub"); if (sub) sub.textContent = where ? `Around ${where.name}${cfg.nearby.useGps ? " (you)" : ""}` : "";
   box.innerHTML = `${whereSel}${cats}${list}
-    <p class="more-foot">${nb.google ? `<span class="g-attr">Google Maps</span> Ratings, hours and photos from Google.` : "Places from OpenStreetMap contributors. Hours may be out of date — check before you go. Reviews open in Google Maps."}</p>`;
+    <p class="more-foot">${nb.google ? `<span class="g-attr">Google Maps</span> Ratings, hours and photos from Google.` : `${nbGeo ? `<a href="https://www.geoapify.com/" target="_blank" rel="noopener">Powered by Geoapify</a> · ` : ""}Places © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> contributors. Hours may be out of date — check before you go. Reviews open in Google Maps.`}</p>`;
   if (cat === "events") fillNearbyEvents();
 }
 const tmKey = () => !!data.extras?.events && !data.extras.events.needsKey;
@@ -5578,7 +5580,7 @@ document.addEventListener("visibilitychange", () => {
 if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").catch(() => {});
 
 // Keep the installed app current: when it comes back to the screen, see if a newer build is live and load it.
-const APP_BUILD = "dhq-shell-v33";
+const APP_BUILD = "dhq-shell-v34";
 let lastHidden = 0, updating = false;
 async function checkForUpdate(auto) {
   if (updating) return;
