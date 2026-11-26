@@ -4150,7 +4150,7 @@ function renderSummaries() {
   // nearby
   if (nb.items && !nb.err) {
     const lbl = (NEARBY_CATS.find(([k]) => k === cfg.nearby?.cat) || [, "places"])[1].toLowerCase();
-    const open = nb.items.filter((it) => openNow(it.hours) === true).length;
+    const open = nb.items.filter((it) => isOpen(it) === true).length;
     set("nearby", `${nb.items.length} ${lbl} within ${cfg.nearby.radius} ${cfg.units === "F" ? "mi" : "km"}${open ? ` · ${open} open now` : ""}`);
   }
   // brief
@@ -4281,9 +4281,9 @@ function wInner(w) {
     }
     case "nearby": {
       const lbl = (NEARBY_CATS.find(([k]) => k === cfg.nearby?.cat) || [, "Places"])[1];
-      const items = (nb.items || []).slice().sort((a, b) => (openNow(b.hours) === true) - (openNow(a.hours) === true) || a.dist - b.dist);
-      const openN = (nb.items || []).filter((x) => openNow(x.hours) === true).length;
-      const pl = (it) => `<a class="wnb-i" href="https://maps.apple.com/?daddr=${it.lat},${it.lon}&q=${encodeURIComponent(it.name)}" target="_blank" rel="noopener">${it.website ? `<span class="wnb-logo">${favi(hostName(/^https?:/.test(it.website) ? it.website : `https://${it.website}`), "", 64)}</span>` : ""}<span><b>${esc(it.name)}</b><small>${esc([it.cuisine ? it.cuisine.split(",")[0] : KIND_LABEL[it.kind] || "", fmtDist(it.dist)].filter(Boolean).join(" · "))}</small></span>${openNow(it.hours) === true ? `<i class="nb-open">Open</i>` : ""}</a>`;
+      const items = (nb.items || []).slice().sort((a, b) => (isOpen(b) === true) - (isOpen(a) === true) || a.dist - b.dist);
+      const openN = (nb.items || []).filter((x) => isOpen(x) === true).length;
+      const pl = (it) => `<a class="wnb-i" href="https://maps.apple.com/?daddr=${it.lat},${it.lon}&q=${encodeURIComponent(it.name)}" target="_blank" rel="noopener">${it.website ? `<span class="wnb-logo">${favi(hostName(/^https?:/.test(it.website) ? it.website : `https://${it.website}`), "", 64)}</span>` : ""}<span><b>${esc(it.name)}</b><small>${it.rating ? `★ ${it.rating.toFixed(1)} · ` : ""}${esc([it.price, it.cuisine ? it.cuisine.split(",")[0] : KIND_LABEL[it.kind] || "", fmtDist(it.dist)].filter(Boolean).join(" · "))}</small></span>${isOpen(it) === true ? `<i class="nb-open">Open</i>` : ""}</a>`;
       if (!nb.items) return `<div class="w-pad wnb">${head("compass", "Nearby")}<div class="w-muted">Finding places…</div></div>`;
       if (S === "s") return `<div class="w-pad wnb" data-wgo="nearby">${head("compass", "Nearby")}<div class="wnb-big"><b>${openN || items.length}</b><span>${esc(lbl.toLowerCase())} ${openN ? "open now" : "nearby"}</span></div>${items[0] ? `<div class="wnb-top">${esc(items[0].name)} · ${esc(fmtDist(items[0].dist))}</div>` : ""}</div>`;
       const cats = S === "l" ? `<div class="wnb-cats">${NEARBY_CATS.slice(0, 4).map(([k, l, i]) => `<span data-nbgo="${k}" data-goto="nearby" class="${cfg.nearby?.cat === k ? "on" : ""}">${ic(i, "xs")} ${l}</span>`).join("")}</div>` : "";
@@ -4398,6 +4398,8 @@ function openNow(spec, d = new Date()) {
   return result;
 }
 if (cfg.nearby?.useGps && navigator.geolocation) navigator.geolocation.getCurrentPosition((p) => { nb.gps = { lat: p.coords.latitude, lon: p.coords.longitude }; if (document.body.dataset.view === "nearby") loadNearby(); }, () => {}, { timeout: 10000, maximumAge: 300000 });
+const isOpen = (it) => (it.open === true || it.open === false ? it.open : isOpen(it));
+const stars = (r) => `<span class="nb-stars" style="--r:${(r / 5) * 100}%">★★★★★</span>`;
 function nbWhere() {
   if (cfg.nearby?.useGps && nb.gps) return { name: "Current location", lat: nb.gps.lat, lon: nb.gps.lon };
   const cities = cfg.weather.cities || [];
@@ -4428,7 +4430,18 @@ function ovpItems(els, lat, lon) {
       hours: t.opening_hours || "", diet: Object.keys(t).filter((x) => x.startsWith("diet:") && /yes|only/.test(t[x])).map((x) => x.slice(5)), takeaway: t.takeaway === "yes", delivery: t.delivery === "yes", outdoor: t.outdoor_seating === "yes" };
   }).filter(Boolean).sort((a, b) => a.dist - b.dist).slice(0, 150);
 }
+// Is Google Places switched on (a key on the server)? Asked once per visit.
+let nbGoogle = null;
+async function nbProbe() {
+  if (nbGoogle !== null) return nbGoogle;
+  try { nbGoogle = !!(await (await fetch("/api/nearby?probe=1")).json()).google; } catch { nbGoogle = false; }
+  return nbGoogle;
+}
 async function nearbyFetch(where, cat, rM) {
+  if (await nbProbe()) {
+    const r = await fetch(`/api/nearby?lat=${where.lat.toFixed(4)}&lon=${where.lon.toFixed(4)}&cat=${cat}&r=${rM}`);
+    if (r.ok) { const d = await r.json(); if (d.provider === "google") return Object.assign(d.items || [], { google: true }); if (d.items) return d.items; }
+  }
   const ctl = new AbortController();
   const stop = setTimeout(() => ctl.abort(), 25000);
   const q = `[out:json][timeout:10];(${OVP_CATS[cat].map((x) => `${x}(around:${rM},${where.lat.toFixed(4)},${where.lon.toFixed(4)});`).join("")});out center tags qt 300;`;
@@ -4453,7 +4466,7 @@ function nbKeyFor(cat, where) {
   return { rM, key: `${cat}|${where.lat.toFixed(3)}|${where.lon.toFixed(3)}|${rM}` };
 }
 function nbFetchCached(cat, where, rM, key) {
-  if (!nbInflight[key]) nbInflight[key] = nearbyFetch(where, cat, rM).then((items) => { nbRemember(key, items); return items; }).finally(() => delete nbInflight[key]);
+  if (!nbInflight[key]) nbInflight[key] = nearbyFetch(where, cat, rM).then((items) => { if (!items.google) nbRemember(key, items); return items; }).finally(() => delete nbInflight[key]);
   return nbInflight[key];
 }
 async function loadNearby(force) {
@@ -4462,7 +4475,10 @@ async function loadNearby(force) {
   if (!where) { nb.items = []; nb.err = "Add a city in Weather (or use your location) to see what's nearby."; return renderNearby(); }
   const cat = cfg.nearby.cat;
   const { rM, key } = nbKeyFor(cat, where);
-  const cached = nbCache[key];
+  const g = await nbProbe();
+  // Google results: reuse what's on screen for 10 minutes, never stored
+  if (g && !force && nb.key === key && nb.items && !nb.err && Date.now() - (nb.at || 0) < 10 * 60e3) return renderNearby();
+  const cached = g ? null : nbCache[key];
   const fresh = cached && Date.now() - cached.at < 6 * 3600e3;
   if (!force && nb.key === key && nb.items && !nb.err && (fresh || nb.refreshing)) return renderNearby();
   nb.key = key; nb.where = where; nb.err = ""; nb.cuisine = nb.key === key ? nb.cuisine : "";
@@ -4476,7 +4492,7 @@ async function loadNearby(force) {
   try {
     const items = await nbFetchCached(cat, where, rM, key);
     if (nb.key !== key) return;
-    nb.items = items;
+    nb.items = items; nb.google = !!items.google; nb.at = Date.now();
   } catch { if (nb.key === key && !cached) { nb.items = []; nb.err = "The map service is busy right now."; } }
   nb.loading = false; nb.refreshing = false;
   renderNearby();
@@ -4486,6 +4502,7 @@ async function loadNearby(force) {
 // Quietly fetch the other categories one at a time, so switching tabs is instant too
 let nbPrefetching = false;
 async function prefetchNearby(where) {
+  if (nbPrefetching || nbGoogle) return; // Google's terms don't allow fetching ahead
   if (nbPrefetching) return;
   nbPrefetching = true;
   try {
@@ -4518,17 +4535,19 @@ function renderNearby() {
     if (cat === "food" || cat === "coffee") for (const it of items) for (const c of (it.cuisine || "").split(", ").filter(Boolean)) cuisines[c] = (cuisines[c] || 0) + 1;
     const topC = Object.entries(cuisines).sort((a, b) => b[1] - a[1]).slice(0, 12).map(([c]) => c);
     if (nb.cuisine) items = items.filter((it) => (it.cuisine || "").split(", ").includes(nb.cuisine));
-    if (nb.openOnly) items = items.filter((it) => openNow(it.hours) === true);
+    if (nb.openOnly) items = items.filter((it) => isOpen(it) === true);
     const filters = `<div class="nb-filters"><button data-nbopen class="${nb.openOnly ? "on" : ""}">${ic("clock", "xs")} Open now</button>${topC.map((c) => `<button data-nbcuisine="${esc(c)}" class="${nb.cuisine === c ? "on" : ""}">${esc(c.replace(/^./, (x) => x.toUpperCase()))}</button>`).join("")}</div>`;
     const mapsQ = (it) => encodeURIComponent(`${it.name} ${it.addr || where?.name || ""}`);
     const card = (it) => {
-      const o = openNow(it.hours);
+      const o = isOpen(it);
       const kind = KIND_LABEL[it.kind] || "";
-      const meta = [it.cuisine ? it.cuisine.replace(/^./, (x) => x.toUpperCase()) : kind, fmtDist(it.dist)].filter(Boolean).join(" · ");
+      const meta = [it.price, it.cuisine ? it.cuisine.replace(/^./, (x) => x.toUpperCase()) : kind, fmtDist(it.dist)].filter(Boolean).join(" · ");
+      const rate = it.rating ? `<span class="nb-rate"><b>${it.rating.toFixed(1)}</b>${stars(it.rating)}<small>(${it.reviews >= 1000 ? `${(it.reviews / 1000).toFixed(1)}k` : it.reviews})</small></span>` : "";
+      const photo = it.photo ? `<img class="nb-photo" src="/api/nearby?photo=${encodeURIComponent(it.photo)}" alt="" loading="lazy" onerror="this.remove()">` : "";
       const tags = [o === true ? `<span class="nb-open">Open now</span>` : o === false ? `<span class="nb-closed">Closed</span>` : "", it.takeaway ? "Takeout" : "", it.delivery ? "Delivery" : "", it.outdoor ? "Outdoor seating" : "", ...(it.diet || []).slice(0, 2).map((d) => d.replace(/_/g, " ").replace(/^./, (x) => x.toUpperCase()))].filter(Boolean);
       const brand = it.website ? favi(hostName(/^https?:/.test(it.website) ? it.website : `https://${it.website}`), "nb-logo", 128) : "";
-      return `<div class="nb-card"><div class="nb-top"><span class="nb-badge"><span class="nb-cat">${ic((NEARBY_CATS.find(([k]) => k === cat) || [, , "compass"])[2])}</span>${brand}</span><b>${esc(it.name)}</b><small>${esc(meta)}</small>${it.addr ? `<small class="nb-addr">${esc(it.addr)}</small>` : ""}${tags.length ? `<div class="nb-tags">${tags.map((t) => t.startsWith("<") ? t : `<span>${esc(t)}</span>`).join("")}</div>` : ""}</div>
-        <div class="nb-acts"><a href="https://maps.apple.com/?daddr=${it.lat},${it.lon}&q=${encodeURIComponent(it.name)}" target="_blank" rel="noopener">${ic("navigation", "xs")} Directions</a>${it.phone ? `<a href="tel:${esc(it.phone.replace(/[^\d+]/g, ""))}">${ic("phone", "xs")} Call</a>` : ""}${it.website ? `<a href="${esc(/^https?:/.test(it.website) ? it.website : `https://${it.website}`)}" target="_blank" rel="noopener">${ic("globe", "xs")} Website</a>` : ""}<a href="https://www.google.com/maps/search/?api=1&query=${mapsQ(it)}" target="_blank" rel="noopener">${ic("star", "xs")} Reviews</a></div></div>`;
+      return `<div class="nb-card"><div class="nb-top">${photo}<span class="nb-badge"><span class="nb-cat">${ic((NEARBY_CATS.find(([k]) => k === cat) || [, , "compass"])[2])}</span>${brand}</span><b>${esc(it.name)}</b>${rate}<small>${esc(meta)}</small>${it.addr ? `<small class="nb-addr">${esc(it.addr)}</small>` : ""}${tags.length ? `<div class="nb-tags">${tags.map((t) => t.startsWith("<") ? t : `<span>${esc(t)}</span>`).join("")}</div>` : ""}</div>
+        <div class="nb-acts"><a href="https://maps.apple.com/?daddr=${it.lat},${it.lon}&q=${encodeURIComponent(it.name)}" target="_blank" rel="noopener">${ic("navigation", "xs")} Directions</a>${it.phone ? `<a href="tel:${esc(it.phone.replace(/[^\d+]/g, ""))}">${ic("phone", "xs")} Call</a>` : ""}${it.website ? `<a href="${esc(/^https?:/.test(it.website) ? it.website : `https://${it.website}`)}" target="_blank" rel="noopener">${ic("globe", "xs")} Website</a>` : ""}<a href="${esc(it.maps || `https://www.google.com/maps/search/?api=1&query=${mapsQ(it)}`)}" target="_blank" rel="noopener">${ic("star", "xs")} ${it.maps ? "Google Maps" : "Reviews"}</a></div></div>`;
     };
     const full = document.body.dataset.view === "nearby" || nb.all;
     const lim = full ? 60 : 5;
@@ -4538,7 +4557,7 @@ function renderNearby() {
   queueToday();
   const sub = $("#nearby-sub"); if (sub) sub.textContent = where ? `Around ${where.name}${cfg.nearby.useGps ? " (you)" : ""}` : "";
   box.innerHTML = `${whereSel}${cats}${list}
-    <p class="more-foot">Places from OpenStreetMap contributors. Hours may be out of date — check before you go. Reviews open in Google Maps.</p>`;
+    <p class="more-foot">${nb.google ? `<span class="g-attr">Google Maps</span> Ratings, hours and photos from Google.` : "Places from OpenStreetMap contributors. Hours may be out of date — check before you go. Reviews open in Google Maps."}</p>`;
   if (cat === "events") fillNearbyEvents();
 }
 const tmKey = () => !!data.extras?.events && !data.extras.events.needsKey;
@@ -5559,7 +5578,7 @@ document.addEventListener("visibilitychange", () => {
 if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").catch(() => {});
 
 // Keep the installed app current: when it comes back to the screen, see if a newer build is live and load it.
-const APP_BUILD = "dhq-shell-v30";
+const APP_BUILD = "dhq-shell-v31";
 let lastHidden = 0, updating = false;
 async function checkForUpdate(auto) {
   if (updating) return;

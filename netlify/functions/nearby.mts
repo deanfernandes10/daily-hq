@@ -36,13 +36,61 @@ const distM = (a: number, b: number, c: number, d: number) => {
   return 2 * R * Math.asin(Math.sqrt(h));
 };
 
+// ---------- Google Places (New), used when GOOGLE_PLACES_KEY is set: ratings, photos, prices, open now
+const G_TYPES: Record<string, string[]> = {
+  food: ["restaurant"],
+  coffee: ["cafe", "coffee_shop", "bakery", "ice_cream_shop"],
+  bars: ["bar", "pub", "wine_bar", "night_club"],
+  todo: ["tourist_attraction", "museum", "art_gallery", "movie_theater", "bowling_alley", "amusement_park", "performing_arts_theater", "aquarium", "zoo", "casino"],
+  parks: ["park", "national_park", "hiking_area", "beach", "state_park"],
+  family: ["amusement_center", "amusement_park", "playground", "zoo", "aquarium", "library"],
+};
+const G_FIELDS = ["id", "displayName", "shortFormattedAddress", "location", "rating", "userRatingCount", "priceLevel", "currentOpeningHours.openNow", "regularOpeningHours.weekdayDescriptions", "primaryTypeDisplayName", "googleMapsUri", "websiteUri", "nationalPhoneNumber", "photos", "takeout", "delivery", "outdoorSeating", "servesVegetarianFood"].map((f) => `places.${f}`).join(",");
+const PRICE: Record<string, string> = { PRICE_LEVEL_FREE: "Free", PRICE_LEVEL_INEXPENSIVE: "$", PRICE_LEVEL_MODERATE: "$$", PRICE_LEVEL_EXPENSIVE: "$$$", PRICE_LEVEL_VERY_EXPENSIVE: "$$$$" };
+async function googleNearby(key: string, lat: number, lon: number, cat: string, r: number) {
+  const res = await fetch("https://places.googleapis.com/v1/places:searchNearby", {
+    method: "POST",
+    headers: { "content-type": "application/json", "X-Goog-Api-Key": key, "X-Goog-FieldMask": G_FIELDS },
+    body: JSON.stringify({ includedTypes: G_TYPES[cat], maxResultCount: 20, rankPreference: "POPULARITY", locationRestriction: { circle: { center: { latitude: lat, longitude: lon }, radius: Math.min(r, 50000) } } }),
+    signal: AbortSignal.timeout(8000),
+  });
+  if (!res.ok) throw new Error(`google ${res.status} ${(await res.text()).slice(0, 200)}`);
+  const d: any = await res.json();
+  return (d.places || []).map((p: any) => ({
+    id: p.id, name: p.displayName?.text || "", kind: "", cuisine: p.primaryTypeDisplayName?.text || "",
+    lat: p.location?.latitude, lon: p.location?.longitude, dist: Math.round(distM(lat, lon, p.location?.latitude, p.location?.longitude)),
+    addr: p.shortFormattedAddress || "", phone: p.nationalPhoneNumber || "", website: p.websiteUri || "",
+    hours: "", open: p.currentOpeningHours?.openNow ?? null, week: p.regularOpeningHours?.weekdayDescriptions || [],
+    rating: p.rating ?? null, reviews: p.userRatingCount ?? 0, price: PRICE[p.priceLevel] || "",
+    photo: p.photos?.[0]?.name || "", maps: p.googleMapsUri || "",
+    takeaway: !!p.takeout, delivery: !!p.delivery, outdoor: !!p.outdoorSeating, diet: p.servesVegetarianFood ? ["vegetarian"] : [],
+  })).filter((x: any) => x.name && x.lat != null);
+}
+
 export default async (req: Request) => {
   const q = new URL(req.url).searchParams;
+  const gkey = Netlify.env.get("GOOGLE_PLACES_KEY") || "";
+  // A place photo: ask Google for the image address (keeps the key on the server) and send the phone there
+  if (q.get("probe")) return json({ google: !!gkey }, 200, 300);
+  const photo = q.get("photo");
+  if (photo) {
+    if (!gkey || !/^places\/[\w-]+\/photos\/[\w-]+$/.test(photo)) return json({ error: "Bad photo" }, 400);
+    try {
+      const r2 = await fetch(`https://places.googleapis.com/v1/${photo}/media?maxWidthPx=400&skipHttpRedirect=true&key=${gkey}`, { signal: AbortSignal.timeout(6000) });
+      const j: any = await r2.json();
+      if (!j.photoUri) return json({ error: "No photo" }, 404);
+      return new Response(null, { status: 302, headers: { location: j.photoUri, "cache-control": "public, max-age=3600" } });
+    } catch { return json({ error: "No photo" }, 502); }
+  }
   const lat = Number(q.get("lat")), lon = Number(q.get("lon"));
   const cat = q.get("cat") || "food";
   const r = Math.min(Math.max(Number(q.get("r")) || 5000, 500), 25000);
   if (!Number.isFinite(lat) || !Number.isFinite(lon) || Math.abs(lat) > 90 || Math.abs(lon) > 180) return json({ error: "Bad location" }, 400);
   if (!CATS[cat]) return json({ error: "Bad category" }, 400);
+  if (gkey) {
+    try { return json({ items: await googleNearby(gkey, lat, lon, cat, r), provider: "google" }, 200, 300); }
+    catch (e: any) { console.log("google places failed, using OpenStreetMap", e?.message); }
+  }
   // round the point so nearby requests share the cache
   const la = Math.round(lat * 200) / 200, lo = Math.round(lon * 200) / 200;
   const body = `[out:json][timeout:10];(${CATS[cat].map((s) => `${s}(around:${r},${la},${lo});`).join("")});out center tags qt 300;`;

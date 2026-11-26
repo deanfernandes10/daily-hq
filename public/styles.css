@@ -1866,3 +1866,14 @@ body.drawer-open .as-launcher { display: none; }
 .wn-i small .fav { width: 12px; height: 12px; }
 .nb-upd { display: inline-flex; align-items: center; gap: 3px; color: var(--accent); }
 .nb-upd .ic { animation: nbspin 1.2s linear infinite; }
+
+/* Google places: rating, photo, attribution */
+.nb-rate { display: flex; align-items: center; gap: 4px; font-size: 13px; margin-top: 2px; }
+.nb-rate b { font-weight: 700; }
+.nb-rate small { color: var(--muted); }
+.nb-stars { position: relative; display: inline-block; font-size: 12px; letter-spacing: 1px; color: color-mix(in srgb, var(--muted) 45%, transparent); }
+.nb-stars::before { content: "★★★★★"; position: absolute; inset: 0; width: var(--r); overflow: hidden; color: #f59e0b; }
+.nb-photo { display: block; width: calc(100% + 24px); margin: -12px -12px 10px; height: 140px; object-fit: cover; border-radius: 14px 14px 0 0; }
+.nb-card:has(.nb-photo) .nb-top { padding-left: 0; }
+.nb-card:has(.nb-photo) .nb-badge { display: none; }
+.g-attr { font-weight: 700; color: var(--text); margin-right: 4px; }
