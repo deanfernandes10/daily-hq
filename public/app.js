@@ -3077,13 +3077,18 @@ async function espnOrProxy(direct, proxy) {
   try { return await espnJSON(direct); } catch { return await api(proxy); }
 }
 async function showGame(path, id) {
+  if (showGame.id !== id) { gdState.tab = "cast"; gdState.team = 0; gdState.period = "all"; }
+  showGame.id = id; showGame.path = path;
   const lg = Object.values(LEAGUES).find((l) => l.path === path);
   openModal(`${lg ? lg.name : ""} game`, skeleton(6));
   const load = async () => {
     try {
       const d = await espnOrProxy(`${ESPN}${path}/summary?event=${id}`, `/api/sports?path=${path}&kind=summary&event=${id}`);
+      showGame.d = d;
+      const keepTop = $("#modalBody").scrollTop;
       const fg = findGame(id);
       $("#modalBody").innerHTML = (fg && fg.e.state !== "post" ? `<div class="gv-bar">${voiceBtn(fg.e, true)}<small>Calls out the start, every score and the final while Daily HQ is open</small></div>` : "") + gameDetailHTML(d, path, id);
+      $("#modalBody").scrollTop = keepTop;
       const st = d.header?.competitions?.[0]?.status?.type?.state;
       if (st !== "in") clearInterval(openModal.timer);
     } catch { $("#modalBody").innerHTML = `<div class="err">Couldn't load game details right now.</div>`; }
@@ -3092,34 +3097,102 @@ async function showGame(path, id) {
   clearInterval(openModal.timer);
   openModal.timer = setInterval(() => { if (!$("#modal").hidden) load(); }, 30000);
 }
+// ESPN-style game page: Gamecast · Box score · Plays · Team stats · Matchup
+const GD_TABS = [["cast", "Gamecast"], ["box", "Box score"], ["plays", "Plays"], ["stats", "Team stats"], ["match", "Matchup"]];
+const gdState = { tab: "cast", team: 0, period: "all" };
 function gameDetailHTML(d, path, id) {
   const comp = d.header?.competitions?.[0] || {};
-  if (!comp.competitors?.length) return `<div class="empty">Details for this game aren't available yet.</div><a class="btn wide" href="https://www.espn.com/${path.split("/")[1]}/game/_/gameId/${id}" target="_blank" rel="noopener">Open on ESPN ${ic("external-link", "xs")}</a>`;
+  const espnUrl = (d.header?.links || []).find((l) => (l.rel || []).includes("summary"))?.href || `https://www.espn.com/${path.split("/")[1]}/game/_/gameId/${id}`;
+  if (!comp.competitors?.length) return `<div class="empty">Details for this game aren't available yet.</div><a class="btn wide" href="${esc(espnUrl)}" target="_blank" rel="noopener">Open on ESPN ${ic("external-link", "xs")}</a>`;
   const st = comp.status?.type || {};
+  const pre = st.state === "pre", live = st.state === "in";
   const teams = [...(comp.competitors || [])].sort((a) => (a.homeAway === "away" ? -1 : 1));
+  const byId = Object.fromEntries(teams.map((t) => [String(t.team?.id ?? t.id), t]));
+  const ab = (t) => t?.team?.abbreviation || "";
+  const logo = (t, cls = "") => { const u = t?.team?.logos?.[0]?.href || t?.team?.logo; return u ? `<img class="${cls}" src="${esc(u)}" alt="" loading="lazy">` : ""; };
+  const sportOf = path.split("/")[0], hockey = sportOf === "hockey", base = sportOf === "baseball", soccer = sportOf === "soccer";
+  // ---- header
+  const head = `<div class="gd-head">${teams.map((t) => `<div class="gd-team ${t.winner ? "win" : ""}">${logo(t)}<span>${esc(t.team?.shortDisplayName || t.team?.displayName)}</span><b>${pre ? "" : esc(t.score ?? "")}</b><small>${esc(t.record?.[0]?.summary || t.records?.[0]?.summary || "")}</small></div>`).join(`<div class="gd-vs">${live ? `<span class="pill live">LIVE</span>` : ""}<span>${esc(pre ? when(comp.date || d.header?.competitions?.[0]?.date) : st.shortDetail || st.detail || "")}</span></div>`)}</div>`;
+  const tabs = `<div class="gd-tabs" role="tablist">${GD_TABS.filter(([k]) => !(pre && (k === "box" || k === "plays" || k === "stats"))).map(([k, l]) => `<button role="tab" data-gdtab="${k}" class="${gdState.tab === k ? "on" : ""}">${l}</button>`).join("")}</div>`;
+  if (pre && ["box", "plays", "stats"].includes(gdState.tab)) gdState.tab = "cast";
+  // ---- shared pieces
   const periods = Math.max(0, ...teams.map((t) => (t.linescores || []).length));
-  const head = `<div class="gd-head">${teams.map((t) => `<div class="gd-team ${t.winner ? "win" : ""}">${t.team?.logos?.[0]?.href || t.team?.logo ? `<img src="${esc(t.team.logos?.[0]?.href || t.team.logo)}" alt="">` : ""}<span>${esc(t.team?.shortDisplayName || t.team?.displayName)}</span><b>${st.state === "pre" ? "" : esc(t.score ?? "")}</b><small>${esc(t.record?.[0]?.summary || t.records?.[0]?.summary || "")}</small></div>`).join(`<div class="gd-vs">${st.state === "in" ? `<span class="pill live">LIVE</span>` : ""}<span>${esc(st.shortDetail || st.detail || "")}</span></div>`)}</div>`;
-  const line = periods
-    ? `<table class="gd-line"><thead><tr><th></th>${Array.from({ length: periods }, (_, i) => `<th>${i + 1 > (path.includes("hockey") ? 3 : path.includes("baseball") ? 9 : 4) ? (path.includes("hockey") ? (i === 3 ? "OT" : "SO") : "OT") : i + 1}</th>`).join("")}<th>T</th></tr></thead><tbody>${teams.map((t) => `<tr><td>${esc(t.team?.abbreviation)}</td>${Array.from({ length: periods }, (_, i) => `<td>${esc(t.linescores?.[i]?.displayValue ?? "")}</td>`).join("")}<td><b>${esc(t.score ?? "")}</b></td></tr>`).join("")}</tbody></table>`
-    : "";
-  const plays = (d.scoringPlays || []).slice(-25).map((p) => `<li><span class="gd-when">${p.period?.number ? `P${p.period.number}` : ""} ${esc(p.clock?.displayValue || "")}</span><b>${esc(p.team?.abbreviation || "")}</b> ${esc(p.text || "")}</li>`).join("");
-  const leaders = (d.leaders || []).map((tl) => `<div class="gd-lead"><b>${esc(tl.team?.abbreviation || "")}</b>${(tl.leaders || []).slice(0, 3).map((c) => `<span>${esc(c.displayName)}: ${esc(c.leaders?.[0]?.athlete?.displayName || "")} ${esc(c.leaders?.[0]?.displayValue || "")}</span>`).join("")}</div>`).join("");
+  const reg = hockey ? 3 : base ? 9 : soccer ? 2 : 4;
+  const pLabel = (i) => (i + 1 > reg ? (hockey ? (i === 3 ? "OT" : "SO") : base ? i + 1 : "OT") : i + 1);
+  const line = periods ? `<div class="gd-scroll"><table class="gd-line"><thead><tr><th></th>${Array.from({ length: periods }, (_, i) => `<th>${pLabel(i)}</th>`).join("")}<th>T</th></tr></thead><tbody>${teams.map((t) => `<tr><td>${logo(t, "gd-mini")}${esc(ab(t))}</td>${Array.from({ length: periods }, (_, i) => `<td>${esc(t.linescores?.[i]?.displayValue ?? "")}</td>`).join("")}<td><b>${esc(t.score ?? "")}</b></td></tr>`).join("")}</tbody></table></div>` : "";
+  // plays (hockey/basketball/baseball/soccer use d.plays; football uses drives)
+  let plays = d.plays || [];
+  if (!plays.length && d.drives) plays = [...(d.drives.previous || []), ...(d.drives.current ? [d.drives.current] : [])].flatMap((dr) => (dr.plays || []).map((p) => ({ ...p, team: p.team || dr.team })));
+  if (!plays.length && d.keyEvents) plays = d.keyEvents;
+  const scoring = (d.scoringPlays?.length ? d.scoringPlays : plays.filter((p) => p.scoringPlay)).slice(-30);
+  const per = (p) => p.period?.displayValue || (p.period?.number ? (hockey ? `${["1st", "2nd", "3rd"][p.period.number - 1] || "OT"}` : `Q${p.period.number}`) : "");
+  const tmOf = (p) => byId[String(p.team?.id ?? "")];
+  const playRow = (p) => { const tm = tmOf(p); return `<li class="${p.scoringPlay ? "sc" : ""}"><span class="gd-when">${esc(per(p))}${p.clock?.displayValue ? ` ${esc(p.clock.displayValue)}` : ""}</span>${tm ? logo(tm, "gd-mini") : `<span class="gd-mini"></span>`}<span class="gd-ptxt">${p.scoringPlay && p.awayScore != null ? `<b>${esc(p.awayScore)}–${esc(p.homeScore)}</b> ` : ""}${esc(p.text || p.type?.text || "")}</span></li>`; };
+  // win probability
+  const wp = (d.winprobability || []).slice(-1)[0];
+  let homeP = wp ? wp.homeWinPercentage : null;
+  if (homeP == null && d.predictor) { const hp = d.predictor.homeTeam?.gameProjection ?? d.predictor.homeTeam?.teamChanceLoss; homeP = hp != null ? Number(d.predictor.homeTeam?.gameProjection) / 100 : null; }
+  const home = teams.find((t) => t.homeAway === "home") || teams[1], away = teams.find((t) => t.homeAway === "away") || teams[0];
+  const wpHTML = homeP != null && !isNaN(homeP) && st.state !== "post" ? `<h4 class="gd-h">${pre ? "Matchup predictor" : "Win probability"}</h4><div class="gd-wp"><span>${logo(away, "gd-mini")}<b>${Math.round((1 - homeP) * 100)}%</b></span><div class="gd-wpbar"><i style="width:${Math.round((1 - homeP) * 100)}%"></i></div><span><b>${Math.round(homeP * 100)}%</b>${logo(home, "gd-mini")}</span></div>` : "";
+  // leaders side by side
+  const leaders = (d.leaders || []).map((tl) => `<div class="gd-lcol"><div class="gd-lteam">${logo(byId[String(tl.team?.id)] || { team: tl.team }, "gd-mini")}<b>${esc(tl.team?.abbreviation || "")}</b></div>${(tl.leaders || []).slice(0, 3).map((c) => { const L = c.leaders?.[0]; if (!L) return ""; return `<div class="gd-ldr">${L.athlete?.headshot?.href ? `<img src="${esc(L.athlete.headshot.href)}" alt="" loading="lazy">` : `<span class="gd-hs"></span>`}<span><small>${esc(c.displayName || c.name || "")}</small><b>${esc(L.athlete?.shortName || L.athlete?.displayName || "")}</b><em>${esc(L.displayValue || "")}</em></span></div>`; }).join("")}</div>`).join("");
   const info = d.gameInfo || {};
-  const nets = (comp.broadcasts || []).map((b) => b.media?.shortName || b.names?.join(", ")).filter(Boolean);
-  const meta = [info.venue?.fullName, nets.length ? `${ic("tv")} ${nets.join(", ")}` : "", info.attendance ? `Attendance ${Number(info.attendance).toLocaleString()}` : ""].filter(Boolean).join(" · ");
-  const link = (d.header?.links || []).find((l) => (l.rel || []).includes("summary"))?.href || `https://www.espn.com/${path.split("/")[1]}/game/_/gameId/${id}`;
+  const nets = [...new Set((comp.broadcasts || []).map((b) => b.media?.shortName || b.names?.join(", ")).filter(Boolean))];
   const pick = d.pickcenter?.[0] || d.odds?.[0];
-  const odds = cfg.sports.odds !== false && pick?.details ? `<div class="gd-meta">${ic("trending-up")} Line: <b>${esc(pick.details)}</b>${pick.overUnder != null ? ` · Over/under <b>${esc(pick.overUnder)}</b>` : ""}${pick.provider?.name ? ` <small>(${esc(pick.provider.name)})</small>` : ""}</div>` : "";
-  const inj = (d.injuries || []).map((tm) => {
-    const list = (tm.injuries || []).filter((x) => x.athlete?.displayName).slice(0, 8);
-    if (!list.length) return "";
-    return `<div class="gd-inj"><b>${esc(tm.team?.abbreviation || tm.team?.displayName || "")}</b><ul>${list.map((x) => `<li>${esc(x.athlete.displayName)}${x.athlete.position?.abbreviation ? ` <small>${esc(x.athlete.position.abbreviation)}</small>` : ""} — <span class="inj-st">${esc(x.status || x.type?.description || "Out")}</span>${x.details?.type ? ` <small>(${esc(x.details.type)})</small>` : ""}</li>`).join("")}</ul></div>`;
-  }).join("");
-  return head + line + (meta ? `<div class="gd-meta">${meta}</div>` : "") + odds +
-    (inj ? `<h4 class="gd-h">Injuries</h4><div class="gd-injs">${inj}</div>` : "") +
-    (plays ? `<h4 class="gd-h">Scoring</h4><ol class="gd-plays">${plays}</ol>` : "") +
-    (leaders ? `<h4 class="gd-h">Leaders</h4>${leaders}` : "") +
-    `<a class="btn wide" href="${esc(link)}" target="_blank" rel="noopener">Open full game on ESPN ${ic("external-link", "xs")}</a>`;
+  const odds = cfg.sports.odds !== false && pick?.details ? `<div class="gd-kv"><span>Line</span><b>${esc(pick.details)}</b></div>${pick.overUnder != null ? `<div class="gd-kv"><span>Over/under</span><b>${esc(pick.overUnder)}</b></div>` : ""}` : "";
+  const infoHTML = `<h4 class="gd-h">Game info</h4><div class="gd-info">${info.venue?.fullName ? `<div class="gd-kv"><span>Venue</span><b>${esc(info.venue.fullName)}${info.venue.address?.city ? ` · ${esc(info.venue.address.city)}${info.venue.address.state ? `, ${esc(info.venue.address.state)}` : ""}` : ""}</b></div>` : ""}${nets.length ? `<div class="gd-kv"><span>TV</span><b>${esc(nets.join(", "))}</b></div>` : ""}${info.attendance ? `<div class="gd-kv"><span>Attendance</span><b>${Number(info.attendance).toLocaleString()}</b></div>` : ""}${odds}${(info.officials || []).length ? `<div class="gd-kv"><span>Officials</span><b>${esc(info.officials.slice(0, 4).map((o) => o.displayName || o.fullName).join(", "))}</b></div>` : ""}</div>`;
+  const recap = d.article?.headline ? `<a class="gd-recap" href="${esc(d.article.links?.web?.href || espnUrl)}" target="_blank" rel="noopener"><small>${st.state === "post" ? "Recap" : "Preview"}</small><b>${esc(d.article.headline)}</b>${d.article.description ? `<span>${esc(d.article.description)}</span>` : ""}</a>` : "";
+  const vids = (d.videos || []).filter((v) => v.links?.web?.href || v.links?.mobile?.href).slice(0, 6);
+  const vidHTML = vids.length ? `<h4 class="gd-h">Highlights</h4><div class="gd-vids">${vids.map((v) => `<a href="${esc(v.links?.mobile?.href || v.links?.web?.href)}" target="_blank" rel="noopener">${v.thumbnail ? `<img src="${esc(v.thumbnail)}" alt="" loading="lazy">` : ""}<span>${esc(v.headline || "")}${v.duration ? ` <small>${Math.floor(v.duration / 60)}:${String(v.duration % 60).padStart(2, "0")}</small>` : ""}</span></a>`).join("")}</div>` : "";
+  let body = "";
+  if (gdState.tab === "cast") {
+    const last = live && plays.length ? plays[plays.length - 1] : null;
+    body = (last ? `<div class="gd-last"><small>Last play</small>${playRow(last).replace(/^<li[^>]*>|<\/li>$/g, "")}</div>` : "") + line + wpHTML +
+      (scoring.length ? `<h4 class="gd-h">Scoring summary</h4><ol class="gd-plays">${scoring.map(playRow).join("")}</ol>` : "") +
+      (leaders ? `<h4 class="gd-h">${pre ? "Players to watch" : "Game leaders"}</h4><div class="gd-leaders">${leaders}</div>` : "") + recap + vidHTML + infoHTML;
+  } else if (gdState.tab === "box") {
+    const pl = d.boxscore?.players || [];
+    if (!pl.length) body = `<div class="empty">The box score isn't available for this game.</div>`;
+    else {
+      const ti = Math.min(gdState.team, pl.length - 1), T = pl[ti];
+      body = `<div class="gd-seg">${pl.map((x, i) => `<button data-gdteam="${i}" class="${i === ti ? "on" : ""}">${logo({ team: x.team }, "gd-mini")}${esc(x.team?.abbreviation || x.team?.shortDisplayName || "")}</button>`).join("")}</div>` +
+        (T.statistics || []).map((g) => {
+          const labels = g.labels || g.names || [];
+          const ath = (g.athletes || []).filter((a) => a.athlete);
+          if (!ath.length) return "";
+          return `<h4 class="gd-h">${esc(g.name || g.text || g.type || "Players")}</h4><div class="gd-scroll"><table class="gd-box"><thead><tr><th>Player</th>${labels.map((l) => `<th>${esc(l)}</th>`).join("")}</tr></thead><tbody>${ath.map((a) => `<tr class="${a.starter ? "st" : ""}"><td><b>${esc(a.athlete.shortName || a.athlete.displayName)}</b>${a.athlete.position?.abbreviation ? ` <small>${esc(a.athlete.position.abbreviation)}</small>` : ""}</td>${a.didNotPlay ? `<td colspan="${labels.length}" class="dnp">${esc(a.reason || "Did not play")}</td>` : (a.stats || []).map((v) => `<td>${esc(v)}</td>`).join("")}</tr>`).join("")}${g.totals?.length ? `<tr class="tot"><td>Team</td>${g.totals.map((v) => `<td>${esc(v)}</td>`).join("")}</tr>` : ""}</tbody></table></div>`;
+        }).join("");
+    }
+  } else if (gdState.tab === "plays") {
+    if (!plays.length) body = `<div class="empty">Play-by-play isn't available for this game.</div>`;
+    else {
+      const pers = [...new Set(plays.map(per).filter(Boolean))];
+      const sel = gdState.period === "all" || !pers.includes(gdState.period) ? (live ? "all" : "all") : gdState.period;
+      const list = plays.filter((p) => sel === "all" || per(p) === sel).slice().reverse();
+      body = `<div class="nb-filters"><button data-gdper="all" class="${sel === "all" ? "on" : ""}">All</button><button data-gdper="scoring" class="${gdState.period === "scoring" ? "on" : ""}">Scoring</button>${pers.map((x) => `<button data-gdper="${esc(x)}" class="${sel === x ? "on" : ""}">${esc(x)}</button>`).join("")}</div>
+        <ol class="gd-plays gd-pbp">${(gdState.period === "scoring" ? scoring.slice().reverse() : list).slice(0, 300).map(playRow).join("")}</ol>`;
+    }
+  } else if (gdState.tab === "stats") {
+    const tt = d.boxscore?.teams || [];
+    if (tt.length < 2) body = `<div class="empty">Team stats aren't available for this game.</div>`;
+    else {
+      const [A, B] = tt[0].homeAway === "home" ? [tt[1], tt[0]] : tt;
+      const name = (x) => x.label || x.displayName || x.abbreviation || x.name;
+      const rows = (A.statistics || []).map((sa) => { const sb = (B.statistics || []).find((x) => x.name === sa.name) || {}; const va = parseFloat(sa.displayValue), vb = parseFloat(sb.displayValue); const tot = (isFinite(va) ? va : 0) + (isFinite(vb) ? vb : 0); const pa = tot > 0 && isFinite(va) && isFinite(vb) && !/[-:]/.test(sa.displayValue) ? (va / tot) * 100 : null; return `<div class="gd-ts"><b>${esc(sa.displayValue ?? "")}</b><span>${esc(name(sa) || "")}${pa != null ? `<i class="gd-tsbar"><u style="width:${pa}%"></u></i>` : ""}</span><b>${esc(sb.displayValue ?? "")}</b></div>`; }).join("");
+      body = `<div class="gd-ts gd-tsh">${logo(A, "gd-mini")}<span></span>${logo(B, "gd-mini")}</div>${rows}`;
+    }
+  } else {
+    // matchup: season series, last five, injuries, standings, news
+    const ser = (d.seasonseries || [])[0];
+    const serHTML = ser?.events?.length ? `<h4 class="gd-h">Season series <small>${esc(ser.summary || "")}</small></h4><div class="gd-ser">${ser.events.map((e) => { const cs = e.competitors || []; return `<div><small>${esc(new Date(e.date).toLocaleDateString([], { month: "short", day: "numeric" }))}</small>${cs.map((c) => `<span class="${c.winner ? "w" : ""}">${esc(c.team?.abbreviation || "")} ${esc(c.score ?? "")}</span>`).join("")}${e.statusType?.state === "pre" || e.status?.type?.state === "pre" ? "" : ""}</div>`; }).join("")}</div>` : "";
+    const l5 = (d.lastFiveGames || []).map((tm) => `<div class="gd-l5"><div class="gd-lteam">${logo({ team: tm.team }, "gd-mini")}<b>${esc(tm.team?.abbreviation || tm.team?.displayName || "")}</b><span class="gd-form">${(tm.events || []).map((e) => `<i class="${/W/.test(e.gameResult) ? "w" : /L/.test(e.gameResult) ? "l" : "t"}">${esc(e.gameResult || "")}</i>`).join("")}</span></div>${(tm.events || []).map((e) => `<div class="gd-l5r"><span>${esc(e.atVs || "")} ${esc(e.opponent?.abbreviation || "")}</span><b>${esc(e.gameResult || "")} ${esc(e.score || "")}</b><small>${e.gameDate ? esc(new Date(e.gameDate).toLocaleDateString([], { month: "short", day: "numeric" })) : ""}</small></div>`).join("")}</div>`).join("");
+    const inj = (d.injuries || []).map((tm) => { const list = (tm.injuries || []).filter((x) => x.athlete?.displayName).slice(0, 10); if (!list.length) return ""; return `<div class="gd-inj"><b>${esc(tm.team?.abbreviation || tm.team?.displayName || "")}</b><ul>${list.map((x) => `<li>${esc(x.athlete.displayName)}${x.athlete.position?.abbreviation ? ` <small>${esc(x.athlete.position.abbreviation)}</small>` : ""} — <span class="inj-st">${esc(x.status || x.type?.description || "Out")}</span>${x.details?.type ? ` <small>(${esc(x.details.type)})</small>` : ""}</li>`).join("")}</ul></div>`; }).join("");
+    const grp = (d.standings?.groups || []).map((g) => { const ents = g.standings?.entries || []; if (!ents.length) return ""; const cols = (ents[0].stats || []).slice(0, 4); return `<h4 class="gd-h">${esc(g.header || "Standings")}</h4><div class="gd-scroll"><table class="gd-box gd-std"><thead><tr><th>Team</th>${cols.map((c) => `<th>${esc(c.abbreviation || c.shortDisplayName || c.name || "")}</th>`).join("")}</tr></thead><tbody>${ents.map((en) => `<tr class="${teams.some((t) => ab(t) === en.team?.abbreviation || t.team?.displayName === en.team) ? "st" : ""}"><td>${esc(en.team?.abbreviation || en.team?.displayName || en.team || "")}</td>${cols.map((c) => `<td>${esc((en.stats || []).find((x) => x.name === c.name)?.displayValue ?? "")}</td>`).join("")}</tr>`).join("")}</tbody></table></div>`; }).join("");
+    const news = (d.news?.articles || []).filter((a) => a.links?.web?.href).slice(0, 5).map((a) => `<a class="wn-i" href="${esc(a.links.web.href)}" target="_blank" rel="noopener"><span><b>${esc(a.headline)}</b><small>${esc(a.published ? ago(Date.parse(a.published)) : "")}</small></span></a>`).join("");
+    body = wpHTML + serHTML + (l5 ? `<h4 class="gd-h">Last 5 games</h4><div class="gd-l5s">${l5}</div>` : "") + (inj ? `<h4 class="gd-h">Injuries</h4><div class="gd-injs">${inj}</div>` : "") + grp + (news ? `<h4 class="gd-h">News</h4><div class="gd-news">${news}</div>` : "");
+    if (!body) body = `<div class="empty">No matchup details for this game yet.</div>`;
+  }
+  return head + tabs + `<div class="gd-body">${body}</div>` + `<a class="btn wide gd-espn" href="${esc(espnUrl)}" target="_blank" rel="noopener">Open on ESPN ${ic("external-link", "xs")}</a>`;
 }
 const STANDING_COLS = {
   hockey: [["gamesPlayed", "GP"], ["wins", "W"], ["losses", "L"], ["otLosses", "OTL"], ["points", "PTS"], ["pointsFor", "GF"], ["pointsAgainst", "GA"], ["differential", "DIFF"], ["streak", "STRK"]],
@@ -4897,6 +4970,15 @@ function toggleFlag(obj, key, id, box, btn) {
 document.addEventListener("click", async (e) => {
   const t = e.target;
   if (t.closest("[data-voiceoff]")) { cfg.voiceGames = {}; save(); try { speechSynthesis.cancel(); } catch {} voiceWake(false); toast("Voice alerts off"); renderSports(); renderSettings?.(); return; }
+  const gdt = t.closest("[data-gdtab], [data-gdteam], [data-gdper]");
+  if (gdt && showGame.d) {
+    if (gdt.dataset.gdtab) gdState.tab = gdt.dataset.gdtab;
+    if (gdt.dataset.gdteam) gdState.team = +gdt.dataset.gdteam;
+    if (gdt.dataset.gdper) gdState.period = gdt.dataset.gdper;
+    const fg = findGame(showGame.id);
+    $("#modalBody").innerHTML = (fg && fg.e.state !== "post" ? `<div class="gv-bar">${voiceBtn(fg.e, true)}<small>Calls out the start, every score and the final while Daily HQ is open</small></div>` : "") + gameDetailHTML(showGame.d, showGame.path, showGame.id);
+    return;
+  }
   const gv = t.closest("[data-gvoice]");
   if (gv) { e.preventDefault(); e.stopPropagation(); toggleVoice(gv.dataset.gvoice); return; }
   if (t.closest("#bellPop [data-game], #bellPop [data-goto], #bellPop [data-open-url]")) $("#bellPop").hidden = true;
@@ -5868,7 +5950,7 @@ document.addEventListener("visibilitychange", () => {
 if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").catch(() => {});
 
 // Keep the installed app current: when it comes back to the screen, see if a newer build is live and load it.
-const APP_BUILD = "dhq-shell-v42";
+const APP_BUILD = "dhq-shell-v43";
 let lastHidden = 0, updating = false;
 async function checkForUpdate(auto) {
   if (updating) return;
