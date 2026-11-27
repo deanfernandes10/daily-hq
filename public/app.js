@@ -2406,6 +2406,35 @@ function powerHTML(c) {
     ${u.x ? lk(u.x, ic("newspaper"), "@AlectraNews on X", "Updates during big outages") : ""}
   </div>`;
 }
+// Local weather stories for a city: the town first, then its state/province (Google News)
+const WX_WORDS = /weather|storm|snow|rain|flood|wind|forecast|cold|heat|ice|icy|freez|thunder|tornado|hurricane|blizzard|nor'?easter|power outage|outages|winter|temperature|fog|hail|advisory|warning|watch|squall|frost|wildfire|smoke|air quality|drought/i;
+const CA_PROV = /\b(ON|QC|BC|AB|MB|SK|NS|NB|NL|PE|YT|NT|NU|Ontario|Quebec|British Columbia|Alberta|Manitoba|Saskatchewan|Nova Scotia|New Brunswick|Newfoundland|Prince Edward Island)\b/;
+const wxNewsCache = {};
+async function fillWxNews(c) {
+  const el = $("#wxNews"); if (!el || !c) return;
+  const [town, region = ""] = c.name.split(",").map((x) => x.trim());
+  const cc = CA_PROV.test(region) || /canada/i.test(c.name) ? "CA" : "US";
+  const key = c.name;
+  let items = wxNewsCache[key] && Date.now() - wxNewsCache[key].at < 20 * 60e3 ? wxNewsCache[key].items : null;
+  if (!items) {
+    const q1 = `"${town}" (weather OR storm OR snow OR rain OR flooding OR forecast OR "power outage")`;
+    const q2 = `${region || town} weather when:3d`;
+    const [a, b] = await Promise.all([fetchFeedItems([["Google News", gnewsCC(q1, cc)]], false), region ? fetchFeedItems([["Google News", gnewsCC(q2, cc)]], false) : Promise.resolve([])]);
+    const seen = new Set();
+    items = [...a.map((i) => ({ ...i, local: true })), ...b]
+      .filter((i) => WX_WORDS.test(`${i.title} ${i.desc || ""}`))
+      .filter((i) => !i.ts || i.ts > Date.now() - 7 * 86400e3)
+      .filter((i) => { const k = i.title.toLowerCase().replace(/[^a-z0-9]/g, "").slice(0, 60); return !seen.has(k) && seen.add(k); })
+      .sort((x, y) => (y.local - x.local) || (y.ts || 0) - (x.ts || 0))
+      .slice(0, 12);
+    wxNewsCache[key] = { at: Date.now(), items };
+  }
+  const el2 = $("#wxNews"); if (!el2 || wxDetail?.c?.name !== key) return;
+  const more = `https://news.google.com/search?q=${encodeURIComponent(`${town} ${region} weather`)}&hl=en-${cc}&gl=${cc}`;
+  el2.innerHTML = items.length
+    ? `<div class="wxn-list">${items.slice(0, 6).map((i) => `<a class="wxn" href="${esc(i.link)}" target="_blank" rel="noopener"><b>${esc(i.title)}</b><small>${esc(i.source || "")}${i.ts ? ` · ${ago(i.ts)}` : ""}${i.local ? "" : ` · ${esc(region)}`}</small></a>`).join("")}</div><a class="wxn-more" href="${esc(more)}" target="_blank" rel="noopener">More weather news for ${esc(town)} ${ic("external-link", "xs")}</a>`
+    : `<div class="empty">No recent weather stories for ${esc(town)}. <a href="${esc(more)}" target="_blank" rel="noopener">Search Google News</a></div>`;
+}
 function drawWxDetail() {
   const box = $("#wxDet");
   if (!box) return;
@@ -2475,9 +2504,10 @@ function drawWxDetail() {
      <div class="wxd-hours"><div class="wxd-hscroll"><div class="wxd-temps">${temps}</div>${chart}<div class="wxd-hrow">${hrs}</div></div></div>
      <h5 class="sch-day">10-day forecast <small>Tap a day for its hours</small></h5><div class="wxd-days">${days}</div>
      <div class="wxd-tiles">${tiles}</div>${aqHTML}
+     <h5 class="sch-day">Weather news <small>${esc(c.name.split(",")[0])}</small></h5><div id="wxNews">${skeleton(3)}</div>
      ${powerHTML(c)}
      <h5 class="sch-day">Radar</h5><div id="wxRadar"><button class="btn wide" data-wxradar>${ic("map", "xs")} Show live radar</button></div>
-     <div class="meta" style="justify-content:center;margin-top:10px">Forecast: Open-Meteo · Now: ${esc(w.d.current._src || "Forecast model")}</div>`;
+     <div class="meta" style="justify-content:center;margin-top:10px">Forecast: Open-Meteo · Now: ${esc(w.d.current._src || "Forecast model")}</div>`;  fillWxNews(c);
 }
 function radarHTML(c) {
   const z = 7;
@@ -6071,7 +6101,7 @@ document.addEventListener("visibilitychange", () => {
 if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").catch(() => {});
 
 // Keep the installed app current: when it comes back to the screen, see if a newer build is live and load it.
-const APP_BUILD = "dhq-shell-v49";
+const APP_BUILD = "dhq-shell-v50";
 let lastHidden = 0, updating = false;
 async function checkForUpdate(auto) {
   if (updating) return;
