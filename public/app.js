@@ -1331,6 +1331,8 @@ document.addEventListener("change", (e) => {
   const nr = e.target.closest?.("[data-nbrad]");
   if (nr) { cfg.nearby = { ...(cfg.nearby || {}), radius: +nr.value }; save(); if (nb.search) nbRunSearch(nb.search.q); else loadNearby(); return; }
   if (e.target.closest?.("[data-resform]")) { nbResLinks(); return; }
+  const nlm = e.target.closest?.("[data-nlmore]");
+  if (nlm) { if (nlm.value) { cfg.news.sportsLeague = nlm.value; cfg.news.sportsTeam = ""; save(); renderNews(); } return; }
   const nso = e.target.closest?.("[data-nbsort]");
   if (nso) { cfg.nearby = { ...(cfg.nearby || {}), sort: nso.value }; save(); renderNearby(); return; }
   const nl = e.target.closest?.("[data-newsleague]");
@@ -2019,6 +2021,36 @@ async function loadCategory(cat) {
   data.news[cat.id] = { items, errors, empty: !feeds.length };
 }
 
+const teamNameFor = (key, ab) => { const t = (teamCache[key] || []).find((x) => x.abbr === ab); return t?.name ? t.name.split(" ").slice(-1)[0] : ab; };
+// News → Sports → one league: ESPN's news for that league (or one of your teams) plus matching headlines from your own sources
+async function fillNewsLeague(key, saveBtn) {
+  const el = $("#nlBody"); if (!el) return;
+  const team = (cfg.news.sportsTeam && (cfg.sports.leagues.find((L) => L.key === key)?.teams || []).includes(cfg.news.sportsTeam)) ? cfg.news.sportsTeam : "";
+  let espn = [];
+  try { espn = (await loadSportsNews(key, team || "all")).map((a) => ({ title: a.title, link: a.link, desc: a.desc, img: a.img, source: a.plus ? "ESPN+" : "ESPN", ts: Date.parse(a.date || 0) || 0 })); } catch {}
+  // your own feeds: anything from a feed tied to this league, or naming the league or its teams
+  const lgName = LEAGUES[key].name;
+  const teamNames = team ? [teamNameFor(key, team) || team] : (teamCache[key] || []).map((t) => (t.name || "").split(" ").slice(-1)[0]).filter((n) => n && n.length > 3);
+  const words = team ? teamNames : [lgName, key.toUpperCase(), ...teamNames];
+  const re = new RegExp(`\\b(${words.map((w) => w.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|")})\\b`, "i");
+  const espnRss = { ncaaf: "ncf", ncaam: "ncb", pga: "golf", lpga: "golf", mls: "soccer", epl: "soccer", ucl: "soccer", laliga: "soccer", seriea: "soccer", bundesliga: "soccer", ligue1: "soccer" }[key] || key;
+  const feeds = (cfg.news.categories.find((c) => c.id === "sports")?.feeds || []);
+  const leagueFeed = new Set(feeds.filter((f) => f.auto === "league" && f.league === espnRss && !team).map((f) => f.name));
+  const own = (data.news.sports?.items || []).filter((i) => leagueFeed.has(i.feed) || re.test(`${i.title} ${i.desc || ""}`));
+  const seen = new Set();
+  let items = [...espn, ...own].filter((i) => { const k = (i.title || "").toLowerCase().replace(/\W+/g, " ").trim(); if (!i.link || seen.has(k) || seen.has(i.link)) return false; seen.add(k); seen.add(i.link); return true; }).sort((a, b) => (b.ts || 0) - (a.ts || 0));
+  const q = newsFilter.toLowerCase();
+  if (q) items = items.filter((i) => `${i.title} ${i.source} ${i.desc || ""}`.toLowerCase().includes(q));
+  if (!$("#nlBody")) return;
+  const limit = newsLimit.sports || cfg.news.perCategory;
+  const name = team ? teamNameFor(key, team) || team : lgName;
+  el.innerHTML = items.length ? `<div class="news-wrap">${items.slice(0, limit).map((i) => `<div class="item"><div>
+      <a class="t" href="${esc(i.link)}" target="_blank" rel="noopener">${esc(i.title)}</a>
+      <div class="meta">${esc(i.source)}${i.ts ? ` · ${ago(i.ts)}` : ""}${saveBtn(i)}</div></div>${thumbHTML(i)}</div>`).join("")}</div>` +
+    (items.length > limit ? `<div class="more"><button class="btn sm" data-more="1">Show more (${items.length - limit})</button></div>` : "")
+    : `<div class="empty">${q ? "No headlines match your filter." : `No ${esc(name)} news right now.`}</div>`;
+  setTimeout(fillArticleImages, 50);
+}
 function renderNews() {
   if (activeNews === "realestate" && document.activeElement?.closest?.(".re [data-mort-box], #reNewArea")) return;
   const body = $("#news-body");
@@ -2038,7 +2070,10 @@ function renderNews() {
   const isSaved = (link) => (cfg.saved || []).some((x) => x.link === link);
   const saveBtn = (i) => `<button class="save-btn ${isSaved(i.link) ? "on" : ""}" data-save="${esc(i.link)}" title="${isSaved(i.link) ? "Remove from Saved" : "Save for later"}" aria-label="Save for later">${ic(isSaved(i.link) ? "bookmark-check" : "bookmark")}</button>`;
   let list;
-  if (isRE) list = renderREHTML(saveBtn);
+  const nl = activeNews === "sports" ? cfg.news.sportsLeague || "" : "";
+  if (nl && !LEAGUES[nl]) cfg.news.sportsLeague = "";
+  if (nl && LEAGUES[nl]) list = `<div id="nlBody">${skeleton(6)}</div>`;
+  else if (isRE) list = renderREHTML(saveBtn);
   else if (!d) list = skeleton(6);
   else if (d.empty) list = emptyState("No feeds in this category.", "news");
   else {
@@ -2077,11 +2112,23 @@ function renderNews() {
   const srcChips = !isRE && feedsOn.length > 1
     ? `<div class="src-chips"><button data-src="" class="${!srcSel ? "on" : ""}">All sources</button>${feedsOn.map((f) => `<button data-src="${esc(f.name)}" class="${srcSel === f.name ? "on" : ""}">${esc(f.name.replace(/^Topic: /, ""))}</button>`).join("")}</div>`
     : "";
+  // Sports: pick a league (and optionally one of your teams in it)
+  let lgBar = "";
+  if (activeNews === "sports") {
+    const mine = [...new Set(cfg.sports.leagues.map((L) => L.key).filter((k) => LEAGUES[k] && k !== "cricket"))];
+    const others = Object.keys(LEAGUES).filter((k) => !mine.includes(k) && k !== "cricket");
+    const sel = LEAGUES[nl] ? nl : "";
+    const myTeams = sel ? cfg.sports.leagues.find((L) => L.key === sel)?.teams || [] : [];
+    const tm = cfg.news.sportsTeam || "";
+    lgBar = `<div class="nl-bar"><button data-nl="" class="${!sel ? "on" : ""}">All sports</button>${mine.map((k) => `<button data-nl="${k}" class="${sel === k ? "on" : ""}">${leagueBadge(k, "nl-logo")} ${esc(LEAGUES[k].name)}</button>`).join("")}${others.length ? `<label class="nl-more ${others.includes(sel) ? "on" : ""}"><select data-nlmore aria-label="More leagues"><option value="">${others.includes(sel) ? esc(LEAGUES[sel].name) : "More leagues"}</option>${others.map((k) => `<option value="${k}">${LEAGUES[k].icon} ${esc(LEAGUES[k].name)}</option>`).join("")}</select>${ic("chevron-down", "xs")}</label>` : ""}</div>
+      ${myTeams.length ? `<div class="src-chips nl-teams"><button data-nlteam="" class="${!tm ? "on" : ""}">All ${esc(LEAGUES[sel].name)}</button>${myTeams.map((ab) => `<button data-nlteam="${esc(ab)}" class="${tm === ab ? "on" : ""}">${esc(teamNameFor(sel, ab) || ab)}</button>`).join("")}</div>` : ""}`;
+  }
   body.innerHTML = `<div class="tabs">${tabs}${savedTab}</div>
-    ${srcChips}
+    ${lgBar}${nl ? "" : srcChips}
     <div class="news-tools"><input id="newsFilter" type="search" placeholder="Filter headlines…  ( / )" value="${esc(newsFilter)}"></div>
     ${list}`;
   setTimeout(fillArticleImages, 50);
+  if (nl && LEAGUES[nl]) fillNewsLeague(nl, saveBtn);
   updateBadges();
   if (hadFocus) { const f = $("#newsFilter"); f.focus(); f.setSelectionRange(f.value.length, f.value.length); }
 }
@@ -5255,6 +5302,10 @@ document.addEventListener("click", async (e) => {
   if (smore) { const k = smore.dataset.schedMore; cfg.sports.schedFull = { ...(cfg.sports.schedFull || {}), [k]: !cfg.sports.schedFull?.[k] }; save(); renderSports(); return; }
   const sp = t.closest("[data-spmode]");
   if (sp) { cfg.sports.mode = sp.dataset.spmode; save(); renderSports(); return; }
+  const nlb = t.closest("[data-nl]");
+  if (nlb) { cfg.news.sportsLeague = nlb.dataset.nl; cfg.news.sportsTeam = ""; newsLimit.sports = 0; save(); renderNews(); return; }
+  const nlt = t.closest("[data-nlteam]");
+  if (nlt) { cfg.news.sportsTeam = nlt.dataset.nlteam; newsLimit.sports = 0; save(); renderNews(); return; }
   const src = t.closest("[data-src]");
   if (src) { newsSource[activeNews] = src.dataset.src; newsLimit[activeNews] = 0; renderNews(); return; }
   const mv = t.closest("[data-mkview]");
@@ -5984,7 +6035,7 @@ document.addEventListener("visibilitychange", () => {
 if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").catch(() => {});
 
 // Keep the installed app current: when it comes back to the screen, see if a newer build is live and load it.
-const APP_BUILD = "dhq-shell-v46";
+const APP_BUILD = "dhq-shell-v47";
 let lastHidden = 0, updating = false;
 async function checkForUpdate(auto) {
   if (updating) return;
