@@ -3148,6 +3148,8 @@ function openModal(title, html) {
   document.body.classList.add("modal-open");
 }
 function closeModal() {
+  // closing the welcome screen counts as finishing it, so it never comes back on its own
+  if (cfg.needsSetup && $("#modal .w-sync")) { delete cfg.needsSetup; save(); setTimeout(ensureBackup, 1500); }
   $("#modal").hidden = true;
   $("#modal").classList.remove("sheet-full");
   document.body.classList.remove("modal-open");
@@ -6057,7 +6059,8 @@ if (restoreCode) {
   syncPull(restoreCode, true)
     .then(() => { closeModal(); afterConfigReplaced(); toast("Welcome back — your settings are restored"); })
     .catch((e) => { toast(`${e.message}. Check the link or enter your code in Customize → General.`); if (cfg.needsSetup) showWelcome(); });
-} else if (cfg.needsSetup) autoRestore();
+} else if (cfg.needsSetup && (cfg.sync?.code || cfg.sports.leagues.some((L) => L.teams?.length))) { delete cfg.needsSetup; save(); }
+else if (cfg.needsSetup) autoRestore();
 setUnread(unreadCount());
 if (location.search.includes("alerts")) { history.replaceState(null, "", "/"); setTimeout(() => toggleBell(true), 300); }
 syncPull().then((changed) => { if (changed) { afterConfigReplaced(); toast("Synced your latest settings"); } }).catch(() => {});
@@ -6068,7 +6071,7 @@ document.addEventListener("visibilitychange", () => {
 if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").catch(() => {});
 
 // Keep the installed app current: when it comes back to the screen, see if a newer build is live and load it.
-const APP_BUILD = "dhq-shell-v48";
+const APP_BUILD = "dhq-shell-v49";
 let lastHidden = 0, updating = false;
 async function checkForUpdate(auto) {
   if (updating) return;
