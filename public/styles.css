@@ -2058,3 +2058,9 @@ body.drawer-open .as-launcher { display: none; }
 .wxn b { font-size: 14.5px; font-weight: 600; line-height: 1.35; }
 .wxn small { color: var(--muted); font-size: 12.5px; }
 .wxn-more { display: inline-flex; align-items: center; gap: 4px; margin: 6px 0 14px; font-size: 13.5px; font-weight: 600; color: var(--accent); text-decoration: none; }
+.mp-row { display: flex; align-items: center; gap: 10px; padding: 10px 12px; margin-bottom: 10px; border: 1px solid color-mix(in srgb, #1d4ed8 30%, var(--line)); border-radius: 12px; background: color-mix(in srgb, #1d4ed8 6%, var(--panel)); color: var(--text); text-decoration: none; }
+.mp-row img { width: 26px; height: 26px; border-radius: 6px; flex: none; }
+.mp-row span { flex: 1; min-width: 0; display: grid; }
+.mp-row b { font-size: 14.5px; }
+.mp-row small { color: var(--muted); font-size: 12.5px; }
+.mp-row > .ic { color: var(--muted); }

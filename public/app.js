@@ -4858,6 +4858,9 @@ async function prefetchNearby(where) {
     }
   } finally { nbPrefetching = false; }
 }
+// United MileagePlus Dining: earn miles at participating restaurants (no data feed, so it's a link)
+const mpDiningURL = () => { const w = nb.where || nbWhere(); const loc = cfg.nearby?.useGps || !w?.name ? "Current Location" : w.name; return `https://dining.mileageplus.com/search?campaignCode=UAT3&location=${encodeURIComponent(loc).replace(/%20/g, "+")}`; };
+const mpDiningRow = () => `<a class="mp-row" href="${esc(mpDiningURL())}" target="_blank" rel="noopener"><img src="https://www.google.com/s2/favicons?domain=united.com&sz=64" alt="" onerror="this.style.visibility='hidden'"><span><b>Earn United miles</b><small>MileagePlus Dining restaurants near ${esc((nb.where || nbWhere())?.name?.split(",")[0] || "you")}</small></span>${ic("external-link", "xs")}</a>`;
 // Restaurants and bars get a Reserve button; venues get Tickets
 const NB_BOOKABLE = new Set(["restaurant", "bar", "pub", "biergarten", "winery", "brewery", "food_court"]);
 const nbCanBook = (it, cat) => cat === "food" || cat === "bars" || NB_BOOKABLE.has(it.kind);
@@ -4922,11 +4925,12 @@ function renderNearby() {
     const none = S ? `<div class="empty">No matches for “${esc(S.q)}” within ${cfg.nearby.radius} ${unit}.</div>${nbElsewhere(S.q, where)}` : `<div class="empty">Nothing found${nb.openOnly ? " open right now" : ""}. Try a bigger distance${nb.cuisine || nb.openOnly ? " or clear the filters" : ""}.</div>`;
     list = (items.length || nb.cuisine || nb.openOnly ? filters : "") + head + (items.length ? `<div class="nb-list">${items.slice(0, lim).map(card).join("")}</div><div class="nb-nomatch" hidden>No places on this list match. Tap <b>Search</b> on the keyboard to look everywhere nearby.</div>${items.length > lim ? `<button class="btn nb-all" data-nball>See all ${Math.min(items.length, 60)} places ${ic("chevron-right", "xs")}</button>` : ""}${S ? nbElsewhere(S.q, where) : ""}` : none);
   }
+  const mpRow = cat === "food" || cat === "bars" ? mpDiningRow() : "";
   const events = cat === "fun" ? `<div class="nb-evwrap"><div class="nb-h">${ic("ticket", "xs")} Upcoming events</div><div id="nbEvents">${skeleton(3)}</div></div><div class="nb-h">${ic("map-pin", "xs")} Venues near you</div>` : "";
   queueSummaries();
   queueToday();
   const sub = $("#nearby-sub"); if (sub) sub.textContent = where ? `Around ${where.name}${cfg.nearby.useGps ? " (you)" : ""}` : "";
-  box.querySelector("#nbInner").innerHTML = `${whereSel}${cats}${events}${list}
+  box.querySelector("#nbInner").innerHTML = `${whereSel}${cats}${mpRow}${events}${list}
     <p class="more-foot">${nb.google ? `<span class="g-attr">Google Maps</span> Ratings, hours and photos from Google.` : `${nbGeo ? `<a href="https://www.geoapify.com/" target="_blank" rel="noopener">Powered by Geoapify</a> · ` : ""}Places © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> contributors. Hours may be out of date — check before you go. Reviews open in Google Maps.`}${cat === "fun" && tmKey() ? " Events from Ticketmaster." : ""}</p>`;
   nbFilterTyped();
   if (cat === "fun") fillNearbyEvents();
@@ -4994,6 +4998,7 @@ function openReserve(it) {
       <a class="res-opt" data-resot target="_blank" rel="noopener"><img src="https://www.google.com/s2/favicons?domain=opentable.com&sz=64" alt="" onerror="this.style.visibility='hidden'"><span><b>OpenTable</b><small>See open tables for your party and time</small></span></a>
       <a class="res-opt" data-resresy target="_blank" rel="noopener"><img src="https://www.google.com/s2/favicons?domain=resy.com&sz=64" alt="" onerror="this.style.visibility='hidden'"><span><b>Resy</b><small>Find this restaurant on Resy</small></span></a>
       <a class="res-opt" href="https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`${it.name} ${it.addr || ""}`)}" target="_blank" rel="noopener"><img src="https://www.google.com/s2/favicons?domain=maps.google.com&sz=64" alt="" onerror="this.style.visibility='hidden'"><span><b>Google Maps</b><small>Many places take bookings with “Reserve a table”</small></span></a>
+      <a class="res-opt" href="${esc(mpDiningURL())}" target="_blank" rel="noopener"><img src="https://www.google.com/s2/favicons?domain=united.com&sz=64" alt="" onerror="this.style.visibility='hidden'"><span><b>MileagePlus Dining</b><small>See if it earns United miles (link your card first)</small></span></a>
       ${it.phone ? `<a class="res-opt" href="tel:${esc(it.phone.replace(/[^\d+]/g, ""))}">${ic("phone")}<span><b>Call ${esc(it.phone)}</b><small>Book by phone</small></span></a>` : ""}
       ${site && !via ? `<a class="res-opt" href="${esc(site)}" target="_blank" rel="noopener">${ic("globe")}<span><b>Website</b><small>${esc(hostName(site))}</small></span></a>` : ""}
     </div>
@@ -6101,7 +6106,7 @@ document.addEventListener("visibilitychange", () => {
 if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").catch(() => {});
 
 // Keep the installed app current: when it comes back to the screen, see if a newer build is live and load it.
-const APP_BUILD = "dhq-shell-v50";
+const APP_BUILD = "dhq-shell-v51";
 let lastHidden = 0, updating = false;
 async function checkForUpdate(auto) {
   if (updating) return;
