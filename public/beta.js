@@ -1,5 +1,5 @@
 // Daily HQ private beta gate. Runs before the app: only a valid, unexpired invite code loads Daily HQ.
-const VERSION = "Beta 0.47 · Nov 26, 2026";
+const VERSION = "Beta 0.48 · Nov 26, 2026";
 const KEY = "dailyhq.beta";
 const DAY = 86400e3;
 const load = () => { try { return JSON.parse(localStorage.getItem(KEY)) || {}; } catch { return {}; } };
@@ -20,8 +20,11 @@ async function call(body) {
 }
 const check = (code) => call({ action: "check", code });
 
+let checkedResolve; const checked = new Promise((r) => (checkedResolve = r));
 window.DHQ_BETA = {
-  version: VERSION,
+  version: VERSION, checked,
+  get syncCode() { return st.sync || ""; },
+  linkSync: (sync) => call({ action: "link-sync", code: st.code, sync }),
   get code() { return st.code; }, get name() { return st.name || ""; }, get expires() { return st.expires || null; }, get owner() { return !!st.owner; },
   feedback: (text, kind = "", page = "") => call({ action: "feedback", code: st.code, text, kind, page, version: VERSION }),
 };
@@ -57,7 +60,7 @@ function gate(msg = "") {
     el.querySelector("#betaMsg").textContent = "Checking…";
     try {
       const r = await check(code);
-      if (r.ok) { Object.assign(st, { code, name: r.name, expires: r.expires, owner: r.owner, okAt: Date.now() }); saveState(st); el.remove(); boot(); }
+      if (r.ok) { Object.assign(st, { code, name: r.name, expires: r.expires, owner: r.owner, sync: r.sync || "", okAt: Date.now() }); saveState(st); checkedResolve(); el.remove(); boot(); }
       else el.querySelector("#betaMsg").textContent = reason(r.status);
     } catch { el.querySelector("#betaMsg").textContent = "Couldn't reach Daily HQ. Check your connection and try again."; }
   });
@@ -81,7 +84,7 @@ function ended(status) {
 
 // ---------- start
 let booted = false;
-function boot() { if (booted) return; booted = true; import("/app.js?v=47"); }
+function boot() { if (booted) return; booted = true; import("/app.js?v=48"); }
 async function start() {
   if (!st.code) return gate();
   if (st.expires && st.expires < Date.now()) return ended("expired");
@@ -89,11 +92,12 @@ async function start() {
   if (recent) boot();
   try {
     const r = await check(st.code);
-    if (r.ok) { Object.assign(st, { name: r.name, expires: r.expires, owner: r.owner, okAt: Date.now() }); saveState(st); boot(); return; }
+    if (r.ok) { Object.assign(st, { name: r.name, expires: r.expires, owner: r.owner, sync: r.sync || st.sync || "", okAt: Date.now() }); saveState(st); checkedResolve(); boot(); return; }
     st.okAt = 0; st.expires = r.expires ?? st.expires; saveState(st);
     if (r.status === "expired" || r.status === "revoked") return ended(r.status);
     return gate(reason(r.status));
   } catch {
+    checkedResolve();
     if (recent) return; // offline: keep working for up to a week since the last check
     return gate("Couldn't reach Daily HQ to check your invite. Check your connection and try again.");
   }

@@ -38,7 +38,7 @@ export default async (req: Request) => {
   }
   const action = body?.action;
 
-  if (action === "check" || action === "feedback") {
+  if (action === "check" || action === "feedback" || action === "link-sync") {
     const code = clean(body.code, 20).toUpperCase().trim();
     const device = clean(body.device, 40).replace(/[^a-zA-Z0-9_-]/g, "");
     if (!CODE.test(code) || !device) return json({ ok: false, status: "unknown" });
@@ -57,6 +57,12 @@ export default async (req: Request) => {
       use.devices[device] = { first: now, last: now, opens: 0, ua: clean(body.ua, 160) };
     }
 
+    if (action === "link-sync") {
+      const sc = clean(body.sync, 20).toUpperCase();
+      if (!/^[A-Z2-9]{12}$/.test(sc)) return json({ error: "Bad sync code" }, 400);
+      await store.setJSON(`sync/${code}`, { code: sc, at: now });
+      return json({ ok: true });
+    }
     if (action === "feedback") {
       const text = clean(body.text, 4000).trim();
       if (!text) return json({ error: "Empty feedback" }, 400);
@@ -70,7 +76,9 @@ export default async (req: Request) => {
     d.opens = (d.opens || 0) + 1;
     d.ua = clean(body.ua, 160) || d.ua;
     await store.setJSON(`use/${code}`, use);
-    return json({ ok: true, status, name: inv!.name, expires: inv!.expires, owner: !!inv!.owner });
+    // settings backup tied to this invite, so a fresh install restores itself
+    const link = (await store.get(`sync/${code}`, { type: "json" })) as { code: string } | null;
+    return json({ ok: true, status, name: inv!.name, expires: inv!.expires, owner: !!inv!.owner, sync: link?.code || "" });
   }
 
   // ---------- owner only

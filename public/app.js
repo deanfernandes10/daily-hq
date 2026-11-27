@@ -3763,7 +3763,7 @@ async function welcomeAction(a) {
     try { await syncPull(code, true); closeModal(); afterConfigReplaced(); toast("Your settings are synced"); } catch (e) { toast(e.message); }
   } else if (w === "done") {
     cfg.name = $("#wName").value.trim();
-    delete cfg.needsSetup; save(); renameProfileEntry();
+    delete cfg.needsSetup; save(); renameProfileEntry(); setTimeout(ensureBackup, 1500);
     closeModal(); tickClock(); buildShell(); refresh();
     setTimeout(maybeInstallTip, 45000);
     if (cfg.sports.leagues.length) { openPicker = cfg.sports.leagues[0].key; openSettings("sports"); ensureTeams(openPicker).then(renderSettings); toast("Pick your teams — or skip to see every game"); }
@@ -6007,6 +6007,39 @@ const REGION = {
 };
 const abbrevRegion = (s) => REGION[s] || s;
 
+// A fresh install (new phone, or the app was removed and re-added) restores the settings backed up under your beta invite
+async function autoRestore() {
+  try {
+    if (BETA) await Promise.race([BETA.checked, new Promise((r) => setTimeout(r, 5000))]);
+    const code = BETA?.syncCode;
+    if (code) {
+      await syncPull(code, true);
+      closeModal(); afterConfigReplaced(); toast("Welcome back — your settings are restored");
+      return;
+    }
+  } catch {}
+  if (cfg.needsSetup) showWelcome();
+}
+// Everyone gets an automatic backup: switch sync on quietly and tie it to your invite
+async function ensureBackup() {
+  if (cfg.needsSetup || !BETA?.code) return;
+  if (BETA.checked) await Promise.race([BETA.checked, new Promise((r) => setTimeout(r, 5000))]);
+  const linked = BETA.syncCode;
+  if (!cfg.sync?.code) {
+    if (linked) {
+      // your other devices already back up under this invite: join them instead of starting a separate copy
+      cfg.sync = { code: linked, updatedAt: 0 };
+      store.set(KEY, JSON.stringify(cfg));
+      try { if (await syncPull(linked)) { afterConfigReplaced(); toast("Synced with your other devices"); } } catch {}
+      return;
+    }
+    cfg.sync = { code: newCode(), updatedAt: Date.now() }; store.set(KEY, JSON.stringify(cfg)); await syncPush();
+  }
+  // only claim the invite's backup slot if nothing holds it yet (never replace another device's backup)
+  if (linked) return;
+  try { await BETA.linkSync(cfg.sync.code); } catch {}
+}
+setTimeout(ensureBackup, 6000);
 // ============================================================ boot
 applyTheme();
 matchMedia("(prefers-color-scheme: light)").addEventListener?.("change", applyTheme);
@@ -6024,7 +6057,7 @@ if (restoreCode) {
   syncPull(restoreCode, true)
     .then(() => { closeModal(); afterConfigReplaced(); toast("Welcome back — your settings are restored"); })
     .catch((e) => { toast(`${e.message}. Check the link or enter your code in Customize → General.`); if (cfg.needsSetup) showWelcome(); });
-} else if (cfg.needsSetup) showWelcome();
+} else if (cfg.needsSetup) autoRestore();
 setUnread(unreadCount());
 if (location.search.includes("alerts")) { history.replaceState(null, "", "/"); setTimeout(() => toggleBell(true), 300); }
 syncPull().then((changed) => { if (changed) { afterConfigReplaced(); toast("Synced your latest settings"); } }).catch(() => {});
@@ -6035,7 +6068,7 @@ document.addEventListener("visibilitychange", () => {
 if ("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js").catch(() => {});
 
 // Keep the installed app current: when it comes back to the screen, see if a newer build is live and load it.
-const APP_BUILD = "dhq-shell-v47";
+const APP_BUILD = "dhq-shell-v48";
 let lastHidden = 0, updating = false;
 async function checkForUpdate(auto) {
   if (updating) return;
